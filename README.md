@@ -2,6 +2,9 @@
 
 # AgentCraft
 
+This fork also includes a **Codex chat observer** for TradeRecord: an existing Codex chat publishes
+task progress to the studio without starting another coding agent. See [setup and limitations](docs/CODEX_OBSERVER.md).
+
 **A team of Claude agents doing real work on your code, inside a Minecraft studio you can walk around in.**
 
 *Powered by Claude*

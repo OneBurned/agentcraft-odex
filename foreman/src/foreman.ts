@@ -24,6 +24,7 @@ import type {
   Outbound,
   Station,
   Task,
+  ObserverUpdate,
 } from './protocol.js';
 import { RepoError, RepoManager } from './repos.js';
 import { Store } from './store.js';
@@ -32,7 +33,8 @@ import { setUserName, userName } from './user.js';
 import { truncate } from './util/text.js';
 
 export interface Backend {
-  readonly name: 'sim' | 'claude';
+  readonly name: 'sim' | 'claude' | 'observer';
+  onObserverUpdate?(update: ObserverUpdate): Record<string, unknown>;
   /** Called once after the core is ready (and after restart: resume work). */
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -499,7 +501,13 @@ export class Foreman {
   }
 
   private async dispatch(msg: ClientMessage, reply: Reply): Promise<Record<string, unknown> | undefined> {
+    if (this.config.backend === 'observer' && !['hello', 'observer.update', 'repo.add', 'diff.request'].includes(msg.type)) {
+      throw new ClientError('Режим наблюдения: задачи, сообщения и согласования — в чате Codex. Игра только показывает ход работы.');
+    }
     switch (msg.type) {
+      case 'observer.update':
+        if (this.backend?.name !== 'observer' || !this.backend.onObserverUpdate) throw new ClientError('observer.update requires the observer backend');
+        return this.backend.onObserverUpdate(msg);
       case 'hello':
         reply(this.snapshot());
         return undefined;
@@ -539,6 +547,7 @@ export class Foreman {
   }
 
   async submitGoal(text: string, repoId?: string): Promise<Goal> {
+    if (this.config.backend === 'observer') throw new ClientError('Observer mode: submit development tasks in the Codex chat.');
     const repo = repoId ? this.repos.get(repoId) : this.repos.defaultRepo();
     if (repoId && !repo) throw new ClientError(`no repo "${repoId}"`);
     if (!repo) throw new ClientError('no repo connected yet — add one with /repo add <path>');

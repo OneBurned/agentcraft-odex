@@ -61,7 +61,7 @@ export type NotifyLevel = z.infer<typeof NotifyLevel>;
 export const WorktreeStatus = z.enum(['active', 'merged', 'abandoned']);
 export type WorktreeStatus = z.infer<typeof WorktreeStatus>;
 
-export const BackendName = z.enum(['sim', 'claude']);
+export const BackendName = z.enum(['sim', 'claude', 'observer']);
 export type BackendName = z.infer<typeof BackendName>;
 
 export const AuthStatus = z
@@ -105,6 +105,7 @@ export type LogEntry = z.infer<typeof LogEntry>;
 
 export const Task = z.object({
   id: Id.describe('e.g. "t3"'),
+  observerKey: z.string().optional().describe('Stable external task key for the Codex observer; survives restarts.'),
   title: z.string(),
   description: z.string().optional(),
   status: TaskStatus,
@@ -396,6 +397,19 @@ export const DiffRequestMsg = z.object({
 });
 export const RepoAddMsg = z.object({ ...envelope('repo.add'), path: z.string().min(1) });
 
+export const ObserverUpdateMsg = z.object({
+  ...envelope('observer.update'),
+  key: z.string().trim().min(1).max(160),
+  title: z.string().trim().min(1).max(200),
+  state: z.enum(['thinking', 'reading', 'editing', 'running', 'testing', 'waiting_user', 'blocked', 'review', 'done', 'error']),
+  activity: z.string().trim().min(1).max(200),
+  log: z.string().max(2000).optional(),
+  summary: z.string().max(2000).optional(),
+  ci: CiStatus.optional(),
+  repoId: Id.optional(),
+});
+export type ObserverUpdate = z.infer<typeof ObserverUpdateMsg>;
+
 export const ClientMessage = z.discriminatedUnion('type', [
   HelloMsg,
   GoalSubmitMsg,
@@ -405,6 +419,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
   AgentActionMsg,
   DiffRequestMsg,
   RepoAddMsg,
+  ObserverUpdateMsg,
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -470,6 +485,7 @@ export const SERVER_MESSAGES = {
 } as const;
 
 export const CLIENT_MESSAGES = {
+  'observer.update': { schema: ObserverUpdateMsg, doc: 'Publish a real external Codex task status. Only accepted by the observer backend; never executes code or merges.' },
   hello: { schema: HelloMsg, doc: 'First message after connecting. The Foreman replies with `snapshot`, then streams upserts.' },
   'goal.submit': { schema: GoalSubmitMsg, doc: 'New goal for the lead (console: plain text).' },
   'user.message': { schema: UserMessageMsg, doc: 'Message an agent (console: `@name text`) or everyone.' },

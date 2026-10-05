@@ -26,7 +26,7 @@
 - <a id="feedkind"></a>**FeedKind**: `goal`, `plan`, `task`, `message`, `decision`, `merge`, `ci`, `memory`, `system`, `error`, `user`
 - <a id="notifylevel"></a>**NotifyLevel**: `info`, `warn`, `need_user`
 - <a id="worktreestatus"></a>**WorktreeStatus**: `active`, `merged`, `abandoned`
-- <a id="backendname"></a>**BackendName**: `sim`, `claude`
+- <a id="backendname"></a>**BackendName**: `sim`, `claude`, `observer`
 - <a id="authstatus"></a>**AuthStatus**: `ok`, `failed`, `unknown`, `checking` - `failed` must be shown loudly (in-world banner): the claude backend cannot run.
 
 Exact option labels: merge decisions use `Merge`, `Request changes`, `Reject`; permission decisions use `Allow once`, `Always allow for this agent`, `Deny`. Question decisions use agent-supplied options (may be empty: free text).
@@ -66,6 +66,7 @@ Exact option labels: merge decisions use `Merge`, `Request changes`, `Reject`; p
 | field | type | required | notes |
 | --- | --- | --- | --- |
 | `id` | string | yes | e.g. "t3" |
+| `observerKey` | string | no | Stable external task key for the Codex observer; survives restarts. |
 | `title` | string | yes |  |
 | `description` | string | no |  |
 | `status` | [TaskStatus](#taskstatus) | yes | Task Wall column. `cancelled` tasks are kept for history but should not be shown on the wall. |
@@ -858,6 +859,34 @@ A client message was invalid or failed (also sent as ack.ok=false when it had an
 ```
 
 ## Mod -> Foreman
+
+### `observer.update`
+
+Publish a real external Codex task status. Only accepted by the observer backend; never executes code or merges.
+
+| field | type | required | notes |
+| --- | --- | --- | --- |
+| `id` | string | no | client correlation id; the Foreman answers with `ack` {re: id} |
+| `key` | string | yes |  |
+| `title` | string | yes |  |
+| `state` | `thinking` \| `reading` \| `editing` \| `running` \| `testing` \| `waiting_user` \| `blocked` \| `review` \| `done` \| `error` | yes |  |
+| `activity` | string | yes |  |
+| `log` | string | no |  |
+| `summary` | string | no |  |
+| `ci` | [CiStatus](#cistatus) | no |  |
+| `repoId` | string | no |  |
+
+```json
+{
+  "v": 1,
+  "type": "observer.update",
+  "key": "chat/task-1",
+  "title": "TradeRecord task",
+  "state": "testing",
+  "activity": "Running checks",
+  "ci": "running"
+}
+```
 
 ### `hello`
 

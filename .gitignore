@@ -17,3 +17,5 @@ foreman/scratch/
 mod/.gradle/
 mod/build/
 .claude/
+.runtime/
+*.lnk

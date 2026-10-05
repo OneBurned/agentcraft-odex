@@ -178,7 +178,7 @@ export function loadConfig(argv: string[], env: NodeJS.ProcessEnv = process.env)
   const pick = (k: string, envKey?: string): unknown => flags[k] ?? (envKey ? env[envKey] : undefined) ?? file[k];
 
   const backendRaw = String(pick('backend', 'AGENTCRAFT_BACKEND') ?? 'claude');
-  if (backendRaw !== 'sim' && backendRaw !== 'claude') throw new Error(`unknown backend "${backendRaw}" (use sim or claude)`);
+  if (!['sim', 'claude', 'observer'].includes(backendRaw)) throw new Error(`unknown backend "${backendRaw}" (use sim, claude or observer)`);
   const backend = backendRaw as BackendName;
   const profile = str(pick('profile', 'AGENTCRAFT_PROFILE')) ?? backend;
   if (!/^[a-zA-Z0-9_-]+$/.test(profile)) throw new Error(`bad profile name "${profile}"`);
@@ -252,7 +252,7 @@ export const HELP = `AgentCraft Foreman ${FOREMAN_VERSION}
 
 usage: npm run start -- [options]
 
-  --backend sim|claude     agent backend (default: claude)
+  --backend sim|claude|observer  agent backend (default: claude; observer displays external Codex work)
   --repo <path>[,<path>]   register local git repo(s) at start (sim: defaults to a fresh sandbox/sim-demo)
   --goal "<text>"          submit a goal right away
   --port <n>               WebSocket port (default 7878, env AGENTCRAFT_PORT)

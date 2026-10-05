@@ -185,6 +185,7 @@ export const SERVER_EXAMPLES: Ex<ServerMessage> = {
 };
 
 export const CLIENT_EXAMPLES: Ex<ClientMessage> = {
+  'observer.update': { v: 1, type: 'observer.update', key: 'chat/task-1', title: 'TradeRecord task', state: 'testing', activity: 'Running checks', ci: 'running' },
   hello: { v: 1, type: 'hello', modVersion: '0.1.0', protocol: 1, client: 'mod' },
   'goal.submit': { v: 1, type: 'goal.submit', id: 'c12', text: 'Add a --version flag to the CLI', repoId: 'demo-app' },
   'user.message': { v: 1, type: 'user.message', id: 'c13', to: 'all', text: '@kit please also cover #tags with emoji' },
