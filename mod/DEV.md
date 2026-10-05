@@ -74,6 +74,12 @@ To create another world, use a new `name` in the settings and restart Minecraft.
 are preserved; changing `type` or `seed` does not regenerate them. See
 [world settings and mode commands](../docs/CODEX_OBSERVER.md#world-and-game-modes).
 
+The TradeRecord settings now default to `autoBuild:false`: use `/agentcraft preview cabin|studio`
+and `/agentcraft place cabin|studio` while aiming at the foundation centre block. The preview
+lasts 15 seconds and only emits particles. Placement rotates the complete plan and anchors,
+records old sites in `agentcraft-sites.json`, and refuses overlaps. `/agentcraft hq` rebuilds the
+active layout type. The generic no-config launcher still auto-builds the legacy studio.
+
 ### Environment switches (env var, or `-Dagentcraft.xxx=` system property)
 
 | Var | Default | Effect |

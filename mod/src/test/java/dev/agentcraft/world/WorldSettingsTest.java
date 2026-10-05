@@ -8,6 +8,8 @@ public final class WorldSettingsTest {
 	@Test
 	public void validatesSettings() {
 		WorldSettings defaults = parse("{}");
+		require(!defaults.autoBuild(), "new configured worlds wait for manual placement");
+		require(parse("{\"autoBuild\":true}").autoBuild(), "optional automatic building");
 		require(defaults.type().equals("normal") && defaults.daylightCycle() && defaults.weatherCycle(), "normal defaults");
 		WorldSettings flat = parse("{\"name\":\"Мой мир\",\"type\":\"flat\",\"seed\":\"-42\",\"gameMode\":\"survival\",\"difficulty\":\"hard\",\"spawnMobs\":false}");
 		require(flat.name().equals("Мой мир") && flat.seed().equals("-42") && !flat.spawnMobs(), "explicit settings");

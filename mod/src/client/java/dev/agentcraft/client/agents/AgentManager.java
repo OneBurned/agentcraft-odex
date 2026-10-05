@@ -148,6 +148,7 @@ public final class AgentManager {
 		// Observer mode represents one real external coder. Off-shift cast members are not NPCs.
 		if (st.status() != null && st.status().backend() == Protocol.BackendName.OBSERVER) {
 			agents.removeIf(a -> !a.id().equals("marlow"));
+			if (layout.isEmpty()) agents.clear();
 		}
 		Map<String, Anchor> targets = layout.isEmpty() ? fallbackTargets(agents, lvl) : assigner.assign(agents, layout);
 		boolean stale = st.isStale();

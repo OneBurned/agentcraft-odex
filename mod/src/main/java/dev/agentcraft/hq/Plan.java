@@ -115,6 +115,24 @@ final class Plan {
 		return new int[] {minX, minY, minZ, maxX, maxY, maxZ};
 	}
 
+	Plan transformed(SiteTransform t) {
+		int[] b = t.box(box());
+		Plan moved = new Plan(b[0],b[1],b[2],b[3],b[4],b[5],0,y -> Blocks.AIR.defaultBlockState());
+		var rotation = switch (t.turns()) {
+			case 1 -> net.minecraft.world.level.block.Rotation.CLOCKWISE_90;
+			case 2 -> net.minecraft.world.level.block.Rotation.CLOCKWISE_180;
+			case 3 -> net.minecraft.world.level.block.Rotation.COUNTERCLOCKWISE_90;
+			default -> net.minecraft.world.level.block.Rotation.NONE;
+		};
+		for (int x = minX; x <= maxX; x++) for (int z = minZ; z <= maxZ; z++) {
+			int wx = t.blockX(x,z), wz = t.blockZ(x,z);
+			for (int y = minY; y <= maxY; y++) moved.set(wx,y+t.y(),wz,get(x,y,z).rotate(rotation));
+			moved.setTop(wx,wz,top(x,z)+t.y());
+		}
+		bindings.forEach((p,key) -> moved.bind(t.blockX(p.getX(),p.getZ()),p.getY()+t.y(),t.blockZ(p.getX(),p.getZ()),key));
+		return moved;
+	}
+
 	/** Move the complete plan, including station bindings and terrain, to its saved site. */
 	Plan translated(int dx, int dy, int dz) {
 		if (dx == 0 && dy == 0 && dz == 0) return this;

@@ -13,14 +13,24 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.storage.LevelResource;
 
 /** Persisted translation: rebuilding never relocates the studio or depends on player edits. */
-record HqPlacement(int x, int y, int z, int bottom) {
-	static HqPlacement resolve(ServerLevel level) {
+public record HqPlacement(int x, int y, int z, int bottom, int turns, int pivotZ) {
+	HqPlacement(int x, int y, int z, int bottom) { this(x, y, z, bottom, 0, 0); }
+	SiteTransform transform() { return new SiteTransform(x, y, z, turns, pivotZ); }
+	void save(ServerLevel level) {
+		Path file = level.getServer().getWorldPath(LevelResource.ROOT).resolve("agentcraft-site.json");
+		try {
+			Path temp = file.resolveSibling("agentcraft-site.json.tmp");
+			Files.writeString(temp, new Gson().toJson(this) + "\n");
+			Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+		} catch (Exception e) { throw new IllegalStateException("Cannot save studio site", e); }
+	}
+	static HqPlacement resolve(ServerLevel level, int localTop) {
 		Path file = level.getServer().getWorldPath(LevelResource.ROOT).resolve("agentcraft-site.json");
 		try {
 			if (Files.exists(file)) {
 				HqPlacement saved = new Gson().fromJson(Files.readString(file), HqPlacement.class);
 				if (saved == null || saved.bottom() > 60 || saved.bottom() + saved.y() < level.getMinY()
-					|| 100 + saved.y() >= level.getMaxY()) throw new IllegalArgumentException("Invalid studio site");
+					|| localTop + saved.y() >= level.getMaxY()) throw new IllegalArgumentException("Invalid studio site");
 				return saved;
 			}
 			HqPlacement site;

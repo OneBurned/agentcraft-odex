@@ -41,13 +41,14 @@ generic launcher retains the legacy flat `AgentCraft HQ` default.
 | `daylightCycle` | Day/night progression; reapplied on each start |
 | `weatherCycle` | Weather progression; reapplied on each start |
 | `spawnMobs` | Natural mob spawning; peaceful difficulty still excludes hostile mobs |
+| `autoBuild` | `false` by default: fresh worlds wait for player placement; `true` enables automatic studio placement |
 
 Generation, initial mode and initial difficulty apply only to new saves. Changing the seed/type
 does not regenerate an existing world. The original `AgentCraft HQ` save remains intact; set
 `name` to `AgentCraft HQ` to reopen it. Keep inventory, no fire spread and no mob griefing remain
 enabled for the studio's protection. This is normal terrain with studio-friendly game rules.
 
-On normal terrain the studio selects a dry site and saves its location in `agentcraft-site.json`.
+When automatic building is enabled, the studio selects a dry site on normal terrain and saves its location in `agentcraft-site.json`.
 The whole building, station bindings, NPC paths, cameras and spawn move together. Rebuilds reuse
 that location and the saved block plan, retaining player edits. Only the studio site is landscaped.
 
@@ -57,6 +58,39 @@ Chosen player modes now survive rejoining. The separate AgentCraft console (back
 the physical `Ё` key on a Russian keyboard) does **not** forward answers into the Codex chat.
 Work states are explicitly published by Codex using the bridge below; they are unrelated to
 Minecraft game modes.
+
+### Choose a building and its location
+
+Aim at a block within 64 blocks and use vanilla Minecraft chat:
+
+```text
+/agentcraft preview cabin
+/agentcraft place cabin
+/agentcraft preview studio
+/agentcraft place studio
+```
+
+`cabin` is a timber workshop for one Codex with a desk, task board, library, terminal, test bench,
+review station, meeting seat and lounge. Its house is 21×17 blocks; the cleared site is 27×27.
+`studio` is the original large studio with landscaped grounds, with a 93×91 site.
+
+Preview shows the site's outline with particles for 15 seconds, without changing blocks or the
+active HQ. Each command uses the current block under the crosshair, so aim at the same block
+when placing. The block is the horizontal centre of the building's foundation, with floor blocks
+one block above it. The entrance faces the player's side (one of four cardinal directions).
+The studio's local centre is `(0, 64, 7)`; the cabin's is `(0, 64, 0)`.
+
+Placing clears/fills the entire outlined site, activates the new work stations and moves the
+player to its entrance. Old buildings remain in the world; new sites overlapping a recorded
+old site are rejected. `agentcraft-sites.json` records protected site boxes. Only one HQ is active.
+The saved transform rotates block states, station bindings, anchors and navigation together.
+`/agentcraft hq` rebuilds the active building at its saved location, retaining player edits.
+
+Commands require Minecraft command permissions and the selected overworld. An empty sky target,
+out-of-height placement or world-border intersection is rejected. Until a fresh world's first
+placement, the observer's NPC is hidden. Existing saves and buildings are not removed by turning
+off automatic building. Fresh worlds keep Minecraft's spawn until the first placement.
+Importing third-party schematics is not implemented.
 
 ## Publish a real status from a chat
 
@@ -107,6 +141,11 @@ Origins by default; it trusts local processes, not an authenticated remote audie
 ## Validation
 
 Run `npm run check` in `foreman/`, `npm test` in `tools/`, and the Gradle build in `mod/` using JDK 25.
+Gradle tests cover world settings and placement transforms (all four rotations, selected block
+centres, footprint rotation and legacy translation). Live placement checks use a separate
+`AgentCraft Placement QA` save: no initial HQ/NPC with `autoBuild:false`, particle preview,
+cabin and studio placement, opposite entrance directions, rotated monitor facing, rejection
+of sky/overlapping/too-high targets, zero-change rebuilds, retained player edits and reload.
 Observer regression tests cover progress, persistence, failed-check recovery, stale activity,
 invalid payloads, and rejection of game controls before state mutation.
 Test-output parsing also accepts Node 24's `ℹ tests/pass/fail` lines as well as TAP `#` lines,

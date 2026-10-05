@@ -9,9 +9,9 @@ import java.util.Set;
 
 /** Explicit settings for the selected HQ save. Generation settings only affect fresh saves. */
 public record WorldSettings(String name, String type, String seed, String gameMode, String difficulty,
-	boolean daylightCycle, boolean weatherCycle, boolean spawnMobs) {
+	boolean daylightCycle, boolean weatherCycle, boolean spawnMobs, boolean autoBuild) {
 	private static final WorldSettings LEGACY = new WorldSettings("AgentCraft HQ", "flat", "agentcraft-hq",
-		"creative", "peaceful", false, false, false);
+		"creative", "peaceful", false, false, false, true);
 	private static WorldSettings current;
 
 	public static synchronized WorldSettings current() {
@@ -26,7 +26,7 @@ public record WorldSettings(String name, String type, String seed, String gameMo
 	}
 
 	public static WorldSettings parse(JsonObject json) {
-		Set<String> fields = Set.of("name", "type", "seed", "gameMode", "difficulty", "daylightCycle", "weatherCycle", "spawnMobs");
+		Set<String> fields = Set.of("name", "type", "seed", "gameMode", "difficulty", "daylightCycle", "weatherCycle", "spawnMobs", "autoBuild");
 		for (String key : json.keySet()) if (!fields.contains(key)) throw new IllegalArgumentException("Unknown world setting: " + key);
 		String name = text(json, "name", "TradeRecord World").trim();
 		if (name.isEmpty() || name.length() > 64 || name.matches(".*[\\\\/:*?\"<>|\\p{Cntrl}].*") || name.endsWith(".")
@@ -37,7 +37,7 @@ public record WorldSettings(String name, String type, String seed, String gameMo
 		String mode = choice(json, "gameMode", "creative", Set.of("creative", "survival", "adventure", "spectator"));
 		String difficulty = choice(json, "difficulty", "peaceful", Set.of("peaceful", "easy", "normal", "hard"));
 		return new WorldSettings(name, type, text(json, "seed", ""), mode, difficulty,
-			flag(json, "daylightCycle", true), flag(json, "weatherCycle", true), flag(json, "spawnMobs", true));
+			flag(json, "daylightCycle", true), flag(json, "weatherCycle", true), flag(json, "spawnMobs", true), flag(json,"autoBuild",false));
 	}
 
 	private static String text(JsonObject json, String key, String fallback) {

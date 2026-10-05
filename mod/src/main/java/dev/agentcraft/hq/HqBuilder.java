@@ -25,7 +25,8 @@ public interface HqBuilder {
 	 * How a build was asked for: {@code force} = reset every cell of the site to the plan, even the
 	 * ones the player changed since the last build (builders that keep such cells honour it).
 	 */
-	record Options(boolean force) {
+	record Options(boolean force, @org.jspecify.annotations.Nullable HqPlacement placement) {
+		public Options(boolean force) { this(force, null); }
 		public static final Options DEFAULT = new Options(false);
 	}
 

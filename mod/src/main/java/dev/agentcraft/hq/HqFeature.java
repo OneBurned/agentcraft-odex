@@ -35,6 +35,8 @@ public final class HqFeature {
 	public static void init() {
 		HqBuilders.register(new TestRoomBuilder());
 		HqBuilders.register(new StudioHqBuilder());
+		HqBuilders.register(new CabinHqBuilder());
+		PlacementCommands.init();
 		HqBuilders.setDefault(StudioHqBuilder.ID);
 		// A fresh HQ world (no saved layout yet) gets the default HQ built before the player joins, so
 		// the first launch walks straight into it. AGENTCRAFT_HQ_AUTOBUILD=0 turns this off.
@@ -53,8 +55,8 @@ public final class HqFeature {
 			}
 		});
 		AgentCraftCommands.sub(root -> root.then(Commands.literal("hq")
-			.executes(ctx -> build(ctx, HqBuilders.defaultId(), false))
-			.then(Commands.literal("force").executes(ctx -> build(ctx, HqBuilders.defaultId(), true)))
+			.executes(ctx -> build(ctx, activeBuilder(), false))
+			.then(Commands.literal("force").executes(ctx -> build(ctx, activeBuilder(), true)))
 			.then(Commands.argument("builder", StringArgumentType.word())
 				.suggests((ctx, b) -> {
 					HqBuilders.ids().forEach(b::suggest);
@@ -69,7 +71,10 @@ public final class HqFeature {
 		if (v == null) {
 			v = System.getenv("AGENTCRAFT_HQ_AUTOBUILD");
 		}
-		return v == null || !(v.trim().equals("0") || v.trim().equalsIgnoreCase("false") || v.trim().equalsIgnoreCase("off"));
+		return v == null ? dev.agentcraft.world.WorldSettings.current().autoBuild() : !(v.trim().equals("0") || v.trim().equalsIgnoreCase("false") || v.trim().equalsIgnoreCase("off"));
+	}
+	private static String activeBuilder() {
+		return Anchors.current().isEmpty()?HqBuilders.defaultId():Anchors.current().name();
 	}
 
 	private static int build(CommandContext<CommandSourceStack> ctx, String id, boolean force) {

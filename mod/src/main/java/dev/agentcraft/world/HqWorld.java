@@ -46,7 +46,7 @@ public final class HqWorld {
 			// First start of a fresh HQ world.
 			run(server, "time set " + (WorldSettings.current().daylightCycle() ? 6000 : INITIAL_TIME));
 			run(server, "weather clear");
-			run(server, "setworldspawn 0 " + (SURFACE_Y + 1) + " 0");
+			// Keep vanilla's safe spawn until the player chooses a building site.
 			try {
 				Files.writeString(marker, "{\"createdBy\":\"agentcraft\",\"created\":\"" + Instant.now() + "\"}\n", StandardCharsets.UTF_8);
 			} catch (IOException e) {

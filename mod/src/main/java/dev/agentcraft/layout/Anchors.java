@@ -248,5 +248,15 @@ public final class Anchors {
 				bounds.maxX() + dx, bounds.maxY() + dy, bounds.maxZ() + dz);
 			return this;
 		}
+
+		public Builder transform(dev.agentcraft.hq.SiteTransform t) {
+			anchors.replaceAll((key, a) -> new Anchor(a.name(), t.worldX(a.x(), a.z()), a.y() + t.y(),
+				t.worldZ(a.x(), a.z()), a.yaw() + 90 * t.turns(), a.pitch()));
+			if (bounds != null) {
+				int[] b = t.box(new int[] {bounds.minX(),bounds.minY(),bounds.minZ(),bounds.maxX(),bounds.maxY(),bounds.maxZ()});
+				bounds = new Bounds(b[0],b[1],b[2],b[3],b[4],b[5]);
+			}
+			return this;
+		}
 	}
 }
