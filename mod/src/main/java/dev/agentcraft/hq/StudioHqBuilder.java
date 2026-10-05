@@ -159,7 +159,8 @@ public final class StudioHqBuilder implements HqBuilder {
 	@Override
 	public @Nullable String build(ServerLevel level, Anchors.Builder a, Options options) {
 		long t0 = System.nanoTime();
-		Plan p = new Plan(SITE[0], SITE[1], SITE[2], SITE[3], SITE[4], SITE[5], GROUND, y -> y > GROUND ? AIR
+		HqPlacement site = HqPlacement.resolve(level);
+		Plan p = new Plan(SITE[0], site.bottom(), SITE[2], SITE[3], SITE[4], SITE[5], GROUND, y -> y > GROUND ? AIR
 			: y == GROUND ? Blocks.GRASS_BLOCK.defaultBlockState() : y >= GROUND - 3 ? Blocks.DIRT.defaultBlockState() : Blocks.STONE.defaultBlockState());
 		long tPlan0 = System.nanoTime();
 		HqLandscape.ground(p);
@@ -178,13 +179,15 @@ public final class StudioHqBuilder implements HqBuilder {
 		HqLandscape.exterior(p);
 		cameras(a);
 		p.settleGrass();
+		p = p.translated(site.x(), site.y(), site.z());
 		long tPlan = System.nanoTime() - tPlan0;
-		BlockState[] previous = PlanStore.load(level.getServer(), ID, SITE, p.size());
+		BlockState[] previous = PlanStore.load(level.getServer(), ID, p.box(), p.size());
 		Plan.Stats st = p.apply(level, previous, options.force());
-		PlanStore.save(level.getServer(), ID, SITE, p.cells());
+		PlanStore.save(level.getServer(), ID, p.box(), p.cells());
 		a.bounds(-HX + 1, FLOOR, HZN + 1, HX - 1, FLOOR + 16, AZ + 8);
 		a.spot(AnchorNames.ENTRANCE, AX, FEET, AZ + 7, 180);
 		a.put(AnchorNames.SPAWN, AX + 0.5, FEET, AZ + 7.5, 180, 0);
+		a.translate(site.x(), site.y(), site.z());
 		AgentCraft.LOGGER.info(
 			"Studio HQ: planned in {} ms, applied {} cells in {} ms ({} changed, {} connections, {} bindings, {} kept, {} foreign replaced, {} drops removed, previous plan {}); total {} ms",
 			tPlan / 1_000_000, st.cells(), st.micros() / 1000, st.changed(), st.connected(), st.bound(), st.kept(), st.foreign(), st.items(),

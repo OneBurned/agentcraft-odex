@@ -111,6 +111,21 @@ final class Plan {
 		return cells.length;
 	}
 
+	int[] box() {
+		return new int[] {minX, minY, minZ, maxX, maxY, maxZ};
+	}
+
+	/** Move the complete plan, including station bindings and terrain, to its saved site. */
+	Plan translated(int dx, int dy, int dz) {
+		if (dx == 0 && dy == 0 && dz == 0) return this;
+		Plan moved = new Plan(minX + dx, minY + dy, minZ + dz, maxX + dx, maxY + dy, maxZ + dz,
+			0, y -> Blocks.AIR.defaultBlockState());
+		System.arraycopy(cells, 0, moved.cells, 0, cells.length);
+		for (int i = 0; i < top.length; i++) moved.top[i] = top[i] + dy;
+		bindings.forEach((pos, key) -> moved.bindings.put(pos.offset(dx, dy, dz), key));
+		return moved;
+	}
+
 	BlockState[] cells() {
 		return cells;
 	}

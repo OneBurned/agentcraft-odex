@@ -241,5 +241,12 @@ public final class Anchors {
 		public Layout build() {
 			return new Layout(name, 0, bounds, Collections.unmodifiableMap(new LinkedHashMap<>(anchors)));
 		}
+
+		public Builder translate(int dx, int dy, int dz) {
+			anchors.replaceAll((key, a) -> new Anchor(a.name(), a.x() + dx, a.y() + dy, a.z() + dz, a.yaw(), a.pitch()));
+			if (bounds != null) bounds = new Bounds(bounds.minX() + dx, bounds.minY() + dy, bounds.minZ() + dz,
+				bounds.maxX() + dx, bounds.maxY() + dy, bounds.maxZ() + dz);
+			return this;
+		}
 	}
 }

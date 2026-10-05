@@ -1,0 +1,10 @@
+{
+  "name": "TradeRecord World",
+  "type": "normal",
+  "seed": "TradeRecord",
+  "gameMode": "creative",
+  "difficulty": "peaceful",
+  "daylightCycle": true,
+  "weatherCycle": true,
+  "spawnMobs": true
+}

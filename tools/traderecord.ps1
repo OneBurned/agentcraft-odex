@@ -19,7 +19,12 @@ $jdk = Get-ChildItem -LiteralPath $runtimeRoot -Directory -ErrorAction SilentlyC
     Sort-Object Name -Descending | Select-Object -First 1
 if (-not $NoGame -and -not $jdk) { throw 'Install a portable JDK 25 under the AgentCraft .runtime folder first (see docs/CODEX_OBSERVER.md).' }
 $oldJavaHome = $env:JAVA_HOME
+$oldWorldConfig = $env:AGENTCRAFT_WORLD_CONFIG
 try {
     if ($jdk) { $env:JAVA_HOME = $jdk.FullName }
+    $env:AGENTCRAFT_WORLD_CONFIG = Join-Path $acRoot 'world-settings.json'
     & (Join-Path $PSScriptRoot 'launch.ps1') -Backend observer -Profile traderecord -Home $acHome -Repo $Repo -Port 7878 -DevPort 7879 -NoGame:$NoGame -NoWait:$NoWait -SummaryJson (Join-Path $acRoot 'artifacts\run\traderecord-summary.json')
-} finally { $env:JAVA_HOME = $oldJavaHome }
+} finally {
+    $env:JAVA_HOME = $oldJavaHome
+    $env:AGENTCRAFT_WORLD_CONFIG = $oldWorldConfig
+}

@@ -42,6 +42,7 @@ loom {
 }
 
 dependencies {
+	testImplementation 'junit:junit:4.13.2'
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
@@ -74,6 +75,7 @@ java {
 	sourceCompatibility = JavaVersion.VERSION_25
 	targetCompatibility = JavaVersion.VERSION_25
 }
+
 
 // Seed mod/run with a dev options.txt (muted, 1080p-friendly GUI scale, no onboarding/tutorial
 // noise, no pause on focus loss). Only copied when mod/run/options.txt does not exist yet, so

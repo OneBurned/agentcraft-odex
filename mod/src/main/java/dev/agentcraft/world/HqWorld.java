@@ -7,10 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.gamerules.GameRules;
 import net.minecraft.world.level.storage.LevelResource;
 
@@ -21,7 +18,7 @@ import net.minecraft.world.level.storage.LevelResource;
  */
 public final class HqWorld {
 	/** Folder name and level name of the HQ world. */
-	public static final String LEVEL_NAME = "AgentCraft HQ";
+	public static final String LEVEL_NAME = WorldSettings.current().name();
 	/** Surface Y of the superflat meadow: grass top is at y=64, so you stand at y=65. */
 	public static final int SURFACE_Y = 64;
 	/** Golden-hour-ish day time set once when the world is created. */
@@ -33,16 +30,6 @@ public final class HqWorld {
 
 	public static void init() {
 		ServerLifecycleEvents.SERVER_STARTED.register(HqWorld::onServerStarted);
-		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
-			if (!isHq(server)) {
-				return;
-			}
-			ServerPlayer player = handler.getPlayer();
-			// DevBridge camera shots switch to spectator; normal play should resume in creative.
-			if (player.gameMode() == GameType.SPECTATOR || player.gameMode() == GameType.SURVIVAL) {
-				player.setGameMode(GameType.CREATIVE);
-			}
-		});
 	}
 
 	public static boolean isHq(MinecraftServer server) {
@@ -57,7 +44,7 @@ public final class HqWorld {
 		Path marker = server.getWorldPath(LevelResource.ROOT).resolve(MARKER_FILE);
 		if (!Files.exists(marker)) {
 			// First start of a fresh HQ world.
-			run(server, "time set " + INITIAL_TIME);
+			run(server, "time set " + (WorldSettings.current().daylightCycle() ? 6000 : INITIAL_TIME));
 			run(server, "weather clear");
 			run(server, "setworldspawn 0 " + (SURFACE_Y + 1) + " 0");
 			try {
@@ -71,13 +58,14 @@ public final class HqWorld {
 
 	/** Idempotent; applied on every start so rule changes in code reach existing worlds. */
 	public static void applyRules(MinecraftServer server) {
+		WorldSettings config = WorldSettings.current();
 		GameRules rules = server.getGameRules();
-		rules.set(GameRules.ADVANCE_TIME, false, server);
-		rules.set(GameRules.ADVANCE_WEATHER, false, server);
+		rules.set(GameRules.ADVANCE_TIME, config.daylightCycle(), server);
+		rules.set(GameRules.ADVANCE_WEATHER, config.weatherCycle(), server);
 		rules.set(GameRules.KEEP_INVENTORY, true, server);
 		rules.set(GameRules.FIRE_SPREAD_RADIUS_AROUND_PLAYER, 0, server);
-		rules.set(GameRules.SPAWN_MOBS, false, server);
-		rules.set(GameRules.SPAWN_MONSTERS, false, server);
+		rules.set(GameRules.SPAWN_MOBS, config.spawnMobs(), server);
+		rules.set(GameRules.SPAWN_MONSTERS, config.spawnMobs(), server);
 		rules.set(GameRules.SPAWN_PATROLS, false, server);
 		rules.set(GameRules.SPAWN_PHANTOMS, false, server);
 		rules.set(GameRules.SPAWN_WANDERING_TRADERS, false, server);

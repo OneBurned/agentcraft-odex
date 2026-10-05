@@ -59,19 +59,20 @@ GRADLE_USER_HOME=C:/Projects/agentcraft/.gradle-home ./gradlew --stop       # st
    inactivity FPS limit set to "minimized" only. Delete `mod/run/options.txt` to reset it.
 2. Program args: `--username <you> --width 1920 --height 1080`, where `<you>` is `AGENTCRAFT_PLAYER`
    or else your OS user name (letters, digits and `_`, at most 16 characters).
-3. **AutoWorld** (client) runs the first time the title screen appears. It loads the world folder
-   `AgentCraft HQ` if it exists, and otherwise creates it: creative, peaceful, commands allowed, no
-   structures, no bonus chest, superflat plains meadow (bedrock / 124 stone / 3 dirt / grass), so
-   **the grass top is y=64 and you stand at y=65**. World spawn is 0 65 0.
-4. **HqWorld** (server side, HQ world only) re-applies the game rules on every start: no time or
-   weather cycle, keep inventory, no fire spread, no mob spawning of any kind, no mob griefing, no vine
-   spread, no snow build-up, respawn radius 0, no locator bar, quiet advancement and command output,
-   and max_block_modifications 1,000,000 so large /fill commands work for the HQ builder. On first
-   creation it also sets time 12000 (golden hour), clear weather and the world spawn. It writes a
-   marker file `agentcraft-world.json` in the world folder. Players who join in spectator or survival
-   are put back into creative.
+3. **AutoWorld** opens the save selected by `AGENTCRAFT_WORLD_CONFIG` (or system property
+   `agentcraft.world.config`). The TradeRecord wrapper selects the root `world-settings.json`:
+   normal `TradeRecord World`, creative and peaceful initially. Without a configuration file,
+   the legacy flat `AgentCraft HQ` remains the default (grass y=64). New normal worlds have
+   standard terrain and structures; the studio selects a dry site and persists its translation
+   in `agentcraft-site.json`. All anchors and station bindings follow that translation.
+4. **HqWorld** re-applies configured time/weather cycles and natural mob spawning on every start,
+   plus studio rules: keep inventory, no fire spread, no mob griefing, no patrols/phantoms/wardens,
+   no vine spread or snow build-up, respawn radius 0 and quiet command output. Initial time is
+   noon with a time cycle, or 12000 without it. Player game modes are no longer overridden on join.
 
-Delete `mod/run/saves/AgentCraft HQ` to start over with a fresh world.
+To create another world, use a new `name` in the settings and restart Minecraft. Existing saves
+are preserved; changing `type` or `seed` does not regenerate them. See
+[world settings and mode commands](../docs/CODEX_OBSERVER.md#world-and-game-modes).
 
 ### Environment switches (env var, or `-Dagentcraft.xxx=` system property)
 
@@ -82,6 +83,7 @@ Delete `mod/run/saves/AgentCraft HQ` to start over with a fresh world.
 | `AGENTCRAFT_MUTE` | 1 | Forces master and music volume to 0 at startup. **Set `0` for real use** (for example in launch.ps1) to keep your own volume |
 | `AGENTCRAFT_FOCUS` | 0 | `0`: the window is shown **without activating it**, so it never steals focus. `1`: normal "come to front" |
 | `AGENTCRAFT_AUTOWORLD` | 1 | `0`: stay on the title screen |
+| `AGENTCRAFT_WORLD_CONFIG` | unset | JSON world settings path; unset uses legacy flat HQ |
 | `AGENTCRAFT_SHOTS_DIR` | `<repo>/artifacts/shots` | Where `dev.screenshot` writes |
 | `AGENTCRAFT_DEV_ALLOW_ORIGIN` | 0 | `1` lets browser pages (which send an Origin header) connect. They are refused by default |
 | `AGENTCRAFT_DEV_TEST` | 0 | `1` registers test-only commands (`dev.test.stall`, which blocks the render thread to simulate a hung game; `dev.test.foremanMessage`). Never set it for real use |

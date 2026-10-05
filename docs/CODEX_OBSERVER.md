@@ -3,7 +3,7 @@
 The `observer` backend displays work performed in an existing Codex chat. It does not start
 Claude or another Codex session, call model APIs, execute task commands, create worktrees,
 merge, push or deploy. Marlow's existing character is labelled **Codex**; the other characters
-remain off shift. Game task submission, messages, approvals and agent controls are rejected
+remain off shift and are not spawned in the observer game. Game task submission, messages, approvals and agent controls are rejected
 with instructions to return to the Codex chat.
 
 ## Start and stop on this Windows machine
@@ -24,6 +24,39 @@ overrides the default `C:\Users\GB\Documents\New project` checkout. State is sto
 `.agentcraft-home/traderecord`; logs are in `artifacts/logs`. Local ports: 7878 (Foreman),
 7879 (game DevBridge). Closing Minecraft leaves the observer running; use `-Stop` to stop both.
 Use one profile per development workflow. Restart after updating the backend source.
+
+## World and game modes
+
+The TradeRecord wrapper reads `world-settings.json` in this checkout via
+`AGENTCRAFT_WORLD_CONFIG`. Restart Minecraft after editing it. Without that variable, the
+generic launcher retains the legacy flat `AgentCraft HQ` default.
+
+| Setting | Values / effect |
+| --- | --- |
+| `name` | Save folder, default `TradeRecord World`; use a new name to create another world |
+| `type` | `normal` (standard terrain, biomes and structures) or `flat` (legacy meadow) |
+| `seed` | String containing a number or text; empty string picks a random seed |
+| `gameMode` | Initial `creative`, `survival`, `adventure` or `spectator` |
+| `difficulty` | Initial `peaceful`, `easy`, `normal` or `hard` |
+| `daylightCycle` | Day/night progression; reapplied on each start |
+| `weatherCycle` | Weather progression; reapplied on each start |
+| `spawnMobs` | Natural mob spawning; peaceful difficulty still excludes hostile mobs |
+
+Generation, initial mode and initial difficulty apply only to new saves. Changing the seed/type
+does not regenerate an existing world. The original `AgentCraft HQ` save remains intact; set
+`name` to `AgentCraft HQ` to reopen it. Keep inventory, no fire spread and no mob griefing remain
+enabled for the studio's protection. This is normal terrain with studio-friendly game rules.
+
+On normal terrain the studio selects a dry site and saves its location in `agentcraft-site.json`.
+The whole building, station bindings, NPC paths, cameras and spawn move together. Rebuilds reuse
+that location and the saved block plan, retaining player edits. Only the studio site is landscaped.
+
+Use vanilla chat (`T` or `/`) for `/gamemode creative`, `/gamemode survival`,
+`/gamemode spectator`, `/difficulty normal`, `/time set day` or `/weather clear`.
+Chosen player modes now survive rejoining. The separate AgentCraft console (backtick key, usually
+the physical `Ё` key on a Russian keyboard) does **not** forward answers into the Codex chat.
+Work states are explicitly published by Codex using the bridge below; they are unrelated to
+Minecraft game modes.
 
 ## Publish a real status from a chat
 
