@@ -92,6 +92,49 @@ placement, the observer's NPC is hidden. Existing saves and buildings are not re
 off automatic building. Fresh worlds keep Minecraft's spawn until the first placement.
 Importing third-party schematics is not implemented.
 
+## Manual workspace and installed mod (0.2.0)
+
+The ordinary Fabric mod supports any single-player overworld. In creative mode, take the
+Configurator, Monitor, Task Board, Console and optional Status Lamp from the AgentCraft tab.
+Build furniture with ordinary blocks. Right-click a clear floor or stair chair with the
+Configurator to place Codex's desk anchor. Shift + right-click cycles the selected role;
+right-click sets that role's position. The desk must be assigned first. Optional roles are
+`library`, `testbench`, `terminal`, `mergestation`, `meeting`, `lounge` and `user`.
+Unassigned roles fall back to the desk. Floor anchors use the player's cardinal direction;
+stair anchors face away from the stair back.
+
+Alternatively aim within eight blocks and run `/agentcraft workspace <role>`. Remove an
+optional role with `/agentcraft workspace remove <role>`. All zones must be within 32 blocks
+of the desk on X/Z and 16 on Y. Moving the desk drops optional zones outside those bounds.
+Unbound monitors and lamps in loaded chunks within those bounds bind to Codex once per second.
+Place boards and consoles normally; boards join adjacent panels facing the same direction.
+Keep paths and chair approaches clear. One desk and one visible Codex are supported; NPCs
+are hidden outside the overworld. Assignment requires creative mode.
+
+`agentcraft-workspace.json` stores explicit zones in each save; published navigation anchors
+also use `agentcraft-anchors.json`. Opening a save restores them without placing any blocks.
+Assigning a manual desk replaces the active building's anchors, retaining its blocks. Explicitly
+placing a generated HQ deactivates the manual layout. `/agentcraft hq` only rebuilds generated
+layouts, so use workspace commands for manual layouts.
+
+Build the mod with JDK 25 and Gradle, then run `node tools/build-portable.mjs <fresh-output-dir>`.
+The Windows package contains AgentCraft 0.2.0, Fabric API 0.161.0+26.3, a bundled Node runtime,
+an observer-only bridge, status CLI, licenses and Russian instructions. Minecraft Java 26.3,
+Fabric Loader 0.19.5+ and Java 25 must already be installed for the chosen launcher profile.
+`Install-Mod.cmd` copies the two mods to the selected game directory, backing up replaced
+versions outside `mods` and preserving existing client settings. `Start-Bridge.cmd` runs or
+reuses a local observer on port 7878. `Stop-Bridge.cmd` requests a graceful save and stop only
+from this package's owned process. Package state lives in `data/portable`, logs in `logs`.
+It needs no source checkout, npm install, model SDK credentials or TradeRecord repository.
+
+The installed mod opens Minecraft's normal menu. DevBridge and automatic world opening are
+off, and audio and pause preferences are retained. `config/agentcraft-client.json` configures
+`port`, `foreman`, `dev`, `autoworld`, `mute` and `focus`; restart after changing them. Environment
+variables and system properties override that file. The development launcher keeps its earlier
+defaults. Generic worlds keep their own game rules and spawn; the configured legacy HQ world
+still uses its existing HQ rules. Furniture placement does not import structures or enable
+two-way chat. Third-party `.schem`/`.nbt` builds are separate imports and are not bundled.
+
 ## Publish a real status from a chat
 
 ```powershell
@@ -141,6 +184,16 @@ Origins by default; it trusts local processes, not an authenticated remote audie
 ## Validation
 
 Run `npm run check` in `foreman/`, `npm test` in `tools/`, and the Gradle build in `mod/` using JDK 25.
+Gradle tests additionally cover manual role cycling, required desk, bounds, relocation and
+optional-role fallback. Manual placement QA uses an isolated save with hand-built furniture:
+actual Configurator right-click, single NPC, automatic monitor/lamp binding, relocating a
+monitor, assigning/removing a reading zone and rejecting assignment in survival mode.
+The packaged JAR was also loaded through production Fabric (`fabric.development=false`):
+normal title menu, restored manual save/anchors, one NPC, bound monitor and creative tab.
+This passed on the installed Oracle JDK 25.0.2. The direct packaged launch crashed inside
+Temurin 25.0.4.1's JVM (Windows exception 0xc0000005); that runtime is not validated for the
+standalone package. No JVM workaround is applied to user profiles. Windows PowerShell 5.1
+successfully installed the package and started/stopped its observer with persisted state.
 Gradle tests cover world settings and placement transforms (all four rotations, selected block
 centres, footprint rotation and legacy translation). Live placement checks use a separate
 `AgentCraft Placement QA` save: no initial HQ/NPC with `autoBuild:false`, particle preview,

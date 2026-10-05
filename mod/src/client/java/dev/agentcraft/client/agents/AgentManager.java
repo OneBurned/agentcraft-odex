@@ -128,7 +128,8 @@ public final class AgentManager {
 			level = lvl;
 			layoutRevision = -1;
 		}
-		if (lvl == null) {
+		if (lvl == null || lvl.dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+			removeAll();
 			return;
 		}
 		ticks++;

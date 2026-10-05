@@ -38,7 +38,8 @@ public final class StationInteractions {
 		if (!registered) {
 			registered = true;
 			UseBlockCallback.EVENT.register((player, level, hand, hit) -> {
-				if (!level.isClientSide() || player.isSecondaryUseActive()) {
+				if (!level.isClientSide() || player.isSecondaryUseActive()
+					|| player.getItemInHand(hand).getItem() instanceof dev.agentcraft.workspace.ConfiguratorItem) {
 					return InteractionResult.PASS;
 				}
 				BlockPos pos = hit.getBlockPos();

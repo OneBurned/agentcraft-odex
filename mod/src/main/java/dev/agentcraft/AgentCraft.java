@@ -30,6 +30,7 @@ public class AgentCraft implements ModInitializer {
 		ModEntities.init();
 		HqWorld.init();
 		Anchors.init();
+		dev.agentcraft.workspace.ManualWorkspace.init();
 		AgentCraftCommands.init();
 		HqFeature.init();
 		LOGGER.info("AgentCraft common init done ({} blocks, cast {})", ModBlocks.all().size(), Cast.ids());

@@ -109,6 +109,7 @@ public final class HqFeature {
 		PlanStore.invalidateUnless(level.getServer(), builder.id());
 		Anchors.Builder anchors = Anchors.builder(builder.id());
 		lastReport = builder.build(level, anchors, options);
+		dev.agentcraft.workspace.ManualWorkspace.deactivate(level.getServer());
 		Anchors.Layout layout = anchors.build();
 		Anchors.publish(level.getServer(), layout);
 		Anchor spawn = layout.get(AnchorNames.SPAWN);

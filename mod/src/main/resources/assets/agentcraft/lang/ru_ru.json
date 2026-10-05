@@ -1,0 +1,12 @@
+{
+  "item.agentcraft.configurator": "Настройщик рабочего места",
+  "itemGroup.agentcraft": "AgentCraft",
+  "block.agentcraft.monitor": "Монитор Codex",
+  "block.agentcraft.task_board": "Доска задач",
+  "block.agentcraft.console_terminal": "Консоль",
+  "block.agentcraft.status_lamp": "Индикатор состояния",
+  "block.agentcraft.memory_archive": "Архив",
+  "block.agentcraft.memory_catalog": "Каталог памяти",
+  "block.agentcraft.merge_station": "Стол ревью",
+  "block.agentcraft.decision_podium": "Кафедра решений"
+}

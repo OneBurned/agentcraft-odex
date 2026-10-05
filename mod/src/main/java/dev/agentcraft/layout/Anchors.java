@@ -5,7 +5,6 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dev.agentcraft.AgentCraft;
-import dev.agentcraft.world.HqWorld;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -26,7 +25,7 @@ import org.jspecify.annotations.Nullable;
  * The single source of named world positions (see {@link AnchorNames} for the naming contract).
  *
  * <p>An HQ builder computes a {@link Layout} and {@link #publish publishes} it on the server thread;
- * it is saved as {@code agentcraft-anchors.json} in the world folder and loaded again whenever the HQ
+ * it is saved as {@code agentcraft-anchors.json} in the world folder and loaded again whenever that
  * world starts, so the layout survives restarts without rebuilding. Readers on any thread get an
  * immutable snapshot ({@link #current()}); the client (same JVM in singleplayer) reads it directly.
  * Listeners are told about every new layout (on the thread that published it).
@@ -63,7 +62,7 @@ public final class Anchors {
 
 	public static void init() {
 		ServerLifecycleEvents.SERVER_STARTED.register(server -> {
-			if (HqWorld.isHq(server)) {
+			if (!server.isDedicatedServer() && Files.exists(server.getWorldPath(LevelResource.ROOT).resolve(FILE))) {
 				load(server);
 			}
 		});

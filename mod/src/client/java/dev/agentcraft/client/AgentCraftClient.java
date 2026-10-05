@@ -48,7 +48,7 @@ public class AgentCraftClient implements ClientModInitializer {
 			AgentCraft.LOGGER.info("Muted (AGENTCRAFT_MUTE=1 default; set AGENTCRAFT_MUTE=0 to keep your volume)");
 		}
 		// Never pause because the window is in the background (also enforced via options template).
-		mc.options.pauseOnLostFocus = false;
+		if (ClientEnv.DEVELOPMENT) mc.options.pauseOnLostFocus = false;
 		DevBridge.startBridge();
 	}
 }
