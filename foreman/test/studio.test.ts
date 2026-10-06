@@ -226,6 +226,58 @@ describe('command desk queue', () => {
     h.control.mockRejectedValueOnce(new Error('Not stopped'));
     await expect(h.studio.action('pause', {})).rejects.toThrow('Not stopped'); expect(h.studio.data.active).toBe(i.id);
   });
+  it.each(['pause', 'plan'])('keeps A review ranges separate when %s lets higher-priority B run first', async action => {
+    const h = await setup('auto'); const a = await h.start(); const base = await cleanHead(h.repo);
+    const commit = async (name: string) => {
+      fs.writeFileSync(path.join(h.repo, name), name); await gitText(h.repo, ['add', name]);
+      await gitText(h.repo, ['-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '-m', name]);
+      return cleanHead(h.repo);
+    };
+    const a1 = await commit('A1.txt'); await h.studio.action(action, {});
+    expect(a.ranges).toEqual([{ base, head: a1 }]); expect(a.base).toBeUndefined();
+    const b = await h.create('B'); h.fm.tasks.update(b.id, { priority: 100 });
+    await h.studio.action('approve', { id: b.id }); await h.studio.action('start', {});
+    expect(h.studio.data.active).toBe(b.id);
+    const b1 = await commit('B.txt');
+    await h.studio.action('report', { id: b.id, run: b.run, status: 'done', summary: 'B', checks: 'tests', ci: 'pass' });
+    await h.studio.pump(); await until(() => b.stage === 'done'); await h.studio.pump();
+    expect(h.studio.data.active).toBe(a.id); expect(a.base).toBe(b1);
+    const a2 = await commit('A2.txt');
+    await h.studio.action('report', { id: a.id, run: a.run, status: 'done', summary: 'A', checks: 'tests', ci: 'pass' });
+    await h.studio.pump(); await until(() => a.stage === 'done');
+    const review = h.run.mock.calls[1]![0];
+    expect(review.ranges).toEqual([{ base, head: a1 }, { base: b1, head: a2 }]);
+    const commits = await Promise.all(review.ranges!.map(r => gitText(h.repo, ['rev-list', `${r.base}..${r.head}`])));
+    expect(commits).toEqual([a1, a2]); expect(commits).not.toContain(b1);
+  });
+  it('Start resumes dirty suspended A before higher-priority B, with no cleanHead retry loop', async () => {
+    const h = await setup(); const a = await h.start(); const oldRun = a.run;
+    fs.writeFileSync(path.join(h.repo, 'A.txt'), 'unfinished A');
+    await h.studio.controlAgent('marlow', 'pause');
+    const b = await h.create('B'); h.fm.tasks.update(b.id, { priority: 100 });
+    await h.studio.action('approve', { id: b.id }); await h.studio.action('start', {});
+    expect(h.studio.data.active).toBe(a.id); expect(a.run).not.toBe(oldRun);
+    expect(h.studio.data.suspended!.marlow).toBeUndefined(); expect(b.stage).toBe('queued');
+    expect(h.studio.data.notice).toContain(a.id);
+    expect(fs.readFileSync(path.join(h.repo, 'A.txt'), 'utf8')).toBe('unfinished A');
+    await h.studio.pump(); await h.studio.pump(); expect(h.send).toHaveBeenCalledTimes(2);
+    expect(h.send.mock.calls[1]![0]).toContain(`задачу ${a.id}`);
+    await gitText(h.repo, ['add', 'A.txt']);
+    await gitText(h.repo, ['-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '-m', 'A']);
+    await h.studio.action('report', { id: a.id, run: a.run, status: 'done', summary: 'A', checks: 'tests', ci: 'pass' });
+    await h.studio.pump(); expect(h.studio.data.active).toBe(b.id);
+  });
+  it('captures A edits committed during pause before allowing B to run', async () => {
+    const h = await setup(); const a = await h.start(); const base = a.base;
+    fs.writeFileSync(path.join(h.repo, 'A.txt'), 'A'); await h.studio.action('pause', {});
+    await gitText(h.repo, ['add', 'A.txt']);
+    await gitText(h.repo, ['-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '-m', 'A']);
+    const a1 = await cleanHead(h.repo);
+    const b = await h.create('B'); h.fm.tasks.update(b.id, { priority: 100 }); await h.studio.action('approve', { id: b.id });
+    await h.studio.action('start', {});
+    expect(h.studio.data.active).toBe(b.id); expect(a.base).toBeUndefined();
+    expect(a.ranges).toEqual([{ base, head: a1 }]); expect(b.base).toBe(a1);
+  });
   it('interrupts even before polling has observed the newly dispatched turn', async () => {
     const h = await setup(); const i = await h.start();
     await h.studio.action('pause', {});

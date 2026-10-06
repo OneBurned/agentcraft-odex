@@ -582,6 +582,12 @@ reviews the user decides. Findings go to shared Markdown memory and the Claude j
 Pause/Stop interrupts the active Codex turn or kills the launched Claude review process. Existing
 edits remain in files. Pause puts coding back in the queue; Stop requires an explicit retry or decision.
 Planning also interrupts current work. Resume sends a new correlated attempt, not the old run's report.
+Pausing/entering planning closes the current committed attempt range. With a clean checkout,
+Start may select another approved task by priority; the paused task begins its next range at
+the HEAD present when it resumes, excluding intervening tasks' commits. If the suspended task
+still has uncommitted changes, Start resumes that task first and explains why in the console.
+Commits saved during that pause are recorded before another task can take over. The agent card's
+Resume continues its specific suspended task, independently of queue priority.
 Disconnected/failed Codex interruption is an error, not a confirmed stop. Restart restores the queue
 paused, and interrupted coding requires inspection. Independent approved tasks can continue while a
 question waits, provided the working tree is clean. An unresolved dependency never starts. Agents

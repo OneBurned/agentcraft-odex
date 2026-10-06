@@ -129,7 +129,7 @@ export class Studio {
         if (!this.activity || ['working', 'waiting', 'unavailable'].includes(this.activity.phase)) throw new Error('Codex занят или связь не готова.');
         if (this.data.boundChat !== this.activity.key.split('/')[0]) throw new Error('Подключён другой чат. Проверь привязку и очередь в пульте.');
         this.personalPause(agent, false);
-        try { if (agent === 'wren') this.launchReview(i); else await this.dispatch(i); }
+        try { if (agent === 'wren') this.launchReview(i); else { await this.closeAttempt(i); await this.dispatch(i); } }
         catch (e) { this.personalPause(agent, true); throw e; }
         delete this.data.suspended![agent];
       } else if (agent === 'wren' && action === 'resume' && this.data.dialog!.pending) {
@@ -154,6 +154,7 @@ export class Studio {
     if (agent === 'marlow') {
       if (!this.activity || this.activity.phase === 'unavailable') throw new Error('Нет связи с Codex: остановка не подтверждена.');
       await this.transport.control(action);
+      await this.closeAttempt(i);
     } else { await this.reviewer.stop?.(); this.reviewAbort?.abort(); }
     this.data.mode = 'paused'; delete this.data.active; delete i.run;
     if (action === 'pause') {
@@ -327,9 +328,20 @@ export class Studio {
         if (!this.activity || ['working', 'waiting', 'unavailable'].includes(this.activity.phase)) throw new Error('Codex занят или связь не готова. Дождись завершения текущего ответа.');
         this.data.boundChat = this.activity.key.split('/')[0];
         if (this.dialogAbort || this.data.dialog!.pending) throw new Error('Дождись ответа Клавы либо заверши её диалог перед запуском очереди.');
-        this.data.suspended = {}; this.personalPause('marlow', false); this.personalPause('wren', false);
+        const suspended = this.data.items.find(i => i.id === this.data.suspended!.marlow && i.stage === 'queued');
+        // Include commits made while paused before another task can take over this checkout.
+        const resumeDirty = suspended && await this.closeAttempt(suspended);
+        if (!resumeDirty) this.data.suspended = {};
+        else delete this.data.suspended!.wren;
+        this.personalPause('marlow', false); this.personalPause('wren', false);
         this.data.mode = 'running'; this.data.notice = ''; this.save();
-        try { await this.pump(); } catch (e) { this.fail(e); throw e; }
+        try {
+          if (resumeDirty) {
+            this.data.notice = `Продолжаю ${suspended.id}: в проекте остались незакоммиченные изменения этой задачи.`;
+            await this.dispatch(suspended);
+            if (suspended.stage === 'coding') delete this.data.suspended!.marlow;
+          } else await this.pump();
+        } catch (e) { this.fail(e); throw e; }
       } else if (['pause', 'stop', 'plan'].includes(action)) {
         this.data.mode = 'paused'; this.save();
         const i = this.data.items.find(i => i.id === this.data.active);
@@ -434,13 +446,7 @@ export class Studio {
     const p = z.object({ id: text, run: text, status: z.enum(['done', 'question', 'blocked']), summary: text, checks: z.string().max(4000).optional(), ci: z.enum(['pass', 'fail', 'unknown']).optional() }).parse(payload);
     const i = this.item(p); if (i.run !== p.run || this.data.active !== i.id || i.stage !== 'coding') throw new Error('Этот запуск больше не активен; отчёт отклонён.');
     if (p.status !== 'done') {
-      const repo = this.fm.repos.require(this.fm.tasks.require(i.id).repoId!).path;
-      // Keep committed work already made by this attempt separate from later independent tasks.
-      const head = await gitText(repo, ['rev-parse', 'HEAD']);
-      if (i.base && head !== i.base) (i.ranges ??= []).push({ base: i.base, head });
-      i.base = head;
-      // With a clean tree a future attempt can begin at whatever HEAD exists then.
-      if (!await gitText(repo, ['status', '--porcelain'])) delete i.base;
+      await this.closeAttempt(i);
       this.question(i, 'marlow', p.summary); return;
     }
     if (p.ci !== 'pass' || !p.checks?.trim()) throw new Error('Для завершения нужны успешные проверки и их описание.');
@@ -452,6 +458,16 @@ export class Studio {
     this.fm.tasks.setStatus(i.id, i.stage, { force: true });
     this.fm.act('marlow', 'done', 'desk', 'Изменения готовы к проверке');
     for (const chunk of textChunks(p.summary, 1900)) this.fm.agentLog('marlow', 'result', chunk);
+  }
+  private async closeAttempt(i: Item): Promise<boolean> {
+    const repo = this.fm.repos.require(this.fm.tasks.require(i.id).repoId!).path;
+    const head = await gitText(repo, ['rev-parse', 'HEAD']);
+    const dirty = !!await gitText(repo, ['status', '--porcelain']);
+    // Freeze committed work before releasing the checkout to independent tasks.
+    if (i.base && head !== i.base) (i.ranges ??= []).push({ base: i.base, head });
+    if (dirty) i.base = head;
+    else delete i.base;
+    return dirty;
   }
   private question(i: Item, agent: string, message: string) {
     i.stage = 'question'; delete i.run; if (this.data.active === i.id) delete this.data.active;
