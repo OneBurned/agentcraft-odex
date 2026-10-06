@@ -15,8 +15,10 @@ Observer `/help` lists supported commands: `/help blocks` (also `/blocks`), `/ch
 are plain text. Tool approvals remain in the desktop app. Pause interrupts actual Codex work;
 Resume sends an explicit continuation in the same chat; Stop also clears its queued messages.
 Other agent/task controls are refused; `/diff` and the decision/library interfaces do not represent this external chat.
-Minecraft commands belong in vanilla chat (`T`): `/agentcraft help`, `preview studio|cabin`
-and `place studio|cabin`. Workplaces are assigned through the Configurator and command desk.
+Minecraft commands belong in vanilla chat (`T`): `/agentcraft help`, `preview <building>`
+and `place <building>`. Tab includes built-in studio/cabin and local schematic names.
+See [imported buildings](BUILDINGS.md) for the asset folder, placement and limits.
+Workplaces are assigned through the Configurator and command desk.
 
 The agent card opens the normal console directly with `Сообщение`, keeping its draft. Its
 `Пауза` / `Продолжить` and `Стоп` buttons use the same real task controls; they wait for confirmed

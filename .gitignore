@@ -16,6 +16,7 @@ mod/run/
 foreman/scratch/
 mod/.gradle/
 mod/build/
+mod/logs/
 .claude/
 .runtime/
 *.lnk

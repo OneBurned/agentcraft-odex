@@ -43,9 +43,10 @@ public final class AgentCraftCommands {
 	private static int help(CommandSourceStack source) {
 		for (String line : List.of(
 			"AgentCraft — постройки и рабочие места",
-			"/agentcraft preview studio|cabin — показать границы на 15 секунд.",
-			"/agentcraft place studio|cabin — построить вокруг блока под прицелом.",
+			"/agentcraft preview <постройка> — показать границы на 15 секунд.",
+			"/agentcraft place <постройка> — построить вокруг блока под прицелом.",
 			"studio — большая студия, участок 93×91; cabin — домик, участок 27×27.",
+			"Схемы из config/agentcraft/buildings также доступны по имени файла без .schem; Tab покажет варианты.",
 			"Наведи прицел на блок не дальше 64 блоков. Постройка расчистит участок: сначала проверь preview.",
 			"Рабочие места назначай Настройщиком и в пульте. Задачи и сообщения — в консоли AgentCraft.")) {
 			source.sendSuccess(() -> Component.literal(line), false);

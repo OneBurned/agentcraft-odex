@@ -7,6 +7,7 @@ import { build } from '../foreman/node_modules/esbuild/lib/main.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const version=(await fs.readFile(path.join(root,'mod/gradle.properties'),'utf8')).match(/^mod_version=(.+)$/m)[1].trim();
 const out=path.resolve(process.argv[2] || path.join(root,'dist',`AgentCraft-Codex-${version}`));
+const buildingSource=process.argv[3] ? path.resolve(process.argv[3]) : null;
 try { await fs.access(out); throw new Error('Output directory already exists; choose a fresh directory.'); }
 catch(e) { if(e.code!=='ENOENT') throw e; }
 await fs.mkdir(out,{recursive:true});
@@ -23,6 +24,13 @@ await build({...opts,entryPoints:[path.join(root,'tools/codex-progress.mjs')],ou
 await build({...opts,entryPoints:[path.join(root,'tools/studio.mjs')],outfile:path.join(out,'studio.mjs')});
 await build({...opts,entryPoints:[path.join(root,'tools/connect-codex-chat.ts')],outfile:path.join(out,'connect-codex-chat.mjs')});
 await copy(path.join(root,`mod/build/libs/agentcraft-${version}.jar`),path.join(out,`mods/agentcraft-${version}.jar`));
+// Optional private asset pack. Schematics remain user-owned files outside the public mod JAR.
+if(buildingSource) {
+  for(const name of await fs.readdir(buildingSource)) {
+    if(!/^[a-z0-9][a-z0-9_-]{0,63}\.schem$/.test(name) && name!=='SOURCES.txt') continue;
+    await copy(path.join(buildingSource,name),path.join(out,'buildings',name));
+  }
+}
 const apiRoot=path.join(root,'.gradle-home/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-api/0.161.0+26.3');
 let api;
 for(const hash of await fs.readdir(apiRoot)) {

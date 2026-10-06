@@ -40,5 +40,23 @@ $configPath = Join-Path $gamePath 'config'
 New-Item -ItemType Directory -Force -Path $configPath | Out-Null
 $clientConfig = Join-Path $configPath 'agentcraft-client.json'
 if (-not (Test-Path -LiteralPath $clientConfig)) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'config\agentcraft-client.json') -Destination $clientConfig }
+$buildingSource = Join-Path $PSScriptRoot 'buildings'
+if (Test-Path -LiteralPath $buildingSource -PathType Container) {
+    $buildingTarget = Join-Path $configPath 'agentcraft\buildings'
+    New-Item -ItemType Directory -Force -Path $buildingTarget | Out-Null
+    foreach ($file in Get-ChildItem -LiteralPath $buildingSource -File) {
+        if ($file.Name -notmatch '^[a-z0-9][a-z0-9_-]{0,63}\.schem$' -and $file.Name -ne 'SOURCES.txt') { continue }
+        $target = Join-Path $buildingTarget $file.Name
+        if (Test-Path -LiteralPath $target) {
+            if ((Get-FileHash -LiteralPath $target).Hash -eq (Get-FileHash -LiteralPath $file.FullName).Hash) { continue }
+            $buildingBackup = Join-Path $backupPath 'buildings'
+            New-Item -ItemType Directory -Force -Path $buildingBackup | Out-Null
+            Copy-Item -LiteralPath $target -Destination (Join-Path $buildingBackup $file.Name)
+        }
+        Copy-Item -LiteralPath $file.FullName -Destination $target
+        if ((Get-FileHash -LiteralPath $target).Hash -ne (Get-FileHash -LiteralPath $file.FullName).Hash) { throw "Building copy verification failed: $($file.Name)" }
+    }
+    Write-Host "Building schematics installed in $buildingTarget."
+}
 Write-Host "Installed AgentCraft and Fabric API in $modsPath. Select Minecraft 26.3 with Fabric Loader 0.19.5+ and Java 25."
 Write-Host 'Existing replaced mods are preserved under agentcraft-backups. Existing client settings are preserved.'

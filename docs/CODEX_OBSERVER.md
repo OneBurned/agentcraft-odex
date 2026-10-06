@@ -9,24 +9,34 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
-### 0.4.11 Minecraft commands (prepared, not installed)
+### 0.4.12 Minecraft commands and imported buildings (prepared, not installed)
 
-Vanilla chat exposes `/agentcraft` (help), `/agentcraft help`, `/agentcraft preview studio|cabin`
-and `/agentcraft place studio|cabin`. Old `hq` (including `test`/`force`), `anchors` and `workspace`
+Vanilla chat exposes `/agentcraft` (help), `/agentcraft help`, `/agentcraft preview <building>`
+and `/agentcraft place <building>`. Old `hq` (including `test`/`force`), `anchors` and `workspace`
 commands are removed from registration and Tab completion. Assign places using the Configurator
 and command desk. Saved layouts, personal assignments and buildings remain intact.
 
 Preview and placement accept any single-player overworld, independent of the save's name.
 Dedicated servers and other dimensions receive specific errors. Command permissions, the
 64-block aim limit, build-height/world-border checks and placement overlap protection remain.
-Preview is read-only; placing clears/fills the outlined site, activates it and moves the player
-and world spawn to its entrance as before. The name check for legacy automatic building and
+Preview is read-only; placing built-in studio/cabin clears/fills the outlined site, activates it
+and moves the player and world spawn to its entrance as before. The name check for legacy automatic building and
 world rules is separate and unchanged, so enabling placement does not apply HQ game rules to
 ordinary saves.
 
-Package: `dist/AgentCraft-Codex-0.4.11-simple-commands`. Install only after separate approval
-with Minecraft closed. Gradle build and all 39 Java tests pass; the portable package is checked
-in isolation. Live construction and Tab completion need in-game verification.
+Local Sponge v2/v3 files add Tab-completed choices from `config/agentcraft/buildings`.
+The private pack includes `island`, `lakehouse` and `modern-base`; imported layouts preserve
+agent assignments/world spawn and transfer block/entity decoration. See [BUILDINGS.md](BUILDINGS.md).
+Unknown palettes/malformed data are rejected before placement; bounds/overlap checks remain.
+
+Package: `dist/AgentCraft-Codex-0.4.12-buildings`. This includes the pending 0.4.11 command changes.
+Install only after separate approval with Minecraft closed. Validation covers the real schematics,
+data migration, centred rotation and parser failures. Live construction and Tab completion still
+need in-game verification. Installed Minecraft remains on 0.4.10 until the user approves installation.
+
+Validation: 46 Java tests pass with the three real asset files (none skipped); portable studio
+smoke passes. An isolated installer run verifies all three schematic hashes, backup of a replaced
+scheme and preservation of unrelated schemes, client settings and `options.txt`.
 
 ### 0.4.10 task board (installed 2026-10-06)
 
