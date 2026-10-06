@@ -9,14 +9,23 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
-### Shared Klava conversation (prepared; activation pending)
+### Shared Klava conversation (active)
 
 One explicitly bound native Claude Code session can serve Minecraft, the interactive terminal
 and the Desktop **Code** surface. This is not a Claude Chat/Cowork Project conversation.
-The source change is prepared; the live workspace is not yet bound or restarted for this feature.
-The existing terminal session `114d2184-b1c1-438d-962e-5323a187d364` was found and a migration
-was prepared under `artifacts/klava-shared-conversation-prepared`. Its transcript is not rewritten.
+The live bridge runs revision `4e68f5f`, activated with user approval on 2026-10-06.
+It is bound to the existing terminal session `114d2184-b1c1-438d-962e-5323a187d364`.
+The migration files are also retained under `artifacts/klava-shared-conversation-prepared`.
+Its native transcript was not rewritten.
 The two retained game messages become labelled historical context, not synthetic native turns.
+Activation preserved hashes of the native transcript, three personal Markdown documents,
+access.json, Codex chat binding and Minecraft client settings. The live bridge reports the expected
+session UUID and a persisted history cursor; Klava's message button is enabled. Both personal
+profiles and the empty planning queue are preserved. Minecraft was not automatically launched;
+no game client reconnection was observed during this activation check. Desktop UI handoff remains
+to be verified by opening its launcher.
+Backup: `artifacts/backups/shared-conversation-2026-10-06T12-33-12-955Z`; installer backup:
+`C:\Users\GB\Documents\Klava-reviewer\backups\conversation-35853566-a4f1-47ee-a57f-3a196b9f90c6`.
 
 Preparation and activation from this checkout (close any existing Klava CLI/Code session first):
 
@@ -69,7 +78,7 @@ Package: `dist/AgentCraft-Codex-0.4.7-shared-conversation-release`.
 ### Klava review workspace and GitHub (active)
 
 Dialogs and automated reviews can now share an explicitly configured personal workspace.
-The Minecraft mod remains 0.4.7; the bridge runs source revision `27301cf`. The local workspace is
+The Minecraft mod remains 0.4.7; the bridge runs source revision `4e68f5f`. The local workspace is
 `C:\Users\GB\Documents\Klava-reviewer`. Its `CLAUDE.md` defines personality/review rules,
 `PROJECTS.md` explains both existing products, and `MEMORY.md` stores durable notes. These files
 are reloaded before each conversation or review and sent through stdin, avoiding Windows
