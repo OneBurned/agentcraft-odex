@@ -8,13 +8,15 @@ const option = name => { const index = args.indexOf(name); if (index < 0 || !arg
 const directory = option('--workspace');
 const tradeRecord = option('--traderecord');
 const profile = option('--profile-dir');
+const skillsRoot = args.includes('--skills') ? option('--skills') : undefined;
+if (skillsRoot) await fs.access(path.join(skillsRoot, 'AGENTS.md'));
 for (const repo of [tradeRecord, root]) await fs.access(path.join(repo, '.git'));
 await fs.mkdir(directory, { recursive: true });
 for (const name of ['CLAUDE.md', 'PROJECTS.md', 'MEMORY.md']) {
   try { await fs.copyFile(path.join(root, 'tools/klava', name), path.join(directory, name), fs.constants.COPYFILE_EXCL); }
   catch (e) { if (e.code !== 'EEXIST') throw e; }
 }
-const access = { version: 1, repositories: [
+const access = { version: 1, ...(skillsRoot ? { skillsRoot } : {}), repositories: [
   { id: 'traderecord', name: 'TradeRecord', path: tradeRecord, github: 'OneBurned/TITracker' },
   { id: 'agentcraft', name: 'AgentCraft', path: root, github: 'OneBurned/agentcraft-odex' },
 ] };

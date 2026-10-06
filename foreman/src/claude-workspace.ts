@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 export const WorkspaceConfig = z.object({
   version: z.literal(1),
+  skillsRoot: z.string().refine(path.isAbsolute, 'Absolute skills path required').optional(),
   repositories: z.array(z.object({
     id: z.string().regex(/^[a-z][a-z0-9_-]{0,39}$/),
     name: z.string().min(1).max(100),
@@ -13,7 +14,7 @@ export const WorkspaceConfig = z.object({
   })).min(1).max(8),
 });
 export type WorkspaceAccess = z.infer<typeof WorkspaceConfig>;
-export const workspaceTools = ['projects', 'project_files', 'project_read', 'project_search', 'project_git', 'github_read', 'memory_read', 'remember'];
+export const workspaceTools = ['projects', 'project_files', 'project_read', 'project_search', 'project_git', 'github_read', 'skill_read', 'memory_read', 'remember'];
 export interface ClaudeWorkspace { directory: string; args: string[]; instructions: string; }
 
 /** No workspace is enabled until the operator creates a profile-local pointer. */

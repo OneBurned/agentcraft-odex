@@ -52,6 +52,41 @@ export class WorkspaceReader {
     if (text.includes('\0')) throw new Error('Двоичный файл не читается.');
     return text;
   }
+  private async skill(args: unknown) {
+    const p = z.object({ file: z.string().max(500).optional(), start: z.number().int().min(1).default(1), lines: z.number().int().min(1).max(250).default(200) }).parse(args);
+    if (!this.config.skillsRoot) throw new Error('Общая папка навыков не подключена в access.json.');
+    const root = await fs.realpath(this.config.skillsRoot);
+    const allowed = (file: string) => sourceFile(file) && /\.md$/i.test(file)
+      && (file === 'AGENTS.md' || file.startsWith('common/') || file.startsWith('projects/trackrecord/'));
+    const inside = async (file: string) => {
+      const target = path.resolve(root, file); const real = await fs.realpath(target);
+      if (real.toLowerCase() !== target.toLowerCase() || (await fs.lstat(target)).isSymbolicLink()) throw new Error('Ссылки из папки навыков не читаются.');
+      return real;
+    };
+    if (!p.file) {
+      const files: string[] = [];
+      const walk = async (dir: string, depth: number) => {
+        if (depth > 6 || files.length >= 500) return;
+        let entries; try { entries = await fs.readdir(await inside(dir), { withFileTypes: true }); } catch { return; }
+        for (const entry of entries) {
+          const file = `${dir}/${entry.name}`;
+          if (entry.isSymbolicLink() || !sourceFile(file)) continue;
+          if (entry.isDirectory()) await walk(file, depth + 1);
+          else if (entry.isFile() && allowed(file)) files.push(file);
+        }
+      };
+      for (const dir of ['common', 'projects/trackrecord']) await walk(dir, 0);
+      try { await inside('AGENTS.md'); files.unshift('AGENTS.md'); } catch {}
+      return { files: files.slice(0, 500), limited: files.length >= 500 };
+    }
+    if (!allowed(p.file)) throw new Error('Доступны Markdown-правила common и projects/trackrecord.');
+    const target = await inside(p.file); const stat = await fs.stat(target);
+    if (!stat.isFile() || stat.size > 128000) throw new Error('Нужен Markdown-файл до 128 КБ.');
+    const content = await fs.readFile(target, 'utf8');
+    if (content.includes('\0')) throw new Error('Двоичный файл не читается.');
+    const lines = content.split(/\r?\n/);
+    return { file: p.file, totalLines: lines.length, text: clip(lines.slice(p.start - 1, p.start - 1 + p.lines).map((line, n) => `${p.start + n}: ${line}`).join('\n')) };
+  }
   async call(name: string, args: unknown): Promise<unknown> {
     if (name === 'projects') return this.config.repositories.map(r => ({ id: r.id, name: r.name, github: r.github, access: 'read-only local source and GitHub' }));
     if (name === 'project_files') {
@@ -83,6 +118,7 @@ export class WorkspaceReader {
       return clip(await this.git(p.project, ['diff', '--no-ext-diff', '--no-textconv', '--unified=12', ...(p.base ? [p.base, ...(p.head ? [p.head] : [])] : ['HEAD']), '--', p.file]));
     }
     if (name === 'github_read') return this.github(githubArg.parse(args));
+    if (name === 'skill_read') return this.skill(args);
     if (name === 'memory_read') return clip(await fs.readFile(path.join(this.directory, 'MEMORY.md'), 'utf8'), 40000);
     if (name === 'remember') {
       const p = z.object({ note: z.string().trim().min(1).max(1500) }).parse(args);

@@ -27,6 +27,33 @@ async function fixture() {
   return { dir, repo, workspace, config, git, reader: new WorkspaceReader(workspace, config) };
 }
 describe('reviewer workspace boundaries', () => {
+  it('reads current shared rules outside Git, limited to the permitted Markdown namespaces', async () => {
+    const h = await fixture(); const skillsRoot = path.join(h.dir, 'skills');
+    await fs.mkdir(path.join(skillsRoot, 'common/debugging-workflow'), { recursive: true });
+    await fs.mkdir(path.join(skillsRoot, 'projects/trackrecord/domain'), { recursive: true });
+    await fs.mkdir(path.join(skillsRoot, 'projects/other'), { recursive: true });
+    await fs.writeFile(path.join(skillsRoot, 'AGENTS.md'), '# Shared skills');
+    const file = path.join(skillsRoot, 'common/debugging-workflow/SKILL.md');
+    await fs.writeFile(file, 'Investigate source data.');
+    await fs.writeFile(path.join(skillsRoot, 'projects/trackrecord/domain/SKILL.md'), 'Do not invent cash.');
+    await fs.writeFile(path.join(skillsRoot, 'projects/other/SKILL.md'), 'Not authorized');
+    await fs.writeFile(path.join(skillsRoot, 'common/debugging-workflow/run.ps1'), 'not readable');
+    const reader = new WorkspaceReader(h.workspace, { ...h.config, skillsRoot });
+    expect(await reader.call('skill_read', {})).toMatchObject({ files: ['AGENTS.md', 'common/debugging-workflow/SKILL.md', 'projects/trackrecord/domain/SKILL.md'] });
+    expect(await reader.call('skill_read', { file: 'common/debugging-workflow/SKILL.md' })).toMatchObject({ text: '1: Investigate source data.' });
+    await fs.writeFile(file, 'Updated rules.');
+    expect(await reader.call('skill_read', { file: 'common/debugging-workflow/SKILL.md' })).toMatchObject({ text: '1: Updated rules.' });
+    for (const file of ['../workspace/CLAUDE.md', 'common/../../workspace/CLAUDE.md', 'projects/other/SKILL.md', 'common/debugging-workflow/run.ps1'])
+      await expect(reader.call('skill_read', { file })).rejects.toThrow();
+    await expect(h.reader.call('skill_read', {})).rejects.toThrow('не подключена');
+  });
+  it('does not follow shared-skill junctions outside the configured tree', async () => {
+    const h = await fixture(); const skillsRoot = path.join(h.dir, 'skills');
+    await fs.mkdir(skillsRoot); await fs.symlink(h.workspace, path.join(skillsRoot, 'common'), process.platform === 'win32' ? 'junction' : 'dir');
+    const reader = new WorkspaceReader(h.workspace, { ...h.config, skillsRoot });
+    expect(await reader.call('skill_read', {})).toMatchObject({ files: [] });
+    await expect(reader.call('skill_read', { file: 'common/CLAUDE.md' })).rejects.toThrow('Ссылки');
+  });
   it('reads current tracked files and local Git context, not just the committed snapshot', async () => {
     const h = await fixture();
     expect(await h.reader.call('project_files', { project: 'one' })).toMatchObject({ files: ['README.md'] });

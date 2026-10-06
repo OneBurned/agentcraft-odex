@@ -27,7 +27,7 @@ lists approved local paths and GitHub repository names. Setup (preserves existin
 and refuses conflicting access settings):
 
 ```powershell
-node tools/setup-klava.mjs --workspace 'C:\Users\GB\Documents\Klava-reviewer' --traderecord 'C:\Users\GB\Documents\New project' --profile-dir 'C:\Users\GB\Documents\agentcraft-odex\.agentcraft-home\traderecord'
+node tools/setup-klava.mjs --workspace 'C:\Users\GB\Documents\Klava-reviewer' --traderecord 'C:\Users\GB\Documents\New project' --profile-dir 'C:\Users\GB\Documents\agentcraft-odex\.agentcraft-home\traderecord' --skills 'C:\Users\GB\Documents\agent-skills'
 ```
 
 The configured projects are `traderecord` → `OneBurned/TITracker` and `agentcraft` →
@@ -47,6 +47,21 @@ Local context and GitHub can differ; review instructions require identifying the
 and commit. Existing before/after checks still reject automatic verdicts when the reviewed
 repository changes. This is a local Claude Code workspace, not a synchronized claude.ai Project
 or a shared transcript with the Codex app.
+
+Shared skills are not part of either repository and were initially inaccessible to the reviewer.
+The optional absolute `skillsRoot` in `access.json` now connects the configured `agent-skills`
+directory through `skill_read`: no arguments lists Markdown documents; `file` reads the current
+source with optional line bounds. Only root `AGENTS.md`, `common/**/*.md` and
+`projects/trackrecord/**/*.md` are allowed. Other projects, scripts, traversal and symlink escapes
+remain unavailable. There is no Git requirement, script execution or copied/stale rule snapshot.
+Role instructions require reading applicable shared skills before review. Existing terminals must
+close and reopen with `Continue-Klava.cmd` to load the new tool; do not interrupt a user's draft or
+ongoing review. The game bridge still needs its separately approved restart.
+The local access/instructions backup is `artifacts/backups/klava-skills-2026-10-06T11-37-09-381Z`.
+The extension passed 23 focused tests including missing roots, current-file updates and junction denial.
+A real Claude call listed all 12 rule documents and read the TrackRecord domain rules successfully.
+The updated bundle is `dist/AgentCraft-Codex-0.4.7-klava-skills`; earlier Klava bundles do not
+contain `skill_read`. The local launcher uses the updated source directly.
 
 Validation: 584 bridge tests passed, followed by 21 focused tests including review-context loading; typecheck,
 stdio MCP integration, path/access rejection and persistent memory tests passed. A real Claude
