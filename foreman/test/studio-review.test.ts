@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -24,6 +25,27 @@ async function fixture() {
   return { repo, input, child, reviewer, prompt: () => prompt, respond };
 }
 describe('read-only Claude review adapter', () => {
+  it.each([
+    { name: 'UTF-8 byte buffer overflow', content: 'я'.repeat(1_100_000), overflow: true },
+    { name: 'character limit', content: 'a'.repeat(1_600_000), overflow: false },
+  ])('reports a readable error for $name before launching Claude and releases its lease', async ({ content, overflow }) => {
+    const h = await fixture();
+    fs.writeFileSync(path.join(h.repo, 'large.txt'), content);
+    await gitText(h.repo, ['add', 'large.txt']);
+    await gitText(h.repo, ['-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '-m', 'Large diff']);
+    h.input.head = await cleanHead(h.repo);
+    if (overflow) {
+      // Real Git/execFile overflow, not a synthetic exception.
+      expect(content.length).toBeLessThan(1_500_000);
+      await expect(gitText(h.repo, ['diff', h.input.base, h.input.head, '--'])).rejects.toMatchObject({ code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' });
+    }
+    const workspace = path.join(path.dirname(h.repo), 'workspace'); fs.mkdirSync(workspace);
+    fs.writeFileSync(path.join(workspace, 'conversation.json'), JSON.stringify({ version: 1, sessionId: randomUUID() }));
+    const reviewer = new ClaudeReviewer(() => 'mock-claude.exe', () => ({ directory: workspace, instructions: '', args: [] }));
+    await expect(reviewer.run(h.input, new AbortController().signal)).rejects.toThrow('Изменения слишком велики для одного ревью. Раздели задачу.');
+    expect(proc.spawn).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(workspace, 'conversation-lock.json'))).toBe(false);
+  });
   it('supplies committed changes with tools, MCP and hooks disabled', async () => {
     const h = await fixture(); const result = h.reviewer.run(h.input, new AbortController().signal);
     await until(() => proc.spawn.mock.calls.length > 0);

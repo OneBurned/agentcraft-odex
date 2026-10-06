@@ -582,6 +582,10 @@ whole-repository audit. Missing context should produce a question. HEAD and clea
 before and after review, so an obsolete verdict is rejected. Separate attempt ranges exclude commits
 made by independent tasks between attempts. First findings return to Codex; after two non-passing
 reviews the user decides. Findings go to shared Markdown memory and the Claude journal.
+Review input is bounded by 2 MiB of Git output per attempt and 1,500,000 characters across
+attempts. Exceeding either limit raises the same question: «Изменения слишком велики для одного
+ревью. Раздели задачу.» UTF-8 byte overflow (including large Cyrillic diffs) is translated before
+launching Claude, and the conversation lock is released. The diff is never silently truncated.
 
 Pause/Stop interrupts the active Codex turn or kills the launched Claude review process. Existing
 edits remain in files. Pause puts coding back in the queue; Stop requires an explicit retry or decision.

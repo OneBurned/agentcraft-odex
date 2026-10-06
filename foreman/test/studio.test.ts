@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Studio } from '../src/studio.js';
-import { cleanHead, gitText, type ReviewResult, type Reviewer } from '../src/studio-review.js';
+import { ClaudeReviewer, cleanHead, gitText, type ReviewResult, type Reviewer } from '../src/studio-review.js';
 import { demoRepo, makeForeman, rmrf, tempDir, until } from './helpers.js';
 import type { DialogRunner } from '../src/claude-dialog.js';
 
@@ -315,6 +315,19 @@ describe('command desk queue', () => {
     await h.studio.action('report', { id: i.id, run: i.run, status: 'done', summary: 'implemented', checks: 'tests passed', ci: 'pass' });
     expect(i.stage).toBe('review'); await h.studio.pump(); await until(() => i.stage === 'done');
     expect(h.run.mock.calls[0]?.[0]).toMatchObject({ head, base: head }); expect(h.fm.memory.list()).toHaveLength(1);
+  });
+  it('turns Git buffer overflow into a readable review question without relaunching', async () => {
+    const h = await setup('auto'); const i = await h.start();
+    fs.writeFileSync(path.join(h.repo, 'large.txt'), 'я'.repeat(1_100_000));
+    await gitText(h.repo, ['add', 'large.txt']);
+    await gitText(h.repo, ['-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '-m', 'Large diff']);
+    const reviewer = new ClaudeReviewer(() => process.execPath);
+    h.run.mockImplementation((input, signal) => reviewer.run(input, signal));
+    await h.studio.action('report', { id: i.id, run: i.run, status: 'done', summary: 'Fixture', checks: 'fixture checks', ci: 'pass' });
+    await h.studio.pump(); await until(() => i.stage === 'question');
+    expect(h.fm.decisions.open()).toHaveLength(1);
+    expect(h.fm.decisions.open()[0]).toMatchObject({ taskId: i.id, question: 'Изменения слишком велики для одного ревью. Раздели задачу.' });
+    await h.studio.pump(); expect(h.run).toHaveBeenCalledTimes(1);
   });
   it('manual mode waits for the explicit review button', async () => {
     const h = await setup('manual'); const i = await h.start();
