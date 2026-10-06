@@ -9,10 +9,10 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
-### Klava review workspace and GitHub (prepared, bridge restart pending)
+### Klava review workspace and GitHub (active)
 
 Dialogs and automated reviews can now share an explicitly configured personal workspace.
-The Minecraft mod remains 0.4.7; only the bridge needs updating. The local workspace is
+The Minecraft mod remains 0.4.7; the bridge runs source revision `27301cf`. The local workspace is
 `C:\Users\GB\Documents\Klava-reviewer`. Its `CLAUDE.md` defines personality/review rules,
 `PROJECTS.md` explains both existing products, and `MEMORY.md` stores durable notes. These files
 are reloaded before each conversation or review and sent through stdin, avoiding Windows
@@ -66,7 +66,7 @@ source with optional line bounds. Only root `AGENTS.md`, `common/**/*.md` and
 remain unavailable. There is no Git requirement, script execution or copied/stale rule snapshot.
 Role instructions require reading applicable shared skills before review. Existing terminals must
 close and reopen with `Continue-Klava.cmd` to load the new tool; do not interrupt a user's draft or
-ongoing review. The game bridge still needs its separately approved restart.
+ongoing review. The game bridge has loaded this extension after the approved restart.
 The local access/instructions backup is `artifacts/backups/klava-skills-2026-10-06T11-37-09-381Z`.
 The extension passed 23 focused tests including missing roots, current-file updates and junction denial.
 A real Claude call listed all 12 rule documents and read the TrackRecord domain rules successfully.
@@ -95,8 +95,8 @@ The local `--update` run preserved hashes of all three personal documents and `a
 backup: `C:\Users\GB\Documents\Klava-reviewer\backups\setup-RG4jEL`.
 The new inventory returned all seven paths in `8556183`; the live GitHub request returned the
 specific 422 category. Current package: `dist/AgentCraft-Codex-0.4.7-klava-review-fixes`.
-Its isolated studio persistence/restart check passed. Neither the user's terminal nor the live
-game bridge was restarted; reload the terminal to use the updated tool implementation.
+Its isolated studio persistence/restart check passed. Reload an existing terminal to use the
+updated tool implementation; the user's terminal was not interrupted.
 
 Validation: 584 bridge tests passed, followed by 21 focused tests including review-context loading; typecheck,
 stdio MCP integration, path/access rejection and persistent memory tests passed. A real Claude
@@ -104,8 +104,14 @@ dialog read both local READMEs, correctly reported both local HEADs, and confirm
 the private TradeRecord and public AgentCraft repositories. Direct GitHub README and PR-list
 reads also passed for both projects. Package: `dist/AgentCraft-Codex-0.4.7-klava-release` and
 `dist/AgentCraft-Codex-0.4.7-Klava-Windows.zip`; isolated packaged studio restart and memory
-checks passed. The running bridge has not yet been restarted for this extension.
-No new Minecraft mod installation is needed.
+checks passed. No new Minecraft mod installation is needed.
+
+The approved local activation on 2026-10-06 gracefully stopped the old bridge and started
+revision `27301cf` on port 7878. Minecraft 0.4.7 reconnected. Verification confirmed the bound
+Codex chat, both personal profiles, dialog history, planning mode and an empty queue; no task
+was started. All seven protected configuration/instruction files retained their hashes, and
+the workspace loader resolved all nine tools and WORKSPACE.md. Backup and verification:
+`artifacts/backups/klava-activation-2026-10-06T12-04-36-288Z`.
 
 #### Separate interactive Claude Code terminal
 
