@@ -125,7 +125,7 @@ served **by the mod client**:
 
 ## World & visuals (see docs/visual-bar.md)
 
-HQ built deterministically by `/agentcraft hq` in a void/superflat world: a cohesive, beautiful
+HQ built deterministically at a player-selected site with `/agentcraft place studio`: a cohesive, beautiful
 building with: central **Goal Atrium** (holographic goal + progress ring), **Task Wall**
 (kanban), **Agent Desks** each with a **Monitor** (multi-block screen showing that agent's live
 log), **Library** (memory archive — lecterns/books open memory), **Test Bench** (CI lamps),

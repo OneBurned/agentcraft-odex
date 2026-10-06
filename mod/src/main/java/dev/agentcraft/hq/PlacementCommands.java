@@ -3,7 +3,6 @@ package dev.agentcraft.hq;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import dev.agentcraft.command.AgentCraftCommands;
-import dev.agentcraft.world.HqWorld;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -44,7 +43,8 @@ final class PlacementCommands {
 		var s=ctx.getSource();
 		try {
 			var player=s.getPlayerOrException(); var level=s.getLevel();
-			if (!HqWorld.isHq(s.getServer()) || level != s.getServer().overworld()) throw new IllegalArgumentException("Выбери основной мир AgentCraft и обычное измерение.");
+			if (s.getServer().isDedicatedServer()) throw new IllegalArgumentException("Постройки AgentCraft доступны в одиночной игре.");
+			if (level != s.getServer().overworld()) throw new IllegalArgumentException("Для постройки перейди в обычное измерение (Верхний мир).");
 			String id=StringArgumentType.getString(ctx,"building");
 			if (!id.equals("studio") && !id.equals("cabin")) throw new IllegalArgumentException("Варианты: studio, cabin.");
 			var eye=player.getEyePosition();

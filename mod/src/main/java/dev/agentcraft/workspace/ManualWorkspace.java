@@ -2,25 +2,21 @@ package dev.agentcraft.workspace;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.mojang.brigadier.arguments.StringArgumentType;
 import dev.agentcraft.AgentCraft;
 import dev.agentcraft.block.entity.MonitorBlockEntity;
 import dev.agentcraft.block.entity.StatusLampBlockEntity;
-import dev.agentcraft.command.AgentCraftCommands;
 import dev.agentcraft.layout.AnchorNames;
 import dev.agentcraft.layout.Anchors;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.fabricmc.fabric.api.event.player.UseItemCallback;
-import net.minecraft.commands.Commands;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
@@ -28,12 +24,9 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.storage.LevelResource;
-import net.minecraft.world.phys.HitResult;
-import net.minecraft.world.phys.shapes.CollisionContext;
 
 /** Manual single-player workspaces in any overworld, without building or changing game rules. */
 public final class ManualWorkspace {
@@ -74,29 +67,6 @@ public final class ManualWorkspace {
 			}
 			return InteractionResult.SUCCESS;
 		});
-		AgentCraftCommands.sub(root -> root.then(Commands.literal("workspace")
-			.executes(ctx -> {
-				ctx.getSource().sendSuccess(() -> Component.literal("Настройщик: Shift+ПКМ выбирает зону, ПКМ отмечает пол/кресло. Зоны: desk, library, testbench, terminal, mergestation, meeting, lounge, user. /agentcraft workspace <зона> — отметить блок под прицелом."), false);
-				return 1;
-			})
-			.then(Commands.literal("remove").then(Commands.argument("role",StringArgumentType.word()).suggests((ctx,b) -> {
-				for (var role:WorkspaceRole.values()) b.suggest(role.key); return b.buildFuture();
-			}).executes(ctx -> {
-				String key=StringArgumentType.getString(ctx,"role"); WorkspaceRole.parse(key);
-				if (key.equals("desk")) { ctx.getSource().sendFailure(Component.literal("Рабочее место обязательно. Чтобы перенести его, отметь другое место.")); return 0; }
-				var spots=new LinkedHashMap<>(data.spots()); spots.remove(key);
-				commit(ctx.getSource().getServer(),new WorkspaceData(data.active(),spots));
-				ctx.getSource().sendSuccess(() -> Component.literal("Зона удалена; Codex использует рабочее место."),false); return 1;
-			})))
-			.then(Commands.argument("role",StringArgumentType.word()).suggests((ctx,b) -> {
-				for (var role:WorkspaceRole.values()) b.suggest(role.key); return b.buildFuture();
-			}).executes(ctx -> {
-				var player=ctx.getSource().getPlayerOrException(); var level=ctx.getSource().getLevel();
-				var eye=player.getEyePosition();
-				var hit=level.clip(new ClipContext(eye,eye.add(player.getLookAngle().scale(8)),ClipContext.Block.OUTLINE,ClipContext.Fluid.NONE,CollisionContext.empty()));
-				if(hit.getType()!=HitResult.Type.BLOCK) { ctx.getSource().sendFailure(Component.literal("Наведи прицел на пол или кресло не дальше 8 блоков.")); return 0; }
-				return assign(player,WorkspaceRole.parse(StringArgumentType.getString(ctx,"role")),hit.getBlockPos())?1:0;
-			}))));
 	}
 	public static void cycleOrHelp(Player player) {
 		if(player.isSecondaryUseActive()) selected.put(player.getUUID(),selected.getOrDefault(player.getUUID(),WorkspaceRole.DESK).next());

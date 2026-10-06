@@ -125,7 +125,7 @@ public final class Anchors {
 	private static void load(MinecraftServer server) {
 		Path f = file(server);
 		if (!Files.exists(f)) {
-			AgentCraft.LOGGER.info("No {} yet (run /agentcraft hq to build the HQ and its anchors)", FILE);
+			AgentCraft.LOGGER.info("No {} yet (use the Configurator or /agentcraft help to choose a building site)", FILE);
 			set(Layout.EMPTY);
 			return;
 		}
@@ -134,7 +134,7 @@ public final class Anchors {
 			set(layout);
 			AgentCraft.LOGGER.info("Loaded layout '{}' rev {} ({} anchors)", layout.name(), layout.revision(), layout.anchors().size());
 		} catch (Exception e) {
-			AgentCraft.LOGGER.warn("Could not read {}; run /agentcraft hq again", f, e);
+			AgentCraft.LOGGER.warn("Could not read {}; restore the saved layout or assign a workspace with the Configurator", f, e);
 			set(Layout.EMPTY);
 		}
 	}

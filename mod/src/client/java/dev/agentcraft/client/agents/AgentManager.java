@@ -34,7 +34,7 @@ import org.jspecify.annotations.Nullable;
  *       there is no route, e.g. the HQ was rebuilt around it);</li>
  *   <li>agent gone after a snapshot: removed;</li>
  *   <li>Foreman link down: agents stay where they are with a dimmed "Foreman offline" plate;</li>
- *   <li>layout republished ({@code /agentcraft hq}): everyone is placed at their new anchors.</li>
+ *   <li>layout republished after building placement: everyone is placed at their new anchors.</li>
  * </ul>
  * Without a layout, agents stand in a row near the world spawn so they are still visible.
  *

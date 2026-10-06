@@ -5,7 +5,7 @@ import net.minecraft.server.level.ServerLevel;
 
 /**
  * Builds an HQ into the world and describes it with anchors. Registered in {@link HqBuilders};
- * {@code /agentcraft hq [id]} runs one and publishes its anchors ({@link Anchors#publish}).
+ * Player-selected placement runs one and publishes its anchors ({@link Anchors#publish}).
  *
  * <p>Contract: write every required anchor from {@link dev.agentcraft.layout.AnchorNames}
  * (desk_/monitor_ per cast agent, the shared stations with enough slots, task_wall,

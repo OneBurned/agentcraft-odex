@@ -7,7 +7,7 @@ speech bubbles), opens screens and types text. Internals: mod/DEV.md "Shot playb
 
 ```powershell
 # game running, e.g. tools\launch.ps1 -Dev -Showcase busy -Home C:\Projects\agentcraft\.agentcraft-home -Port 51878 -DevPort 7951 -Profile rec
-node tools/devcli.mjs --port 7951 cmd "agentcraft hq"                       # once per world: build the HQ
+# Use a saved studio world; for a new site, aim in-game and use /agentcraft preview studio, then place studio.
 node tools/record.mjs tools/shots/hq_orbit.json --port 7951 --window 2560x1440 --hold 3000
 #   setup -> camera on the first pose -> holds that frame 3 s (start OBS now) -> plays -> prints a JSON summary
 node tools/record.mjs tools/shots/*.json --port 7951                         # several shots in a row

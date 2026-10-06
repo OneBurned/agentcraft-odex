@@ -201,7 +201,7 @@ public final class StudioHqBuilder implements HqBuilder {
 		}
 		StringBuilder r = new StringBuilder(String.format(Locale.ROOT, "%d blocks updated", st.changed() + st.connected()));
 		if (st.kept() > 0) {
-			r.append(String.format(Locale.ROOT, "; kept %d block%s you changed since the last build (/agentcraft hq force resets them)", st.kept(),
+			r.append(String.format(Locale.ROOT, "; kept %d block%s you changed since the last build", st.kept(),
 				st.kept() == 1 ? "" : "s"));
 		}
 		if (st.foreign() > 0) {

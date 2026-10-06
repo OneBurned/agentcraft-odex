@@ -9,6 +9,25 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### 0.4.11 Minecraft commands (prepared, not installed)
+
+Vanilla chat exposes `/agentcraft` (help), `/agentcraft help`, `/agentcraft preview studio|cabin`
+and `/agentcraft place studio|cabin`. Old `hq` (including `test`/`force`), `anchors` and `workspace`
+commands are removed from registration and Tab completion. Assign places using the Configurator
+and command desk. Saved layouts, personal assignments and buildings remain intact.
+
+Preview and placement accept any single-player overworld, independent of the save's name.
+Dedicated servers and other dimensions receive specific errors. Command permissions, the
+64-block aim limit, build-height/world-border checks and placement overlap protection remain.
+Preview is read-only; placing clears/fills the outlined site, activates it and moves the player
+and world spawn to its entrance as before. The name check for legacy automatic building and
+world rules is separate and unchanged, so enabling placement does not apply HQ game rules to
+ordinary saves.
+
+Package: `dist/AgentCraft-Codex-0.4.11-simple-commands`. Install only after separate approval
+with Minecraft closed. Gradle build and all 39 Java tests pass; the portable package is checked
+in isolation. Live construction and Tab completion need in-game verification.
+
 ### 0.4.10 task board (installed 2026-10-06)
 
 The wall shows only current pool tasks in observer mode (`queueStage` present). Service progress
@@ -793,9 +812,10 @@ Placing clears/fills the entire outlined site, activates the new work stations a
 player to its entrance. Old buildings remain in the world; new sites overlapping a recorded
 old site are rejected. `agentcraft-sites.json` records protected site boxes. Only one HQ is active.
 The saved transform rotates block states, station bindings, anchors and navigation together.
-`/agentcraft hq` rebuilds the active building at its saved location, retaining player edits.
+To revisit placement, aim at the same foundation block and use the matching `place` command.
+There is no separate rebuild or force command in the player interface.
 
-Commands require Minecraft command permissions and the selected overworld. An empty sky target,
+Commands require Minecraft command permissions and a single-player overworld, regardless of its name. An empty sky target,
 out-of-height placement or world-border intersection is rejected. Until a fresh world's first
 placement, the observer's NPC is hidden. Existing saves and buildings are not removed by turning
 off automatic building. Fresh worlds keep Minecraft's spawn until the first placement.
@@ -812,8 +832,8 @@ right-click sets that role's position. The desk must be assigned first. Optional
 Unassigned roles fall back to the desk. Floor anchors use the player's cardinal direction;
 stair anchors face away from the stair back.
 
-Alternatively aim within eight blocks and run `/agentcraft workspace <role>`. Remove an
-optional role with `/agentcraft workspace remove <role>`. All zones must be within 32 blocks
+Use the Configurator and the command desk's Places tab for assignments and removal of optional
+personal places. The legacy manual layout's zones must be within 32 blocks
 of the desk on X/Z and 16 on Y. Moving the desk drops optional zones outside those bounds.
 Unbound monitors and lamps in loaded chunks within those bounds bind to Codex once per second.
 Place boards and consoles normally; boards join adjacent panels facing the same direction.
@@ -823,8 +843,7 @@ are hidden outside the overworld. Assignment requires creative mode.
 `agentcraft-workspace.json` stores explicit zones in each save; published navigation anchors
 also use `agentcraft-anchors.json`. Opening a save restores them without placing any blocks.
 Assigning a manual desk replaces the active building's anchors, retaining its blocks. Explicitly
-placing a generated HQ deactivates the manual layout. `/agentcraft hq` only rebuilds generated
-layouts, so use workspace commands for manual layouts.
+placing a generated HQ deactivates the manual layout. Use the Configurator for manual layouts.
 
 Build the mod with JDK 25 and Gradle, then run `node tools/build-portable.mjs <fresh-output-dir>`.
 The Windows package contains AgentCraft 0.3.1, Fabric API 0.161.0+26.3, a bundled Node runtime,
