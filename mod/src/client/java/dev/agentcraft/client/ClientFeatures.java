@@ -28,6 +28,7 @@ public final class ClientFeatures {
 
 	public static void init() {
 		ForemanFeature.init();   // link + state model (dev.foreman, dev.state.foreman)
+		dev.agentcraft.client.studio.ConfiguratorClient.init();
 		AnchorsDev.init();       // dev.anchors, dev.camera {anchor}
 		ItemsDev.init();         // dev.screen creative_agentcraft
 		AgentsFeature.init();    // agent NPCs, nameplates, dev.agents

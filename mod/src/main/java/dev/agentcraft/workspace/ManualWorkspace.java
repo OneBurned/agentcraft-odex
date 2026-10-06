@@ -19,6 +19,7 @@ import java.util.UUID;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
+import net.fabricmc.fabric.api.event.player.UseItemCallback;
 import net.minecraft.commands.Commands;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
@@ -59,8 +60,14 @@ public final class ManualWorkspace {
 		ServerTickEvents.END_SERVER_TICK.register(server -> {
 			if (data.active() && ++ticks % 20 == 0) bindNearby(server.overworld());
 		});
+		UseItemCallback.EVENT.register((player, level, hand) -> {
+			if (level.isClientSide() && player.getItemInHand(hand).getItem() instanceof ConfiguratorItem)
+				return ConfiguratorItem.useOnClient(player, null);
+			return InteractionResult.PASS;
+		});
 		UseBlockCallback.EVENT.register((player, level, hand, hit) -> {
 			if (!(player.getItemInHand(hand).getItem() instanceof ConfiguratorItem)) return InteractionResult.PASS;
+			if (level.isClientSide()) return ConfiguratorItem.useOnClient(player, hit.getBlockPos());
 			if (!level.isClientSide()) {
 				if (player.isSecondaryUseActive()) cycleOrHelp(player);
 				else assign((ServerPlayer)player, selected.getOrDefault(player.getUUID(),WorkspaceRole.DESK), hit.getBlockPos());
@@ -101,19 +108,28 @@ public final class ManualWorkspace {
 			ServerLevel level=(ServerLevel)player.level();
 			if(level.getServer().isDedicatedServer() || level.dimension()!=Level.OVERWORLD) throw new IllegalArgumentException("Рабочее место доступно в обычном измерении одиночной игры.");
 			if(!player.isCreative()) throw new IllegalArgumentException("Для настройки рабочего места включи творческий режим.");
-			var state=level.getBlockState(clicked);
-			boolean seat=state.getBlock() instanceof StairBlock;
-			BlockPos feet=seat?clicked:clicked.above();
-			if (!seat && (!level.getBlockState(feet).getCollisionShape(level,feet).isEmpty()
-				|| state.getCollisionShape(level,clicked).isEmpty())) throw new IllegalArgumentException("Выбери свободный пол или кресло из ступеньки.");
-			if (!level.getBlockState(feet.above()).getCollisionShape(level,feet.above()).isEmpty()) throw new IllegalArgumentException("Над местом должно быть пространство для головы.");
-			float yaw=seat?state.getValue(StairBlock.FACING).getOpposite().toYRot():player.getDirection().toYRot();
+			var spot=placement(player,clicked);
+			BlockPos feet=new BlockPos(spot.x(),spot.y(),spot.z());
 			WorkspaceData base=data.active()?data:new WorkspaceData(false,Map.of());
-			commit(level.getServer(),base.with(role,new WorkspaceData.Spot(feet.getX(),feet.getY(),feet.getZ(),yaw)));
+			commit(level.getServer(),base.with(role,spot));
 			selected.put(player.getUUID(),role);
 			player.sendSystemMessage(Component.literal(role.label+": "+feet.toShortString()+". Codex подключён; мониторы и индикаторы в пределах 32 блоков подключаются автоматически."),false);
 			return true;
 		} catch (Exception e) { player.sendSystemMessage(Component.literal(e.getMessage()==null?"Не удалось настроить рабочее место":e.getMessage()),false); return false; }
+	}
+	/** Shared floor/chair geometry for the original workspace and personal configurator places. */
+	public static WorkspaceData.Spot placement(Player player, BlockPos clicked) {
+		var level=player.level();
+		if(level.dimension()!=Level.OVERWORLD) throw new IllegalArgumentException("Рабочее место доступно в обычном измерении.");
+		if(!player.isCreative()) throw new IllegalArgumentException("Для настройки рабочего места включи творческий режим.");
+		var state=level.getBlockState(clicked);
+		boolean seat=state.getBlock() instanceof StairBlock;
+		BlockPos feet=seat?clicked:clicked.above();
+		if (!seat && (!level.getBlockState(feet).getCollisionShape(level,feet).isEmpty()
+			|| state.getCollisionShape(level,clicked).isEmpty())) throw new IllegalArgumentException("Выбери свободный пол или кресло из ступеньки.");
+		if (!level.getBlockState(feet.above()).getCollisionShape(level,feet.above()).isEmpty()) throw new IllegalArgumentException("Над местом должно быть пространство для головы.");
+		float yaw=seat?state.getValue(StairBlock.FACING).getOpposite().toYRot():player.getDirection().toYRot();
+		return new WorkspaceData.Spot(feet.getX(),feet.getY(),feet.getZ(),yaw);
 	}
 	private static void commit(MinecraftServer server,WorkspaceData next) {
 		try {

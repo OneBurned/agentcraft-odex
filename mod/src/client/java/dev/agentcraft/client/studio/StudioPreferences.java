@@ -51,11 +51,16 @@ public final class StudioPreferences {
     public void mark(String id, String role) {
         var mc = Minecraft.getInstance(); var p = mc.player;
         if (p == null || mc.getSingleplayerServer() == null) throw new IllegalStateException("Настройка мест доступна в одиночном мире.");
-        var b = Anchors.current().bounds();
-        if (b == null || !b.contains(p.getBlockX(), p.getBlockY(), p.getBlockZ())) throw new IllegalStateException("Сначала отметь основное место Настройщиком. Оставайся в пределах рабочего участка.");
-        worlds.computeIfAbsent(world(), k -> new HashMap<>()).put(id + "/" + role,
-            new Anchor("studio_" + id + "_" + role, p.getX(), p.getY(), p.getZ(), p.getYRot(), 0));
-        save();
+        markAt(id, role, new Anchor("", p.getX(), p.getY(), p.getZ(), p.getYRot(), 0));
+    }
+    public void markAt(String id, String role, Anchor place) {
+        if (Minecraft.getInstance().getSingleplayerServer() == null) throw new IllegalStateException("Настройка мест доступна в одиночном мире.");
+        String key = world(); var previous = worlds.get(key);
+        var next = dev.agentcraft.workspace.WorkspaceAssignments.with(previous == null ? Map.of() : previous,
+            id, role, place, Anchors.current().bounds());
+        worlds.put(key, next);
+        try { save(); }
+        catch (RuntimeException e) { if (previous == null) worlds.remove(key); else worlds.put(key, previous); throw e; }
     }
     public void remove(String id, String role) { worlds.computeIfAbsent(world(), k -> new HashMap<>()).remove(id + "/" + role); save(); }
     public Anchor target(String id, String role, Anchor fallback) {

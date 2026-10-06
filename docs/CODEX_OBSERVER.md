@@ -9,6 +9,31 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### 0.4.3 configurator agent selection (prepared)
+
+Right-click a visible agent with the Configurator to select that agent by stable ID, including
+renamed characters such as Клава. The tool's tooltip and action messages identify the selected
+agent and station role. Right-click a floor/chair to save that agent's personal place; sneak-use
+on a block or in air cycles roles. Sneak-right-click an agent clears selection and restores the
+original shared-workspace workflow. Selection resets on world/dimension changes; saved places
+remain scoped to the single-player world. This does not enable agents or start/stop real work.
+
+Personal assignments use the same `StudioPreferences.markAt` storage as the command desk's
+**Места** tab, with bounds validation and rollback on save failure. Floor height and stair-facing
+geometry are shared with the original `ManualWorkspace` placement. The primary workspace must
+already exist; assigning personal spots requires creative mode in the overworld. Existing
+workspace commands still edit the shared layout. Client item/block callbacks consume personal
+clicks before packet transmission so they cannot also move the shared Codex workspace.
+
+The 0.4.3 mod is prepared; installation needs separate approval. Only the JAR needs replacing
+when upgrading from 0.4.2. Installed version remains 0.4.2; Minecraft is not auto-launched.
+Validation: build and 15 Java tests passed, including seven personal-assignment checks for
+agent/role isolation, moving a place, JSON round-trip, boundaries and invalid inputs. The
+installed Fabric callback implementation was inspected to confirm that `FAIL` suppresses
+item/block packets. Package: `dist/AgentCraft-Codex-0.4.3-ready` (matching Windows ZIP), with
+JAR hash verified against the build. Clicks and tooltips still need an in-game check after
+installation; the running Minecraft instance has not been changed.
+
 ### 0.4.2 additional appearances (installed)
 
 Six user-supplied PNGs are bundled unchanged as cosmetic skins: `girl_swimsuit`
