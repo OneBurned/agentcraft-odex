@@ -9,7 +9,7 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
-### 0.4.13 remembered placement (prepared, not installed)
+### 0.4.13 remembered placement (installed 2026-10-06)
 
 `preview` now captures a player's building ID, world, centre, rotation and bounds after validation.
 `place` requires that selection and never raycasts or derives rotation from the player's current
@@ -23,7 +23,11 @@ The player-inside error now says to move outside and repeat place without aiming
 All 51 Java tests pass, including real scheme imports and selection regression tests;
 the isolated portable studio smoke check also passes.
 Package: `dist/AgentCraft-Codex-0.4.13-preview-selection`, including the three private schemes.
-Minecraft remains on 0.4.12 until separately approved installation. In-game verification is pending.
+Installed after user approval from behavior commit `e30ceb6`. Installed JAR and packaged schemes
+were verified by SHA-256; existing settings and building files were preserved. Previous mods
+are in `.minecraft/agentcraft-backups/20261006-231522-968`. Installation report:
+`artifacts/install-0.4.13-preview-selection.json`. The bridge was not restarted and Minecraft
+was not launched. In-game verification is pending.
 
 ### 0.4.12 Minecraft commands and imported buildings (installed 2026-10-06)
 
