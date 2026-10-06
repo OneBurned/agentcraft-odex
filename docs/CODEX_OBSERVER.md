@@ -9,6 +9,23 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### 0.4.1 preview crash fix (prepared, not installed)
+
+The user's `crash-2026-10-06_12.33.14-client.txt` shows `Entity.getId()` throwing from
+`ItemModelResolver.updateForLiving` while `StudioScreen` renders a character preview.
+World NPCs received an ID in `AgentManager.spawn`, but screen-only previews bypassed it.
+ID allocation now happens in `ClientAgentEntity` construction, shared across world NPCs and
+previews, with negative IDs. The manager no longer assigns a second ID. This fixes the same
+initialization defect for both Codex and Claude without inserting previews into the world.
+Saved skins and the bridge are unchanged. Version 0.4.1 is prepared only at the user's request;
+the installed version remains 0.4.0. Rendering in Minecraft still needs verification after
+the user approves installing the fixed JAR and restarts the game.
+Validation: Gradle build and all eight model tests passed. Inspection of the compiled constructor
+confirms `setId` precedes `AgentLife` initialization and return; the world manager no longer assigns
+an ID independently. Minecraft was not launched for the check, and the installed JAR was not replaced.
+
+### Using the command desk
+
 Place **Пульт AgentCraft / Command Desk** from the creative AgentCraft tab, or use
 `/give @s agentcraft:command_desk`. Right-click it without the Configurator. Its tabs are:
 

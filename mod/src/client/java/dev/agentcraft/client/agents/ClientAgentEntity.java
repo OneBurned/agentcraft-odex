@@ -18,6 +18,9 @@ import org.jspecify.annotations.Nullable;
  * the {@link AgentHooks} tickers.
  */
 public class ClientAgentEntity extends AgentEntity implements ClientAvatarEntity {
+	// Shared by world NPCs and screen previews. Minecraft 26.3 renderers read getId()
+	// even for entities that are never added to a level. Negative ids avoid server ids.
+	private static int nextEntityId = -10_000;
 	private final ClientAvatarState avatarState = new ClientAvatarState();
 	private final AgentView view;
 	private final AgentMotion motion = new AgentMotion();
@@ -31,6 +34,7 @@ public class ClientAgentEntity extends AgentEntity implements ClientAvatarEntity
 
 	public ClientAgentEntity(ClientLevel level, String agentId, PlayerSkin skin) {
 		super(ModEntities.AGENT, level);
+		setId(nextEntityId--);
 		this.view = new AgentView(agentId);
 		this.skin = skin;
 		this.life = new AgentLife(this);

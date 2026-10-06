@@ -66,7 +66,6 @@ public final class AgentManager {
 	private long awaitingRevision = -1;
 	private @Nullable ClientLevel level;
 	private long layoutRevision = -1;
-	private int nextEntityId = -10_000;
 	private int pathFailures;
 	private long ticks;
 
@@ -358,8 +357,6 @@ public final class AgentManager {
 
 	private ClientAgentEntity spawn(ClientLevel lvl, Agent a, Anchor target) {
 		ClientAgentEntity e = new ClientAgentEntity(lvl, a.id(), AgentSkins.get(a.id(), a.skin()));
-		// Negative ids never collide with server-assigned entity ids.
-		e.setId(nextEntityId--);
 		Seats.Seat seat = seats.at(lvl, target, ticks, new GridPathfinder(lvl, Anchors.current().bounds()));
 		e.life().setSeat(seat);
 		place(e, seat != null ? seat.target() : target);
