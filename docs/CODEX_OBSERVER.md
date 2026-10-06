@@ -9,6 +9,36 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### 0.4.9 readable console and task-wall controls (prepared)
+
+The console uses nearly the full available window and shows all wrapped lines, preserving
+paragraphs and lists. Authors occupy a separate row and messages have spacing. Paired bold/inline
+code markers and heading/fence markers are removed for plain-text reading; code contents remain.
+A−/A+ changes message size from 50–125% (75% default), saved in agentcraft-studio.json. Wheel,
+Page Up/Down and the draggable scrollbar navigate the complete retained text. Routine agent
+status updates do not rebuild the wrapped conversation; feed updates and identity changes do.
+
+New Codex and Klava replies arrive as one conversation entry with optional FeedItem.fullText;
+the existing text field remains a compact preview for world panels and older clients. Both
+directions retain paragraph breaks. Older saved fragments still display all their available
+lines, but previously discarded text cannot be reconstructed from the feed. Server history is
+bounded by the entry limit and a 1 MB JSON budget (retaining at least the newest entry), evicting
+old whole entries rather than truncating retained answers. The client retains its latest 200 entries.
+
+In observer mode, progress cards have **Сообщение Codex** (prefills a task reference; Enter sends)
+and **Открыть план**. They are status records, not executable queue cards: generic Retry/Prioritize/
+Reassign/Cancel requests are rejected by this backend and are no longer offered there. Actual
+pool cards open Studio controls from wall clicks, task browsing and dev entry points. Disabled
+buttons cannot be activated through the task-wall dev press helper either. Sim/Claude backend
+task controls retain their existing actions.
+
+Package: `dist/AgentCraft-Codex-0.4.9-readable-console`. Installation and in-game visual verification
+require a separate step; the installed version remains 0.4.8.
+Validation: TypeScript, 621 Foreman tests, protocol-doc consistency and the Gradle build with
+35 Java tests passed. Tests cover complete multiline messages from both agents and the user,
+restart persistence, bounded history and paragraph/list/code formatting. The isolated portable
+check also covers native conversation projection and the existing planning workflow.
+
 ### 0.4.8 planning with Klava (installed)
 
 **Обсудить план** in both planning surfaces pauses the queue and opens a console message

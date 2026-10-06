@@ -24,6 +24,7 @@ public final class StudioPreferences {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static StudioPreferences loaded;
     public Map<String, Look> looks = new HashMap<>();
+    public float consoleTextScale = 0.75f;
     public Map<String, Map<String, Anchor>> worlds = new HashMap<>();
     public Map<String, Map<String, List<RestPlace>>> restPlaces = new HashMap<>();
     public static StudioPreferences get() {

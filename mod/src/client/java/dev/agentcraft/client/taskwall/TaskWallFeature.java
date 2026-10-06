@@ -100,11 +100,10 @@ public final class TaskWallFeature {
 			Vec3 hit = hr instanceof BlockHitResult bh && hr.getType() == HitResult.Type.BLOCK ? bh.getLocation() : Vec3.atCenterOf(pos);
 			String id = taskAt(pos, state, hit);
 			if (id != null) {
-				var task = Foreman.state().task(id);
-				mc.gui.setScreen(task != null && task.queueStage() != null ? new dev.agentcraft.client.studio.StudioScreen(id) : new TaskScreen(id));
+				mc.gui.setScreen(TaskScreen.forTask(id));
 			}
 		});
-		DevBridge.registerScreen("task", mc -> new TaskScreen(defaultTask()));
+		DevBridge.registerScreen("task", mc -> TaskScreen.forTask(defaultTask()));
 		DevBridge.register("dev.taskwall", 10_000, "{open?: taskId, press?: button, aim?: taskId, board?: \"x y z\" origin, lightFloor?: 0-15, ppb?: 0-256, relayout?} "
 				+ "-> task wall boards/cards; opens/presses/aims; lightFloor/ppb override the light floor / density (0 = auto); relayout re-plans",
 			(req, mc) -> {
@@ -134,7 +133,7 @@ public final class TaskWallFeature {
 							throw new DevBridge.DevException("no task " + open);
 						}
 						selected = open;
-						mc.gui.setScreen(new TaskScreen(open));
+						mc.gui.setScreen(TaskScreen.forTask(open));
 					}
 					if (press != null) {
 						if (!(mc.gui.screen() instanceof TaskScreen ts)) {

@@ -204,7 +204,7 @@ public final class Protocol {
 		}
 	}
 
-	public record FeedItem(long ts, FeedKind kind, String text, @Nullable String agentId, @Nullable String to) {
+	public record FeedItem(long ts, FeedKind kind, String text, @Nullable String agentId, @Nullable String to, @Nullable String fullText) {
 		public FeedItem {
 			kind = kind == null ? FeedKind.UNKNOWN : kind;
 			text = text == null ? "" : text;

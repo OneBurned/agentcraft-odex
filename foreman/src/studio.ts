@@ -211,7 +211,7 @@ export class Studio {
       }
       this.data.dialog!.history.push({ role: 'assistant', text: answer }); this.data.dialog!.history = this.data.dialog!.history.slice(-30);
       for (const chunk of textChunks(answer, 1900)) this.fm.agentLog('wren', 'result', chunk);
-      for (const chunk of textChunks(answer)) this.fm.bus.feed('message', chunk, { agentId: 'wren', to: 'user' });
+      this.fm.bus.feed('message', answer, { agentId: 'wren', to: 'user' });
       this.fm.act('wren', 'done', 'lounge', 'Ответ готов'); this.save();
     })).catch(e => this.lock(async () => {
       if (this.closed || controller.signal.aborted || this.dialogAbort !== controller) return;
@@ -233,10 +233,8 @@ export class Studio {
       ? messages.findIndex(m => m.id === dialog.sessionCursor) : -1;
     if (index >= 0) for (const m of messages.slice(index + 1)) {
       for (const chunk of textChunks((m.role === 'user' ? 'Вы: ' : '') + m.text, 1900)) this.fm.agentLog('wren', m.role === 'user' ? 'text' : 'result', chunk);
-      for (const chunk of textChunks(m.text)) {
-        if (m.role === 'user') this.fm.bus.send('user', 'wren', chunk);
-        else this.fm.bus.feed('message', chunk, { agentId: 'wren', to: 'user' });
-      }
+      if (m.role === 'user') this.fm.bus.send('user', 'wren', m.text);
+      else this.fm.bus.feed('message', m.text, { agentId: 'wren', to: 'user' });
     }
     dialog.sessionId = sessionId; dialog.sessionCursor = messages.at(-1)?.id;
     dialog.history = messages.slice(-30).map(m => ({ role: m.role, text: m.text.slice(0, 16000) }));

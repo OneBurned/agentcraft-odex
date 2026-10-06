@@ -73,6 +73,7 @@ public final class ForemanState {
 	private @Nullable ForemanStatus status;
 	private LinkStatus link;
 	private long revision;
+	private long feedRevision;
 	private long snapshotAt;
 	private long lastMessageAt;
 	private int snapshots;
@@ -215,6 +216,7 @@ public final class ForemanState {
 	public long revision() {
 		return revision;
 	}
+	public long feedRevision() { return feedRevision; }
 
 	public long snapshotAt() {
 		return snapshotAt;
@@ -433,6 +435,7 @@ public final class ForemanState {
 				FeedItem item = ForemanJson.read(json, FeedAdd.class).item();
 				if (item != null) {
 					bounded(feed, item, FEED_TAIL);
+					feedRevision++;
 					fire(l -> l.onFeed(item));
 				}
 			}
@@ -456,6 +459,7 @@ public final class ForemanState {
 	}
 
 	private void applySnapshot(Snapshot s) {
+		feedRevision++;
 		agents.clear();
 		tasks.clear();
 		decisions.clear();

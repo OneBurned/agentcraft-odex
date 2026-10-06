@@ -68,9 +68,11 @@ try {
   assert.equal(restored.mode, 'paused'); assert.equal(restored.items[0].stage, 'queued');
   assert.equal(restored.notes[0].body, 'Проверка сохранения'); assert.equal(restored.active, undefined);
   assert.equal(restored.dialog.sessionCursor, originalCursor);
-  await nativeMessage('user', 'New terminal message'); const nextCursor = await nativeMessage('assistant', 'New terminal reply');
+  const longReply = 'New terminal reply\n\n' + 'Подробный пункт списка\n'.repeat(80) + '\nПоследний абзац';
+  await nativeMessage('user', 'New terminal message'); const nextCursor = await nativeMessage('assistant', longReply);
   for (let n = 0; n < 80 && (await get()).dialog?.sessionCursor !== nextCursor; n++) await new Promise(r => setTimeout(r, 100));
   assert.equal((await get()).dialog.sessionCursor, nextCursor, 'New terminal history must reach the restarted game bridge');
+  assert.equal(client.state.feed.filter(f => f.fullText === longReply).length, 1, 'A long reply must reach the console as one complete message with paragraphs');
   assert.equal(path.normalize(restored.helper), path.join(pkg, 'studio.mjs'));
   const helperResult = execFileSync(path.join(pkg, 'runtime/node.exe'), [path.join(pkg, 'studio.mjs'), 'get', '--port', String(port)], { windowsHide: true, encoding: 'utf8' });
   assert.equal(JSON.parse(helperResult).items[0].id, id);

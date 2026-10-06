@@ -185,6 +185,12 @@ export class Store {
   pushFeed(item: FeedItem): void {
     this.data.feed.push(item);
     if (this.data.feed.length > FEED_LIMIT) this.data.feed.splice(0, this.data.feed.length - FEED_LIMIT);
+    // Full conversation bodies can be much larger than the world-panel previews.
+    // Evict oldest whole entries; never turn a retained answer into a partial one.
+    const sizes = this.data.feed.map(f => Buffer.byteLength(JSON.stringify(f), 'utf8') + 1);
+    let bytes = sizes.reduce((sum, size) => sum + size, 2), remove = 0;
+    while (bytes > 1_000_000 && remove < sizes.length - 1) bytes -= sizes[remove++]!;
+    if (remove) this.data.feed.splice(0, remove);
     this.markDirty();
   }
 

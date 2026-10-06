@@ -45,7 +45,7 @@ export class ObserverBackend implements Backend {
       onStatus: message => { this.chatGuidance = message; this.fm.setStatus({ auth: 'ok', message }); },
       onActivity: activity => this.onChatActivity(activity),
       onText: (text, final) => {
-        for (const chunk of textChunks(text)) this.fm.bus.feed('message', chunk, { agentId: 'marlow', to: 'user' });
+        this.fm.bus.feed('message', text, { agentId: 'marlow', to: 'user' });
         for (const chunk of textChunks(text, 1900)) this.fm.agentLog('marlow', final ? 'result' : 'text', chunk);
       },
     });

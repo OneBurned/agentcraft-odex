@@ -81,6 +81,16 @@ public class ConsoleScreen extends Screen {
 	private int listY;
 	private int listW;
 	private int listH;
+	private int fontX, fontY;
+	private boolean draggingScroll;
+	private float messageScale() { float value = dev.agentcraft.client.studio.StudioPreferences.get().consoleTextScale; return Float.isFinite(value) ? Math.max(0.5f, Math.min(1.25f, value)) : 0.75f; }
+	private void resizeText(float delta) {
+		var prefs = dev.agentcraft.client.studio.StudioPreferences.get();
+		float previous = prefs.consoleTextScale;
+		prefs.consoleTextScale = Math.max(0.5f, Math.min(1.25f, Math.round((messageScale() + delta) * 8) / 8f));
+		try { prefs.save(); rowsRev = -1; }
+		catch (RuntimeException e) { prefs.consoleTextScale = previous; ConsoleLog.add(Tone.ERROR, "Не удалось сохранить размер шрифта."); }
+	}
 	private final List<int[]> chipHits = new ArrayList<>(); // x, y, w, h, agent index
 	private final List<String> chipAgents = new ArrayList<>();
 	private int popupX;
@@ -449,11 +459,11 @@ public class ConsoleScreen extends Screen {
 			return true;
 		}
 		if (k == InputConstants.KEY_PAGEUP) {
-			scroll.scrollBy(-Math.max(1, (int) (listH / (ROW * TextUtil.MESSAGE_SCALE)) - 1));
+			scroll.scrollBy(-Math.max(1, (int) (listH / (ROW * messageScale())) - 1));
 			return true;
 		}
 		if (k == InputConstants.KEY_PAGEDOWN) {
-			scroll.scrollBy(Math.max(1, (int) (listH / (ROW * TextUtil.MESSAGE_SCALE)) - 1));
+			scroll.scrollBy(Math.max(1, (int) (listH / (ROW * messageScale())) - 1));
 			return true;
 		}
 		if (k == InputConstants.KEY_END && e.hasControlDown() && input.isEmpty()) {
@@ -488,6 +498,13 @@ public class ConsoleScreen extends Screen {
 	public boolean mouseClicked(MouseButtonEvent e, boolean doubleClick) {
 		double mx = e.x();
 		double my = e.y();
+		if (e.button() == 0 && !overlayOpen() && my >= fontY && my < fontY + 12) {
+			if (mx >= fontX && mx < fontX + 23) { resizeText(-0.125f); return true; }
+			if (mx >= fontX + 65 && mx < fontX + 88) { resizeText(0.125f); return true; }
+		}
+		if (e.button() == 0 && mx >= listX + listW - 10 && mx < listX + listW && my >= listY && my < listY + listH) {
+			draggingScroll = true; scrollToMouse(my); return true;
+		}
 		// completion rows
 		if (popupVisible() && mx >= popupX && mx < popupX + popupW && my >= popupY) {
 			int i = (int) ((my - popupY - 5) / popupRowH);
@@ -513,7 +530,7 @@ public class ConsoleScreen extends Screen {
 		}
 		// a "needs you" line in the feed opens the decision queue (Esc comes back here)
 		if (!overlayOpen() && mx >= listX && mx < listX + listW - 10 && my >= listY + 4 && my < listY + listH - 2) {
-			int i = scroll.offset() + (int) ((my - listY - 4) / (ROW * TextUtil.MESSAGE_SCALE));
+			int i = scroll.offset() + (int) ((my - listY - 4) / (ROW * messageScale()));
 			if (i >= 0 && i < rows.size() && rows.get(i).opensDecisions() && DecisionsFeature.waitingCount() > 0) {
 				DecisionsFeature.openQueue(null, this);
 				return true;
@@ -529,9 +546,18 @@ public class ConsoleScreen extends Screen {
 		return super.mouseClicked(e, doubleClick);
 	}
 
+	private void scrollToMouse(double y) {
+		int target = (int) Math.round(Math.max(0, Math.min(1, (y - listY - 2) / Math.max(1, listH - 4))) * scroll.max());
+		scroll.scrollBy(target - scroll.offset());
+	}
+	@Override public boolean mouseDragged(MouseButtonEvent e, double dx, double dy) {
+		if (draggingScroll) { scrollToMouse(e.y()); return true; }
+		return super.mouseDragged(e, dx, dy);
+	}
+	@Override public boolean mouseReleased(MouseButtonEvent e) { draggingScroll = false; return super.mouseReleased(e); }
 	@Override
 	public boolean mouseScrolled(double x, double y, double scrollX, double scrollY) {
-		scroll.scrollBy(scrollY > 0 ? -3 : 3);
+		if (scrollY != 0) scroll.scrollBy(scrollY > 0 ? -3 : 3);
 		return true;
 	}
 
@@ -590,7 +616,7 @@ public class ConsoleScreen extends Screen {
 
 		// ---- command bar
 		// the bar and the feed share one column (one aligned console, not a full-width bar under a panel)
-		panelW = Math.min(420, Math.max(260, width * 62 / 100));
+		panelW = Math.max(1, Math.min(760, width - 2 * M));
 		fieldX = M;
 		fieldW = panelW;
 		TextFieldView.Style st = fieldStyle();
@@ -600,7 +626,7 @@ public class ConsoleScreen extends Screen {
 		// ---- feed panel
 		panelX = M;
 		int panelBottom = fieldY - 5;
-		panelH = Math.min(panelBottom - 46, Math.max(120, (int) (height * 0.6)));
+		panelH = Math.max(1, panelBottom - M);
 		panelY = panelBottom - panelH;
 		drawPanel(g, s, mouseX, mouseY);
 
@@ -645,15 +671,15 @@ public class ConsoleScreen extends Screen {
 		listW = w;
 		listH = panelY + panelH - p.bottom() - footerH - 3 - y;
 		Panels.inset(g, listX, listY, listW, listH);
-		int messageWidth = (int) (listW / TextUtil.MESSAGE_SCALE);
-		List<Row> rs = rows((int) ((listW - 14) / TextUtil.MESSAGE_SCALE));
-		int view = Math.max(1, (int) ((listH - 6) / (ROW * TextUtil.MESSAGE_SCALE)));
+		int messageWidth = (int) (listW / messageScale());
+		List<Row> rs = rows((int) ((listW - 14) / messageScale()));
+		int view = Math.max(1, (int) ((listH - 6) / (ROW * messageScale())));
 		scroll.update(rs.size(), view);
 		int ly = 0;
 		g.enableScissor(listX + 2, listY + 2, listX + listW - 2, listY + listH - 2);
 		g.pose().pushMatrix();
 		g.pose().translate(listX, listY + 4);
-		g.pose().scale(TextUtil.MESSAGE_SCALE, TextUtil.MESSAGE_SCALE);
+		g.pose().scale(messageScale(), messageScale());
 		if (rs.isEmpty()) {
 			String msg = s == null || !s.hasData() ? "Waiting for the Foreman…" : "Nothing yet. Type a goal below and press Enter.";
 			g.text(font, msg, 8, ly + 2, UiBits.muted(), false);
@@ -713,10 +739,21 @@ public class ConsoleScreen extends Screen {
 		int waiting = DecisionsFeature.waitingCount();
 		String[] hints = waiting > 0 ? new String[] {"Enter", "send", "Tab", "complete", "↑↓", "history", dk, waiting + " waiting", "Esc", "close"}
 			: new String[] {"Enter", "send", "Tab", "complete", "↑↓", "history", "Shift+Enter", "new line", "Esc", "close"};
-		if (UiBits.hintsWidth(font, hints) > w) {
+		if (UiBits.hintsWidth(font, hints) > w - 94) {
 			hints = new String[] {"Enter", "send", "Tab", "complete", "↑↓", "history", "Esc", "close"};
 		}
+		if (UiBits.hintsWidth(font, hints) > w - 94) hints = new String[] {"Enter", "send", "Esc", "close"};
 		UiBits.hints(g, font, x, fy, false, hints);
+		fontX = x + w - 88; fontY = fy - 2;
+		fontButton(g, "A−", fontX, fontY, mouseX, mouseY);
+		g.text(font, Math.round(messageScale() * 100) + "%", fontX + 27, fontY + 2, UiBits.muted(), false);
+		fontButton(g, "A+", fontX + 65, fontY, mouseX, mouseY);
+	}
+
+	private void fontButton(GuiGraphicsExtractor g, String label, int x, int y, int mx, int my) {
+		boolean hover = mx >= x && mx < x + 23 && my >= y && my < y + 12;
+		Panels.sprite(g, Kit.button(false, hover ? "hover" : "normal"), x, y, 23, 12);
+		g.text(font, label, x + (23 - font.width(label)) / 2, y + 2, UiBits.ink(), false);
 	}
 
 	private boolean overlayOpen() {
@@ -900,13 +937,14 @@ public class ConsoleScreen extends Screen {
 
 	private List<Row> rows(int width) {
 		long rev = ConsoleLog.revision();
+		ForemanState s = Foreman.state();
+		if (s != null) for (Agent agent : s.agents().values()) rev = 31 * rev + java.util.Objects.hash(agent.name(), agent.color());
 		if (rev == rowsRev && width == rowsWidth) {
 			return rows;
 		}
 		rowsRev = rev;
 		rowsWidth = width;
 		List<Row> out = new ArrayList<>();
-		ForemanState s = Foreman.state();
 		int textW = width - 15;
 		String lastTime = "";
 		for (Line l : ConsoleLog.lines()) {
@@ -1028,33 +1066,16 @@ public class ConsoleScreen extends Screen {
 				}
 			}
 		}
-		// wrap: the lead sits on the first line, continuation lines hang under the text
-		int leadW = 0;
-		for (Run r : lead) {
-			leadW += font.width(r.text());
-		}
-		String text = body.replace('\n', ' ');
-		List<String> first = TextUtil.wrapPlain(font, text, Math.max(40, textW - leadW));
-		if (first.isEmpty()) {
-			first = List.of("");
-		}
-		List<Run> r0 = new ArrayList<>(lead);
-		r0.add(new Run(first.get(0), header ? ink : bodyColor));
-		String faceAgent = agent != null && (UiBits.hasPortrait(agent)) ? agent : null;
+		String faceAgent = agent != null && UiBits.hasPortrait(agent) ? agent : null;
 		boolean opens = !l.local() && l.kind() == FeedKind.DECISION && l.text().contains("needs you");
-		out.add(new Row(time, faceAgent, stripe, r0, header, false, opens, false));
-		if (first.size() > 1) {
-			String rest = text.substring(Math.min(text.length(), first.get(0).length())).stripLeading();
-			List<String> more = TextUtil.wrapPlain(font, rest, textW);
-			int max = l.local() ? 12 : 4;
-			for (int i = 0; i < Math.min(max, more.size()); i++) {
-				String seg = more.get(i);
-				if (i == max - 1 && more.size() > max) {
-					seg = TextUtil.ellipsize(font, seg + " …", textW);
-				}
-				out.add(new Row("", null, stripe, List.of(new Run(seg, bodyColor)), false, false, opens, true));
-			}
+		if (!lead.isEmpty()) out.add(new Row(time, faceAgent, stripe, lead, false, false, opens, false));
+		String readable = dev.agentcraft.text.ConversationText.readable(body);
+		List<String> lines = TextUtil.wrapPlain(font, readable, textW);
+		for (int i = 0; i < lines.size(); i++) {
+			out.add(new Row("", lead.isEmpty() && i == 0 ? faceAgent : null, stripe,
+				List.of(new Run(lines.get(i), header ? ink : bodyColor)), header && i == 0, false, opens, i > 0 || !lead.isEmpty()));
 		}
+		out.add(new Row("", null, 0, List.of(), false, false));
 	}
 
 	private static final java.util.regex.Pattern AGENT_ACTION = java.util.regex.Pattern.compile("^(\\w+): (pause|resume|stop|spawn)(.*)$");

@@ -71,6 +71,12 @@ public class TaskScreen extends Screen {
 		return taskId;
 	}
 
+	public static Screen forTask(String id) {
+		Task t = Foreman.state() == null ? null : Foreman.state().task(id);
+		return t != null && t.queueStage() != null ? new dev.agentcraft.client.studio.StudioScreen(id) : new TaskScreen(id);
+	}
+	private boolean observer() { return dev.agentcraft.client.console.ConsoleCommands.observer(Foreman.state()); }
+
 	@Override
 	public boolean isPauseScreen() {
 		return false;
@@ -132,6 +138,9 @@ public class TaskScreen extends Screen {
 			}
 		}
 		taskId = all.get(Math.floorMod(i + dir, all.size())).id();
+		if (task() != null && task().queueStage() != null) {
+			minecraft.gui.setScreen(forTask(taskId)); return;
+		}
 		feedback = null;
 		confirmCancel = false;
 		reassignOpen = false;
@@ -333,6 +342,10 @@ public class TaskScreen extends Screen {
 		String primary = confirmCancel ? "cancel" : blocked || t.ci() == CiStatus.FAIL ? "retry" : t.status() == TaskStatus.TODO ? "prioritize" : "";
 		int gap = 4;
 		int bw = (inner - gap * 3) / 4;
+		if (observer()) {
+			button(g, "message", "Сообщение Codex", x, y, (inner - gap) / 2, 20, true, live, null, mouseX, mouseY, false);
+			button(g, "plan", "Открыть план", x + (inner + gap) / 2, y, (inner - gap) / 2, 20, false, live, null, mouseX, mouseY, false);
+		} else {
 		button(g, "retry", "Retry", x, y, bw, 20, primary.equals("retry"), live && !cancelled && t.status() != TaskStatus.TODO, null, mouseX, mouseY,
 			false);
 		button(g, "prioritize", "Prioritize", x + (bw + gap), y, bw, 20, primary.equals("prioritize"), live && !cancelled && !done, null, mouseX,
@@ -341,6 +354,7 @@ public class TaskScreen extends Screen {
 			mouseX, mouseY, false);
 		button(g, "cancel", confirmCancel ? "Confirm" : "Cancel", x + 3 * (bw + gap), y, inner - 3 * (bw + gap), 20, primary.equals("cancel"),
 			live && !cancelled && !done, null, mouseX, mouseY, false);
+		}
 		y += 20;
 		if (reassignOpen && s != null) {
 			y += 5;
@@ -415,6 +429,7 @@ public class TaskScreen extends Screen {
 		if (feedback != null) {
 			return feedback;
 		}
+		if (observer() && live) return "Это запись прогресса. Новые задачи — через план.";
 		return live ? null : "Foreman offline: actions are disabled";
 	}
 
@@ -489,7 +504,10 @@ public class TaskScreen extends Screen {
 	}
 
 	private void press(Btn b) {
+		if (!b.enabled()) return;
 		switch (b.id()) {
+			case "message" -> minecraft.gui.setScreen(new dev.agentcraft.client.console.ConsoleScreen("@Codex По задаче " + taskId + " («" + (task() == null ? "" : task().title()) + "»): "));
+			case "plan" -> minecraft.gui.setScreen(dev.agentcraft.client.studio.StudioScreen.planningDesk());
 			case "prev" -> browse(-1);
 			case "next" -> browse(1);
 			case "reassign" -> {
@@ -524,6 +542,7 @@ public class TaskScreen extends Screen {
 	}
 
 	private void send(String action, @Nullable String arg) {
+		if (observer()) { feedback = "Управление задачами доступно через план и очередь."; feedbackError = true; return; }
 		String id = taskId;
 		feedback = "Sending " + action + "...";
 		feedbackError = false;

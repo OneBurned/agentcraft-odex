@@ -207,6 +207,7 @@ export const FeedItem = z.object({
   ts: Ts,
   kind: FeedKind,
   text: z.string(),
+  fullText: z.string().optional().describe('Complete conversation text for scrollable readers; text remains the compact preview for world panels.'),
   agentId: Id.optional().describe('who it is about / from'),
   to: z.string().optional().describe('message recipient: agent id, "user" or "all"'),
 });

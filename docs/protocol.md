@@ -171,6 +171,7 @@ Exact option labels: merge decisions use `Merge`, `Request changes`, `Reject`; p
 | `ts` | integer | yes | epoch milliseconds |
 | `kind` | [FeedKind](#feedkind) | yes |  |
 | `text` | string | yes |  |
+| `fullText` | string | no | Complete conversation text for scrollable readers; text remains the compact preview for world panels. |
 | `agentId` | string | no | who it is about / from |
 | `to` | string | no | message recipient: agent id, "user" or "all" |
 

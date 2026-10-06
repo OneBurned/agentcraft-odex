@@ -13,6 +13,7 @@ export class MessageBus {
   /** Append to the activity feed (persisted + broadcast). */
   feed(kind: FeedKind, text: string, extra: { agentId?: string; to?: string } = {}): FeedItem {
     const item: FeedItem = { ts: this.ctx.now(), kind, text: truncate(text, 400) };
+    if (kind === 'message' || kind === 'user') item.fullText = text;
     if (extra.agentId) item.agentId = extra.agentId;
     if (extra.to) item.to = extra.to;
     this.ctx.store.pushFeed(item);
