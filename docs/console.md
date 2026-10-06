@@ -2,12 +2,21 @@
 
 ## Codex observer variant (0.3.1)
 
-With the optional desktop chat binding, plain text, `/goal text` and `@Codex text` go to the
-bound existing Codex desktop chat. Enter sends; Shift+Enter inserts a newline. The acknowledgement
+With the optional desktop chat binding, plain text replies to the last agent who addressed you
+(Codex or Claude); without history it goes to Codex. The input hint shows the actual recipient
+before Enter. `@Codex`, `@Клава`, `@Claude` or a character's name explicitly choose an agent;
+`@all` and `/goal text` still go to the bound Codex chat. Enter sends; Shift+Enter inserts a newline. The acknowledgement
 confirms delivery only. Public assistant commentary and completed final answers return to the
 console feed and monitor, polled every five seconds. The app must remain open. The binding is
 local to this Windows user; after a Codex app restart it may need reconnecting from that chat.
 See `CODEX_OBSERVER.md` and the package `README.txt` for setup and limitations.
+
+The latest speaker is stored by agent ID in the bridge profile and survives game/bridge restarts,
+renaming and `/clear`. Public replies, questions and review updates/results count; user messages
+and background statuses do not. If the recipient is busy, paused, disabled or unavailable, the
+reply is refused with an explanation and stays in the input. It is never redirected to the other
+agent. Automatic replies clear only after confirmed delivery. Explicit mentions keep their
+existing behavior, including Codex steering during work.
 
 Observer `/help` lists supported commands: `/help blocks` (also `/blocks`), `/chat`, `/status`,
 `/sound on|off`, `/clear`, `/repos`, `/pause`, `/resume`, `/stop`. `/chat` includes the connection message and task status.

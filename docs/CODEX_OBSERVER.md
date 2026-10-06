@@ -9,6 +9,33 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### Console replies to the latest speaker (t32, not installed)
+
+Plain console text addresses the last Codex/Claude character to speak to the user. With no
+history it addresses Codex. The editor shows the recipient before Enter; explicit `@Codex`,
+`@Клава`, `@Claude` and character-name mentions override this selection. `@all`, `/goal`, and
+`/pause`/`/resume`/`/stop` retain their existing routes (unqualified controls address Codex).
+
+The bridge stores `replyAgentId` by stable agent ID in the profile's `state.json`, independently
+of the bounded feed. It survives game/bridge restarts and console `/clear`; another bridge
+profile has its own selection. Older profiles derive it from retained feed entries, or Codex
+if none qualify. Append order breaks equal timestamps. Only nonempty `message` or `decision`
+feed entries from `marlow`/`wren` addressed to `user` count: public replies, questions and review
+updates/results. Their journal copies do not count again. User messages, internal agent messages,
+task statuses and raw tool logs do not select a recipient.
+
+Snapshots carry the saved ID, and live feed events update the client selection. On Enter the
+client sends that exact ID with `user.message.reply=true`; a newer message during delivery
+cannot redirect it. Disabled, paused, busy or disconnected recipients return an error. Codex
+native approval waits must be handled in the desktop app. Explicit messages retain their
+existing steering behavior. Hidden characters are not treated as disabled executors.
+Automatic replies stay in the editor until a successful acknowledgement, including when the
+console closes; failures keep the draft, and edited drafts are not erased by late acknowledgements.
+No update is installed or pushed by this task; in-game visual verification remains pending.
+Validation: all 55 Java tests and 654 bridge tests pass, the mod builds, TypeScript typechecking
+passes, and generated protocol documentation matches its schema. Java tests exercise the real
+console parser/snapshot model; bridge tests cover persistence, routing and unavailable executors.
+
 ### 0.4.13 remembered placement (installed 2026-10-06)
 
 `preview` now captures a player's building ID, world, centre, rotation and bounds after validation.
@@ -443,7 +470,7 @@ or memory. Both launchers keep GitHub credentials in the existing local login.
 The agent card's Message button now opens its inline field. Enter/Send addresses that agent's
 stable ID and keeps the draft until delivery is acknowledged. Sent text (`Вы:`) and replies are
 saved in that agent's journal. Console mentions accept current character names plus `@Codex`
-and `@Claude`; plain text and `@all` retain the existing Codex destination. The hint shows the
+and `@Claude`/`@Клава`; plain text uses the latest speaker as described above, while `@all` keeps the Codex destination. The hint shows the
 actual recipient. `/pause`, `/resume`, `/stop` accept one optional agent mention.
 
 Without the optional review workspace above, Claude conversation uses a separate `ClaudeDialog`

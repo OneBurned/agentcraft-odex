@@ -167,6 +167,20 @@ export class Studio {
     }
   }
 
+  replyCodex(message: string): Promise<Record<string, unknown>> {
+    return this.lock(async () => {
+      const name = this.data.profiles[0]!.name;
+      if (!this.data.profiles[0]!.enabled) throw new Error(`${name}: исполнитель выключен в пульте.`);
+      if (this.fm.requireAgent('marlow').paused || this.data.personalPaused!.includes('marlow') || this.activity?.phase === 'paused')
+        throw new Error(`${name}: на паузе. Нажми «Продолжить» перед ответом.`);
+      if (this.owned('marlow') || this.data.suspended!.marlow || this.activity?.phase === 'working')
+        throw new Error(`${name}: занят. Дождись завершения работы перед ответом.`);
+      if (!this.activity || this.activity.phase === 'unavailable') throw new Error(`${name}: нет связи с исполнителем.`);
+      if (this.activity.phase === 'waiting') throw new Error(`${name}: ожидает подтверждения в приложении Codex.`);
+      return await this.transport.send(message) as Record<string, unknown>;
+    });
+  }
+
   messageClaude(message: string): Promise<Record<string, unknown>> {
     return this.lock(async () => {
       const value = text.parse(message);

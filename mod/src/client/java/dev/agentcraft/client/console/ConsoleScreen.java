@@ -329,6 +329,12 @@ public class ConsoleScreen extends Screen {
 				// closed meanwhile: the refused text waits in the next console
 				ConsoleLog.keepDraft(restored, restored.length());
 			}
+		}, accepted -> {
+			if (minecraft.gui.screen() == this && input.value().equals(accepted)) {
+				input.clear(); lastValue = ""; historyIndex = -1; draft = ""; scroll.toBottom();
+			} else if (ConsoleLog.draft().equals(accepted)) {
+				ConsoleLog.keepDraft("", 0);
+			}
 		});
 		switch (after) {
 			case CLEAR -> {
@@ -595,9 +601,15 @@ public class ConsoleScreen extends Screen {
 				hint = errorStripVisible() ? null : inv.error();
 			} else if (s != null) {
 				hint = ConsoleCommands.describe(intent, s);
+				if (intent instanceof ConsoleCommands.Message m && m.reply()) {
+					String error = ConsoleCommands.replyError(m, s);
+					if (error != null) { hint = error; hintColor = UiBits.errorText(); }
+				}
 			}
 		}
-		String placeholder = ConsoleCommands.observer(Foreman.state()) ? "Задача для Codex или /help" : "Type a goal, @agent to message, or /help";
+		String placeholder = ConsoleCommands.observer(Foreman.state())
+			? ConsoleCommands.replyHint(Foreman.state().replyAgentId(), Foreman.state()) + " или /help"
+			: "Type a goal, @agent to message, or /help";
 		return new TextFieldView.Style(">", UiStyle.BRASS, placeholder, ghostText(), hint, hintColor, 6);
 	}
 

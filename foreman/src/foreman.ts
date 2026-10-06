@@ -35,7 +35,7 @@ import { truncate } from './util/text.js';
 export interface Backend {
   readonly name: 'sim' | 'claude' | 'observer';
   onObserverUpdate?(update: ObserverUpdate): Record<string, unknown>;
-  onChatMessage?(text: string, agentId?: string): Promise<Record<string, unknown>>;
+  onChatMessage?(text: string, agentId?: string, reply?: boolean): Promise<Record<string, unknown>>;
   onChatControl?(action: 'pause' | 'resume' | 'stop', agentId?: string): Promise<Record<string, unknown>>;
   onStudioAction?(action: string, payload: Record<string, unknown>): Promise<Record<string, unknown>>;
   /** Called once after the core is ready (and after restart: resume work). */
@@ -472,6 +472,7 @@ export class Foreman {
     const goal = this.currentGoal();
     return {
       type: 'snapshot',
+      replyAgentId: this.store.data.replyAgentId ?? 'marlow',
       foreman: { ...this.status },
       agents: this.agents().map((a) => ({ ...a })),
       tasks: this.tasks.list().map((t) => ({ ...t, deps: [...t.deps] })),
@@ -521,7 +522,8 @@ export class Foreman {
       if (msg.type === 'user.message' && !['all', 'marlow', 'codex', 'wren', 'claude'].includes(msg.to.toLowerCase())) {
         throw new ClientError('Выбери Codex или Claude.');
       }
-      return this.backend.onChatMessage(msg.text, msg.type === 'user.message' && ['wren', 'claude'].includes(msg.to.toLowerCase()) ? 'wren' : 'marlow');
+      return this.backend.onChatMessage(msg.text, msg.type === 'user.message' && ['wren', 'claude'].includes(msg.to.toLowerCase()) ? 'wren' : 'marlow',
+        msg.type === 'user.message' && msg.reply === true);
     }
     if (this.config.backend === 'observer' && msg.type === 'decision.answer' &&
       this.decisions.get(msg.decisionId)?.tool === 'studio') {

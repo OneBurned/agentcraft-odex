@@ -254,7 +254,7 @@ public final class Protocol {
 	// ------------------------------------------------------------------ Foreman -> mod messages
 
 	public record Snapshot(ForemanStatus foreman, List<Agent> agents, List<Task> tasks, List<Decision> decisions, List<Repo> repos,
-		List<MemoryEntry> memory, @Nullable Goal goal, List<Goal> goals, List<FeedItem> feed, List<AgentLogs> logs) {
+		List<MemoryEntry> memory, @Nullable Goal goal, List<Goal> goals, List<FeedItem> feed, List<AgentLogs> logs, @Nullable String replyAgentId) {
 		public Snapshot {
 			agents = agents == null ? List.of() : List.copyOf(agents);
 			tasks = tasks == null ? List.of() : List.copyOf(tasks);

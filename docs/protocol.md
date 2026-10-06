@@ -237,6 +237,7 @@ Full state. Sent in reply to every `hello`; the mod rebuilds its view from it.
 | field | type | required | notes |
 | --- | --- | --- | --- |
 | `id` | string | no | client correlation id; the Foreman answers with `ack` {re: id} |
+| `replyAgentId` | `marlow` \| `wren` | no | Last observer agent to address the user; persisted across restarts; defaults to marlow |
 | `foreman` | [ForemanStatus](#foremanstatus) | yes |  |
 | `agents` | [Agent](#agent)[] | yes |  |
 | `tasks` | [Task](#task)[] | yes |  |
@@ -959,6 +960,7 @@ Message an agent (console: `@name text`) or everyone.
 | field | type | required | notes |
 | --- | --- | --- | --- |
 | `id` | string | no | client correlation id; the Foreman answers with `ack` {re: id} |
+| `reply` | boolean | no | Observer plain-text reply: keep the explicit recipient and reject if unavailable; never reroute |
 | `to` | string | yes | agent id or "all". With "all", a leading "@name" in text routes to that agent. |
 | `text` | string | yes |  |
 

@@ -49,7 +49,8 @@ public final class ConsoleCommands {
 	}
 
 	/** {@code to} = agent id or "all". */
-	public record Message(String to, String text) implements Intent {
+	public record Message(String to, String text, boolean reply) implements Intent {
+		public Message(String to, String text) { this(to, text, false); }
 	}
 
 	public record Answer(Decision decision, @Nullable String option, @Nullable String text) implements Intent {
@@ -144,7 +145,7 @@ public final class ConsoleCommands {
 		if (trimmed.startsWith("/")) {
 			return parseCommand(trimmed, s);
 		}
-		return goal(trimmed, s);
+		return observer(s) ? new Message(s.replyAgentId(), trimmed, true) : goal(trimmed, s);
 	}
 
 	private static Intent goal(String text, ForemanState s) {
@@ -178,6 +179,7 @@ public final class ConsoleCommands {
 		String id = resolveAgent(who, s, true);
 		if (observer(s) && id == null && who.equalsIgnoreCase("codex")) id = "marlow";
 		if (observer(s) && id == null && who.equalsIgnoreCase("claude")) id = "wren";
+		if (observer(s) && id == null && who.equalsIgnoreCase("клава")) id = "wren";
 		if (id == null) {
 			return new Invalid("no agent named @" + who + agentListSuffix(s));
 		}
@@ -510,6 +512,7 @@ public final class ConsoleCommands {
 
 	/** One short line for the right side of the input: what Enter will do. Null = nothing to say. */
 	public static @Nullable String describe(Intent in, ForemanState s) {
+		if (observer(s) && in instanceof Message m && m.reply()) return replyHint(m.to(), s);
 		if (observer(s) && in instanceof Goal) return "отправить в чат Codex";
 		if (observer(s) && in instanceof Message m) return "отправить: " + displayName(m.to().equals("all") ? "marlow" : m.to(), s);
 		return switch (in) {
@@ -529,6 +532,26 @@ public final class ConsoleCommands {
 			case Invalid i -> null;
 			case Empty e -> null;
 		};
+	}
+
+	/** Recipient is frozen in the intent, including if another agent speaks during delivery. */
+	public static String replyHint(String id, ForemanState s) {
+		String name = displayName(id, s);
+		return name.equalsIgnoreCase("Клава") ? "ответ Клаве" : "ответ: " + name;
+	}
+
+	public static @Nullable String replyError(Message m, ForemanState s) {
+		if (!m.reply()) return null;
+		Agent a = s.agent(m.to());
+		String who = displayName(m.to(), s) + ": ";
+		if (a == null) return who + "нет данных об исполнителе. Дождись подключения.";
+		if (a.isPaused()) return who + "на паузе. Нажми «Продолжить» перед ответом.";
+		// Hidden characters can still be enabled; controls are the authoritative availability hint.
+		if (a.controls() != null && !a.controls().message()) return who + "сообщение недоступно. " + a.controls().hint();
+		if (a.controls() == null && !a.isActive()) return who + "исполнитель выключен.";
+		if (List.of(Protocol.AgentState.THINKING, Protocol.AgentState.READING, Protocol.AgentState.EDITING,
+			Protocol.AgentState.RUNNING, Protocol.AgentState.TESTING).contains(a.state())) return who + "занят. Дождись ответа.";
+		return null;
 	}
 
 	// ------------------------------------------------------------------ completion

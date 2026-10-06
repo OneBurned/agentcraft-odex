@@ -272,6 +272,7 @@ const envelope = <T extends string>(type: T) => ({
 
 export const SnapshotMsg = z.object({
   ...envelope('snapshot'),
+  replyAgentId: z.enum(['marlow', 'wren']).optional().describe('Last observer agent to address the user; persisted across restarts; defaults to marlow'),
   foreman: ForemanStatus,
   agents: z.array(Agent),
   tasks: z.array(Task),
@@ -365,6 +366,7 @@ export const GoalSubmitMsg = z.object({
 });
 export const UserMessageMsg = z.object({
   ...envelope('user.message'),
+  reply: z.boolean().optional().describe('Observer plain-text reply: keep the explicit recipient and reject if unavailable; never reroute'),
   to: z.string().min(1).describe('agent id or "all". With "all", a leading "@name" in text routes to that agent.'),
   text: z.string().min(1),
 });

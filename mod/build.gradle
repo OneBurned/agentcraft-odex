@@ -57,6 +57,10 @@ dependencies {
 	}
 }
 
+// Exercise the console's real parser and snapshot model in regression tests.
+sourceSets.test.compileClasspath += sourceSets.client.output + sourceSets.client.compileClasspath
+sourceSets.test.runtimeClasspath += sourceSets.client.output + sourceSets.client.runtimeClasspath
+
 processResources {
 	def version = project.version
 	inputs.property "version", version

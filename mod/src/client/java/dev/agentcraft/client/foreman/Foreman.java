@@ -63,6 +63,9 @@ public final class Foreman {
 	public static CompletableFuture<Ack> message(String to, String text) {
 		return link.send(ForemanJson.msg("user.message").put("to", to).put("text", text).json());
 	}
+	public static CompletableFuture<Ack> reply(String to, String text) {
+		return link.send(ForemanJson.msg("user.message").put("to", to).put("text", text).put("reply", true).json());
+	}
 
 	/** Answer a decision with an option label (preferred) and/or free text. */
 	public static CompletableFuture<Ack> answer(String decisionId, @Nullable String option, @Nullable String text) {

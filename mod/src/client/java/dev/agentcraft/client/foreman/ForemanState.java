@@ -74,6 +74,7 @@ public final class ForemanState {
 	private LinkStatus link;
 	private long revision;
 	private long feedRevision;
+	private String replyAgentId = "marlow";
 	private long snapshotAt;
 	private long lastMessageAt;
 	private int snapshots;
@@ -217,6 +218,14 @@ public final class ForemanState {
 		return revision;
 	}
 	public long feedRevision() { return feedRevision; }
+	public String replyAgentId() { return replyAgentId; }
+
+	private void rememberReplyAuthor(FeedItem item) {
+		if ("user".equals(item.to()) && (item.kind() == Protocol.FeedKind.MESSAGE || item.kind() == Protocol.FeedKind.DECISION)
+			&& ("marlow".equals(item.agentId()) || "wren".equals(item.agentId())) && item.text() != null && !item.text().isBlank()) {
+			replyAgentId = item.agentId();
+		}
+	}
 
 	public long snapshotAt() {
 		return snapshotAt;
@@ -434,6 +443,7 @@ public final class ForemanState {
 			case "feed.add" -> {
 				FeedItem item = ForemanJson.read(json, FeedAdd.class).item();
 				if (item != null) {
+					rememberReplyAuthor(item);
 					bounded(feed, item, FEED_TAIL);
 					feedRevision++;
 					fire(l -> l.onFeed(item));
@@ -468,6 +478,7 @@ public final class ForemanState {
 		goals.clear();
 		logs.clear();
 		feed.clear();
+		replyAgentId = "marlow";
 		for (Agent a : s.agents()) {
 			if (a != null && a.id() != null) {
 				agents.put(a.id(), a);
@@ -504,9 +515,11 @@ public final class ForemanState {
 		}
 		for (FeedItem f : s.feed()) {
 			if (f != null) {
+				rememberReplyAuthor(f);
 				bounded(feed, f, FEED_TAIL);
 			}
 		}
+		if ("marlow".equals(s.replyAgentId()) || "wren".equals(s.replyAgentId())) replyAgentId = s.replyAgentId();
 		for (AgentLogs l : s.logs()) {
 			if (l != null && l.agentId() != null) {
 				appendLogs(l.agentId(), l.entries());

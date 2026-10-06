@@ -60,6 +60,7 @@ public final class ConsoleActions {
 	private static int ackOkCount;
 	private static int ackErrorCount;
 	private static @Nullable String lastSent;
+	private static boolean replyPending;
 
 	private ConsoleActions() {
 	}
@@ -96,7 +97,8 @@ public final class ConsoleActions {
 	 * Run an intent. {@code raw} is the input as typed (kept in history); {@code restore} puts text
 	 * back into the input when a send fails (the screen ignores it once closed).
 	 */
-	public static After run(Intent in, String raw, Consumer<String> restore) {
+	public static After run(Intent in, String raw, Consumer<String> restore, Consumer<String> acceptedReply) {
+		if (replyPending && in instanceof Message m && m.reply()) return After.KEEP;
 		ForemanState s = Foreman.state();
 		switch (in) {
 			case Empty e -> {
@@ -175,6 +177,22 @@ public final class ConsoleActions {
 		}
 		if (!Foreman.connected()) {
 			setFeedback("Foreman offline: nothing was sent (it reconnects by itself)", Tone.ERROR, false);
+			return After.KEEP;
+		}
+		if (in instanceof Message m && m.reply()) {
+			String error = ConsoleCommands.replyError(m, s);
+			if (error != null) {
+				setFeedback(error, Tone.ERROR, false);
+				return After.KEEP;
+			}
+			ConsoleLog.remember(raw);
+			lastSent = raw.strip();
+			replyPending = true;
+			track(Foreman.reply(m.to(), m.text()).whenComplete((ack, errorResult) -> replyPending = false), raw, restore, ack -> {
+				acceptedReply.accept(raw);
+				return "Доставлено: " + ConsoleCommands.displayName(m.to(), s) + " " + UiBits.CHECK;
+			}, "Отправка: " + ConsoleCommands.displayName(m.to(), s) + "…");
+			// Keep the editor/draft intact until a positive acknowledgement, including on disconnect.
 			return After.KEEP;
 		}
 		ConsoleLog.remember(raw);
@@ -283,7 +301,7 @@ public final class ConsoleActions {
 		if ("blocks".equals(topic)) { blocks(); return; }
 		if (ConsoleCommands.observer(Foreman.state())) {
 			ConsoleLog.add(Tone.HEADER, "Консоль AgentCraft");
-			ConsoleLog.add(Tone.INFO, "Обычный текст или @Codex текст — в чат Codex. @Claude текст или @имя персонажа — выбранному агенту. Claude обсуждает план и ревью; код меняет Codex.");
+			ConsoleLog.add(Tone.INFO, "Обычный текст — последнему написавшему агенту; без истории — Codex. Получатель виден до Enter и сохраняется после перезапуска. @Codex, @Клава, @Claude или @имя — явно выбранному агенту; @all — Codex. Если получатель недоступен, текст остаётся в поле.");
 			for (Command c : ConsoleCommands.commands(Foreman.state())) {
 				if (topic == null || c.name().startsWith(topic)) ConsoleLog.add(Tone.HELP, c.usage() + "\t" + c.help());
 			}

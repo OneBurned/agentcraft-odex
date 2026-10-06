@@ -32,6 +32,36 @@ async function setup(reviewMode: 'auto' | 'manual' | 'off' = 'off') {
 }
 
 describe('personal agent controls and dialog', () => {
+  it('rejects automatic replies to unavailable Codex without sending, but accepts when ready', async () => {
+    const h = await setup();
+    h.studio.data.profiles[0]!.enabled = false;
+    await expect(h.studio.replyCodex('Текст')).rejects.toThrow('выключен');
+    h.studio.data.profiles[0]!.enabled = true;
+    h.fm.setAgent('marlow', { paused: true });
+    await expect(h.studio.replyCodex('Текст')).rejects.toThrow('паузе');
+    h.fm.setAgent('marlow', { paused: false });
+    for (const phase of ['working', 'waiting', 'unavailable', 'paused'] as const) {
+      h.studio.onActivity({ key: 'bound/turn-1', phase });
+      await expect(h.studio.replyCodex('Текст')).rejects.toThrow();
+    }
+    expect(h.send).not.toHaveBeenCalled(); expect(h.dialogRun).not.toHaveBeenCalled();
+    h.studio.onActivity({ key: 'bound/turn-1', phase: 'completed' });
+    await h.studio.replyCodex('Ответ\nцеликом');
+    expect(h.send).toHaveBeenCalledExactlyOnceWith('Ответ\nцеликом');
+  });
+  it('refuses unavailable Claude without sending the reply to Codex', async () => {
+    const h = await setup();
+    h.studio.data.profiles[1]!.enabled = false;
+    await expect(h.studio.messageClaude('Текст')).rejects.toThrow('Включи');
+    h.studio.data.profiles[1]!.enabled = true;
+    h.fm.setAgent('wren', { paused: true });
+    await expect(h.studio.messageClaude('Текст')).rejects.toThrow('паузу');
+    h.fm.setAgent('wren', { paused: false });
+    h.studio.data.dialog!.pending = 'Предыдущий вопрос';
+    await expect(h.studio.messageClaude('Текст')).rejects.toThrow('занята');
+    expect(h.send).not.toHaveBeenCalled(); expect(h.dialogRun).not.toHaveBeenCalled();
+    expect(h.studio.data.dialog!.pending).toBe('Предыдущий вопрос');
+  });
   it('does not mistake an old partial reply for completion when a paused conversation returns from the terminal', async () => {
     const h = await setup(); let external: string | undefined;
     const history = [{ id: '1', role: 'user' as const, text: 'Вопрос' }, { id: '2', role: 'assistant' as const, text: 'Незаконченный ответ' }];

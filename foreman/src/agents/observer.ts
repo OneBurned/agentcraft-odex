@@ -194,14 +194,15 @@ export class ObserverBackend implements Backend {
     return { taskId: task.id, goalId: task.goalId, state: update.state };
   }
 
-  async onChatMessage(text: string, agentId = 'marlow'): Promise<Record<string, unknown>> {
+  async onChatMessage(text: string, agentId = 'marlow', reply = false): Promise<Record<string, unknown>> {
     try {
       if (agentId === 'wren') {
         if (!this.studio) throw new Error('Мост ещё запускается.');
         return await this.studio.messageClaude(text);
       }
       if (!this.chat) throw new Error('Чат не подключён.');
-      const result = await this.chat.send(text);
+      if (reply && !this.studio) throw new Error('Мост ещё запускается.');
+      const result = reply ? await this.studio!.replyCodex(text) : await this.chat.send(text);
       this.fm.bus.send('user', 'marlow', text);
       for (const chunk of textChunks('Вы: ' + text, 1900)) this.fm.agentLog('marlow', 'text', chunk);
       return result;

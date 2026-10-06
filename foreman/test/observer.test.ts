@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ObserverBackend, REST_DELAY_MS } from '../src/agents/observer.js';
+import { ClientError } from '../src/foreman.js';
 import { parseClientMessage, type ClientMessage, type ObserverUpdate, type Outbound } from '../src/protocol.js';
 import { makeForeman, rmrf, tempDir, type Harness } from './helpers.js';
 
@@ -212,14 +213,23 @@ describe('Codex observer', () => {
     const ack = await send(h, { v: 1, id: 'claude', type: 'agent.action', agentId: 'wren', action: 'stop' });
     expect(ack?.ok).toBe(false);
   });
-  it('routes explicit Claude messages to Claude and ordinary console text to Codex', async () => {
+  it('honors the selected reply recipient without changing explicit, all or legacy goal routes', async () => {
     const h = await setup();
     const relay = vi.spyOn(h.backend, 'onChatMessage').mockResolvedValue({ accepted: true });
     await send(h, { v: 1, id: 'claude-message', type: 'user.message', to: 'wren', text: 'Привет' });
-    expect(relay).toHaveBeenLastCalledWith('Привет', 'wren');
+    expect(relay).toHaveBeenLastCalledWith('Привет', 'wren', false);
     await send(h, { v: 1, id: 'codex-message', type: 'user.message', to: 'marlow', text: 'Задача' });
-    expect(relay).toHaveBeenLastCalledWith('Задача', 'marlow');
+    expect(relay).toHaveBeenLastCalledWith('Задача', 'marlow', false);
     await send(h, { v: 1, id: 'plain-message', type: 'goal.submit', text: 'План' });
-    expect(relay).toHaveBeenLastCalledWith('План', 'marlow');
+    expect(relay).toHaveBeenLastCalledWith('План', 'marlow', false);
+    h.fm.bus.feed('message', 'Новый ответ Codex', { agentId: 'marlow', to: 'user' });
+    await send(h, { v: 1, id: 'reply', type: 'user.message', to: 'wren', text: 'Ответ Клаве', reply: true });
+    expect(relay).toHaveBeenLastCalledWith('Ответ Клаве', 'wren', true);
+    await send(h, { v: 1, id: 'all', type: 'user.message', to: 'all', text: 'Всем' });
+    expect(relay).toHaveBeenLastCalledWith('Всем', 'marlow', false);
+    relay.mockRejectedValueOnce(new ClientError('Клава занята'));
+    expect(await send(h, { v: 1, id: 'busy', type: 'user.message', to: 'wren', text: 'Текст', reply: true }))
+      .toMatchObject({ ok: false, error: 'Клава занята' });
+    expect(relay).toHaveBeenCalledTimes(6);
   });
 });
