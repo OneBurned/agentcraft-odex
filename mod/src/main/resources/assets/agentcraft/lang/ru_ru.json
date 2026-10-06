@@ -15,5 +15,6 @@
   "block.agentcraft.memory_catalog": "Каталог памяти",
   "block.agentcraft.merge_station": "Стол ревью",
   "block.agentcraft.decision_podium": "Кафедра решений",
-  "block.agentcraft.command_desk": "Пульт AgentCraft"
+  "block.agentcraft.command_desk": "Пульт AgentCraft",
+  "block.agentcraft.planning_desk": "Стол планирования"
 }

@@ -9,6 +9,30 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### 0.4.6 separate planning desk (prepared)
+
+The new **Стол планирования / Planning Desk** block (`agentcraft:planning_desk`) opens a
+planning-only view of the existing `StudioScreen`. It shares the same `studio.action` calls,
+cards, draft creation/editing, expected results, dependencies, priorities, discussion and
+approval buttons with the command desk. There is no second queue or block-local task storage.
+The command desk keeps all its tabs. The planning desk shows the plan directly, with Refresh
+and the existing Questions button; execution is still started from the command desk's Queue.
+
+The block is included in the AgentCraft creative tab and can be given with
+`/give @s agentcraft:planning_desk`. Right-click without the Configurator and without sneaking
+to open it. Its four-facing model is a walnut table with a paper floor plan, notes and a pencil,
+using existing textures and a table-shaped collision volume. Placing it does not change personal
+meeting anchors. Opening it gathers characters at their already assigned planning places;
+opening alone does not pause execution. **Обсудить план** retains the existing queue pause and
+console-prefill behavior. Task forms/details return to this same planning-only screen.
+
+Validation: build and all 33 existing Java tests passed. Resource checks verified all texture
+references, element bounds, four facing variants, item model, both locale names and list/footer
+bounds at common GUI heights. No new backend or persistence behavior is introduced. In-game
+model and UI verification is pending; Minecraft was not auto-launched. Package:
+`dist/AgentCraft-Codex-0.4.6-ready` and the matching Windows ZIP. Installation awaits separate
+approval; 0.4.5 remains installed. The bridge does not need an update or restart.
+
 ### 0.4.5 turn and dip dance sequence (installed)
 
 Every agent's existing pole dance now pauses at opposite sides of the ring, turns its back to

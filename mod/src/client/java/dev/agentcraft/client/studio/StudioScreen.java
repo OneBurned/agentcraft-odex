@@ -21,7 +21,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.network.chat.Component;
 
-/** One command desk; server mutations always wait for an acknowledgement. */
+/** Shared command-desk and planning-desk UI; mutations always wait for an acknowledgement. */
 public final class StudioScreen extends Screen {
     private static final String[] TABS = {"Команда", "Внешность", "План", "Очередь", "Места", "Память", "Настройки"};
     private static final String[] ROLES = {"desk", "library", "testbench", "terminal", "mergestation", "meeting", "lounge", "user"};
@@ -38,8 +38,15 @@ public final class StudioScreen extends Screen {
     private String draftColor;
     private ClientAgentEntity preview;
     private final List<Label> labels = new ArrayList<>();
+    private final boolean planningOnly;
     private record Label(String text, int x, int y, int width) {}
-    public StudioScreen() { super(Component.literal("Пульт AgentCraft")); }
+    public StudioScreen() { this(false); }
+    private StudioScreen(boolean planningOnly) {
+        super(planningOnly ? Component.translatable("block.agentcraft.planning_desk") : Component.literal("Пульт AgentCraft"));
+        this.planningOnly = planningOnly;
+        if (planningOnly) { tab = 2; status = "Загружаю план…"; }
+    }
+    public static StudioScreen planningDesk() { return new StudioScreen(true); }
     public StudioScreen(String taskId) { this(); openTask = taskId; tab = 3; }
     public static boolean gathering() {
         var screen = Minecraft.getInstance().gui.screen();
@@ -50,7 +57,9 @@ public final class StudioScreen extends Screen {
     }
     public static void initFeature() {
         StationInteractions.onUse(ModBlocks.COMMAND_DESK, (p, pos, state, be) -> Minecraft.getInstance().gui.setScreen(new StudioScreen()));
+        StationInteractions.onUse(ModBlocks.PLANNING_DESK, (p, pos, state, be) -> Minecraft.getInstance().gui.setScreen(planningDesk()));
         dev.agentcraft.client.dev.DevBridge.registerScreen("studio", mc -> new StudioScreen());
+        dev.agentcraft.client.dev.DevBridge.registerScreen("planning", mc -> planningDesk());
     }
     @Override public boolean isPauseScreen() { return false; }
     @Override public void tick() { super.tick(); if (++pollTicks >= 60) { pollTicks = 0; if (!busy && (tab == 2 || tab == 3) && Foreman.connected()) request("get", new JsonObject(), null); } }
@@ -98,12 +107,16 @@ public final class StudioScreen extends Screen {
     }
     private void layout() {
         clearWidgets(); labels.clear(); preview = null;
-        w = Math.min(650, width - 16); h = Math.min(440, height - 16); x = (width - w) / 2; y = (height - h) / 2; top = y + 78;
-        for (int i = 0; i < TABS.length; i++) {
-            final int n = i; int bw = (w - 24) / 4;
-            button(TABS[i], x + 12 + (i % 4) * bw, y + 28 + (i / 4) * 23, bw - 3, () -> { tab = n; page = 0; draft = null; layout(); });
+        w = Math.min(650, width - 16); h = Math.min(440, height - 16); x = (width - w) / 2; y = (height - h) / 2; top = y + (planningOnly ? 57 : 78);
+        if (planningOnly) {
+            label("Общий план проекта · те же карточки, что в пульте", x + 12, y + 34, w - 120);
+        } else {
+            for (int i = 0; i < TABS.length; i++) {
+                final int n = i; int bw = (w - 24) / 4;
+                button(TABS[i], x + 12 + (i % 4) * bw, y + 28 + (i / 4) * 23, bw - 3, () -> { tab = n; page = 0; draft = null; layout(); });
+            }
         }
-        button("Обновить", x + w - 96, y + 51, 84, () -> request("get", new JsonObject(), null));
+        button("Обновить", x + w - 96, y + (planningOnly ? 28 : 51), 84, () -> request("get", new JsonObject(), null));
         if (!data.has("version")) return;
         switch (tab) {
             case 0 -> team(); case 1 -> appearance(); case 2, 3 -> tasks(); case 4 -> places(); case 5 -> memory(); case 6 -> settings();
@@ -170,7 +183,7 @@ public final class StudioScreen extends Screen {
             for (int n = 0; n < 4; n++) { final String op = ops[n]; button(names[n], left + n * (bw + 2), cy, bw, () -> request(op, new JsonObject(), null)); }
         }
         cy += 26;
-        var list = visibleTasks(); int count = Math.max(1, (h - 155) / 25); page = Math.min(page, Math.max(0, (list.size() - 1) / count));
+        var list = visibleTasks(); int count = Math.max(1, (y + h - 50 - cy) / 25); page = Math.min(page, Math.max(0, (list.size() - 1) / count));
         for (int n = page * count; n < Math.min(list.size(), (page + 1) * count); n++) {
             var item = list.get(n); button(str(item, "id") + " · " + stage(str(item, "stage")) + " · " + str(item, "title"), left, cy, w - 24, () -> taskDetails(item)); cy += 25;
         }
@@ -253,7 +266,7 @@ public final class StudioScreen extends Screen {
     }
     @Override public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float dt) {
         g.fill(x, y, x + w, y + h, 0xF22B2925); g.fill(x, y, x + w, y + 2, 0xFFBC984B);
-        g.text(font, "Пульт AgentCraft · " + switch (str(data, "mode")) { case "running" -> "Выполнение"; case "paused" -> "Пауза"; default -> "Планирование"; }, x + 12, y + 11, 0xFFF2EAD8);
+        g.text(font, TextUtil.ellipsize(font, title.getString() + " · " + switch (str(data, "mode")) { case "running" -> "Выполнение"; case "paused" -> "Пауза"; default -> "Планирование"; }, w - 24), x + 12, y + 11, 0xFFF2EAD8);
         for (Label l : labels) g.text(font, TextUtil.ellipsize(font, l.text(), l.width()), l.x(), l.y(), 0xFFD5CEC0);
         if (preview != null) {
             int px = x + 24 + Math.max(150, (w - 32) * 2 / 3);

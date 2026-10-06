@@ -43,5 +43,6 @@
   "key.agentcraft.console": "Open the console",
   "key.agentcraft.console_terminal": "Console (looking at a terminal)",
   "key.agentcraft.decisions": "Answer decisions",
-  "block.agentcraft.command_desk": "AgentCraft Command Desk"
+  "block.agentcraft.command_desk": "AgentCraft Command Desk",
+  "block.agentcraft.planning_desk": "Planning Desk"
 }

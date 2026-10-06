@@ -31,6 +31,11 @@ public final class ModBlocks {
 	private static final List<Block> ALL = new ArrayList<>();
 	public static final Block COMMAND_DESK = register("command_desk", FacingBlock::new,
 		BlockBehaviour.Properties.of().mapColor(MapColor.WOOD).strength(2.0f).sound(SoundType.COPPER).lightLevel(s -> 5));
+	public static final Block PLANNING_DESK = register("planning_desk",
+		p -> new FacingBlock(p, Shapes.or(Block.box(0, 12, 0, 16, 14.5, 16),
+			Block.box(1, 0, 1, 3, 12, 3), Block.box(13, 0, 1, 15, 12, 3),
+			Block.box(1, 0, 13, 3, 12, 15), Block.box(13, 0, 13, 15, 12, 15))),
+		nonOpaque().mapColor(MapColor.WOOD).strength(2.0f).sound(SoundType.WOOD));
 
 	public static final Block MONITOR = register("monitor", MonitorBlock::new,
 		panel().mapColor(MapColor.COLOR_BLACK).strength(1.5f).sound(SoundType.COPPER).lightLevel(MonitorBlock::light));
