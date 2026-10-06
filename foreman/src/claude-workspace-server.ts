@@ -2,6 +2,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { WorkspaceReader, clip } from './claude-workspace-access.js';
+import { WorkspaceCommandError } from './workspace-command-error.js';
 
 const directory = process.argv[process.argv.indexOf('--workspace') + 1];
 if (!process.argv.includes('--workspace') || !directory) throw new Error('Workspace required');
@@ -18,7 +19,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [
   tool('project_files', 'List tracked source files, including staged new files. Filter by substring; pages of 250.', { project, contains: str, offset: int }, ['project']),
   tool('project_read', 'Read current local source, including uncommitted changes. 1-based lines; max 250 lines.', { project, file: str, start: int, lines: int }, ['project', 'file']),
   tool('project_search', 'Literal text search in tracked source. Up to 200 files per page; narrow contains for large projects.', { project, text: str, contains: str, offset: int }, ['project', 'text']),
-  tool('project_git', 'Read status, latest 15 commits, or diff for one tracked file. base/head accept HEAD or hexadecimal SHA only. Default diff compares local files to HEAD.', { project, action: { enum: ['status', 'log', 'diff'] }, file: str, base: str, head: str }, ['project', 'action']),
+  tool('project_git', 'Read status/log, changed_files inventory, per-file diff, or show file at a commit. Begin review with changed_files, follow nextOffset until null; unreadable paths remain in inventory. With head, diff/changed_files compare to base or first parent (root commits supported); moves appear as delete+add. show uses head; for deleted files use the returned base. No head in diff compares local files to base or HEAD. Only HEAD/hex SHA refs. show supports 1-based start/lines.', { project, action: { enum: ['status', 'log', 'diff', 'changed_files', 'show'] }, file: str, base: str, head: str, offset: int, start: int, lines: int }, ['project', 'action']),
   tool('github_read', 'Read only the configured GitHub repository. Fixed GET operations; no arbitrary URLs or shell. Pulls/issues/commits use 20 results per page.', { project, action: { enum: ['repository', 'files', 'file', 'commits', 'commit', 'pulls', 'pull', 'pull_files', 'issues', 'issue'] }, file: str, ref: str, sha: str, number: int, page: int }, ['project', 'action']),
   tool('skill_read', 'Read current shared agent rules referenced by AGENTS.md. Omit file to list available Markdown documents. Paths are relative to the configured agent-skills folder, e.g. projects/trackrecord/trackrecord-domain-rules/SKILL.md. Read applicable rules before review; no scripts or writes.', { file: str, start: int, lines: int }),
   tool('memory_read', 'Read personal persistent notes.', {}),
@@ -26,6 +27,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [
 ] }));
 server.setRequestHandler(CallToolRequestSchema, async request => {
   try { const result = await reader.call(request.params.name, request.params.arguments ?? {}); return { content: [{ type: 'text', text: clip(typeof result === 'string' ? result : JSON.stringify(result)) }] }; }
-  catch (e) { return { isError: true, content: [{ type: 'text', text: e instanceof Error && !('issues' in e) ? clip(e.message, 500) : 'Некорректные параметры запроса.' }] }; }
+  catch (e) { return { isError: true, content: [{ type: 'text', text: e instanceof WorkspaceCommandError ? `[${e.code}] ${e.message}` : e instanceof Error && !('issues' in e) ? clip(e.message, 500) : 'Некорректные параметры запроса.' }] }; }
 });
 await server.connect(new StdioServerTransport(process.stdin, process.stdout, { maxBufferSize: 128000 }));

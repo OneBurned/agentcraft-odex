@@ -27,7 +27,9 @@ export function loadClaudeWorkspace(dataDir: string): ClaudeWorkspace | undefine
 
 export function claudeWorkspace(directory: string): ClaudeWorkspace {
   WorkspaceConfig.parse(JSON.parse(fs.readFileSync(path.join(directory, 'access.json'), 'utf8')));
-  const instructions = ['CLAUDE.md', 'PROJECTS.md', 'MEMORY.md'].map(name => {
+  const names = ['CLAUDE.md', 'PROJECTS.md', 'MEMORY.md'];
+  if (fs.existsSync(path.join(directory, 'WORKSPACE.md'))) names.push('WORKSPACE.md');
+  const instructions = names.map(name => {
     const file = path.join(directory, name);
     if (fs.statSync(file).size > 64000) throw new Error(`Слишком большой файл памяти: ${name}`);
     return `\n--- ${name} ---\n${fs.readFileSync(file, 'utf8')}`;

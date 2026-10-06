@@ -35,7 +35,7 @@ await copy(path.join(root,'LICENSE'),path.join(out,'licenses/AgentCraft-MIT.txt'
 await copy(path.join(root,'foreman/node_modules/ws/LICENSE'),path.join(out,'licenses/ws-MIT.txt'));
 await copy(path.join(root,'foreman/node_modules/zod/LICENSE'),path.join(out,'licenses/zod-MIT.txt'));
 await copy(path.join(root,'foreman/node_modules/@modelcontextprotocol/sdk/LICENSE'),path.join(out,'licenses/MCP-SDK-MIT.txt'));
-for (const name of ['CLAUDE.md', 'PROJECTS.md', 'MEMORY.md'])
+for (const name of ['CLAUDE.md', 'PROJECTS.md', 'MEMORY.md', 'WORKSPACE.md'])
   await copy(path.join(root,'tools/klava',name),path.join(out,'klava-template',name));
 const nodeVersion=process.version;
 const license=await fetch(`https://raw.githubusercontent.com/nodejs/node/${nodeVersion}/LICENSE`);

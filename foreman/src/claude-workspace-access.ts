@@ -4,6 +4,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import { WorkspaceConfig, type WorkspaceAccess } from './claude-workspace.js';
+import { githubError } from './workspace-command-error.js';
 
 const exec = promisify(execFile);
 const repoArg = z.object({ project: z.string() });
@@ -15,7 +16,7 @@ export type Execute = (command: string, args: string[], cwd?: string) => Promise
 const execute: Execute = async (command, args, cwd) => {
   try { return (await exec(command, args, { cwd, windowsHide: true, shell: false, timeout: 20000, maxBuffer: 4 * 1024 * 1024,
     env: { ...process.env, GH_PROMPT_DISABLED: '1', GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' } })).stdout; }
-  catch { throw new Error(command === 'gh' ? 'GitHub недоступен: проверь вход gh и доступ к выбранному репозиторию.' : 'Не удалось прочитать Git выбранного проекта.'); }
+  catch (error) { throw command === 'gh' ? githubError(error) : new Error('Не удалось прочитать Git выбранного проекта.'); }
 };
 /** These files are outside a source review even when accidentally tracked. */
 export function sourceFile(file: string): boolean {
@@ -39,6 +40,19 @@ export class WorkspaceReader {
   }
   private git(id: string, args: string[]) { return this.run('git', ['--no-pager', '--literal-pathspecs', '-c', 'core.fsmonitor=false', ...args], this.repo(id).path); }
   private async files(id: string) { return (await this.git(id, ['ls-files', '-z', '--cached'])).split('\0').filter(sourceFile); }
+  private async commit(id: string, ref: string) {
+    return (await this.git(id, ['rev-parse', '--verify', `${ref}^{commit}`])).trim();
+  }
+  private async range(id: string, base?: string, head = 'HEAD') {
+    const right = await this.commit(id, head);
+    const left = base ? await this.commit(id, base)
+      : (await this.git(id, ['rev-list', '--parents', '-n', '1', right])).trim().split(/\s+/)[1];
+    return { base: left ?? null, head: right };
+  }
+  private async treeFile(id: string, head: string, file: string) {
+    const entries = (await this.git(id, ['ls-tree', '-z', head, '--', file])).split('\0').filter(Boolean);
+    return entries.some(entry => /^100(?:644|755) blob [a-f0-9]+\t/.test(entry) && entry.slice(entry.indexOf('\t') + 1) === file);
+  }
   private async localFile(id: string, file: string, knownFiles?: string[]) {
     if (!sourceFile(file) || !(knownFiles ?? await this.files(id)).includes(file)) throw new Error('Доступны только разрешённые файлы, добавленные в Git.');
     const root = await fs.realpath(this.repo(id).path);
@@ -64,11 +78,13 @@ export class WorkspaceReader {
       return real;
     };
     if (!p.file) {
-      const files: string[] = [];
+      const files: string[] = []; let depthLimited = false;
       const walk = async (dir: string, depth: number) => {
-        if (depth > 6 || files.length >= 500) return;
+        if (files.length > 500) return;
+        if (depth > 6) { depthLimited = true; return; }
         let entries; try { entries = await fs.readdir(await inside(dir), { withFileTypes: true }); } catch { return; }
         for (const entry of entries) {
+          if (files.length > 500) break;
           const file = `${dir}/${entry.name}`;
           if (entry.isSymbolicLink() || !sourceFile(file)) continue;
           if (entry.isDirectory()) await walk(file, depth + 1);
@@ -77,7 +93,7 @@ export class WorkspaceReader {
       };
       for (const dir of ['common', 'projects/trackrecord']) await walk(dir, 0);
       try { await inside('AGENTS.md'); files.unshift('AGENTS.md'); } catch {}
-      return { files: files.slice(0, 500), limited: files.length >= 500 };
+      return { files: files.slice(0, 500), limited: depthLimited || files.length > 500 };
     }
     if (!allowed(p.file)) throw new Error('Доступны Markdown-правила common и projects/trackrecord.');
     const target = await inside(p.file); const stat = await fs.stat(target);
@@ -111,11 +127,46 @@ export class WorkspaceReader {
       return { totalFiles: all.length, scannedPage: { offset: p.offset, count: scanned }, matches, limited: matches.length >= 80 || p.offset + scanned < all.length };
     }
     if (name === 'project_git') {
-      const p = repoArg.extend({ action: z.enum(['status', 'log', 'diff']), base: revision.optional(), head: revision.optional(), file: z.string().optional() }).parse(args);
+      const p = repoArg.extend({ action: z.enum(['status', 'log', 'diff', 'changed_files', 'show']), base: revision.optional(), head: revision.optional(), file: z.string().max(4096).optional(),
+        offset: z.number().int().min(0).default(0), start: z.number().int().min(1).default(1), lines: z.number().int().min(1).max(250).default(120) }).parse(args);
       if (p.action === 'status') return clip(await this.git(p.project, ['status', '--short', '--branch']));
       if (p.action === 'log') return clip(await this.git(p.project, ['log', '-15', '--format=%h %ad %s', '--date=iso-strict']));
-      if (!p.file || !sourceFile(p.file) || !(await this.files(p.project)).includes(p.file)) throw new Error('Для diff укажи разрешённый файл из project_files.');
-      return clip(await this.git(p.project, ['diff', '--no-ext-diff', '--no-textconv', '--unified=12', ...(p.base ? [p.base, ...(p.head ? [p.head] : [])] : ['HEAD']), '--', p.file]));
+      if (p.action === 'changed_files') {
+        const range = await this.range(p.project, p.base, p.head);
+        const fields = (await this.git(p.project, range.base
+          ? ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--name-status', '-z', range.base, range.head, '--']
+          : ['diff-tree', '--root', '--no-commit-id', '--no-renames', '--name-status', '-z', '-r', range.head, '--'])).split('\0');
+        const files: { status: string; file: string; readable: boolean }[] = [];
+        for (let i = 0; i + 1 < fields.length; i += 2) files.push({ status: fields[i]!, file: fields[i + 1]!, readable: sourceFile(fields[i + 1]!) });
+        // Include every path in the inventory, flagging paths whose contents cannot be read.
+        // Renames deliberately appear as deletion + addition, avoiding hidden old paths.
+        const page: typeof files = []; let bytes = 0;
+        for (const file of files.slice(p.offset, p.offset + 100)) {
+          const length = JSON.stringify(file).length;
+          if (bytes + length > 20000 && page.length) break;
+          page.push(file); bytes += length;
+        }
+        return { ...range, total: files.length, offset: p.offset, files: page, nextOffset: p.offset + page.length < files.length ? p.offset + page.length : null };
+      }
+      if (!p.file || !sourceFile(p.file)) throw new Error('Укажи разрешённый путь исходного файла.');
+      if (p.action === 'show') {
+        const head = await this.commit(p.project, p.head ?? 'HEAD');
+        if (!await this.treeFile(p.project, head, p.file)) throw new Error('Обычного файла нет в выбранном коммите. Для удалённого файла выбери base из changed_files.');
+        const content = await this.git(p.project, ['show', `${head}:${p.file}`]);
+        if (Buffer.byteLength(content) > 1024 * 1024 || content.includes('\0')) throw new Error('Нужен текстовый файл до 1 МБ.');
+        const lines = content.split(/\r?\n/);
+        return { head, file: p.file, totalLines: lines.length, text: clip(lines.slice(p.start - 1, p.start - 1 + p.lines).map((line, n) => `${p.start + n}: ${line}`).join('\n')) };
+      }
+      if (p.head) {
+        const range = await this.range(p.project, p.base, p.head);
+        if (!await this.treeFile(p.project, range.head, p.file) && !(range.base && await this.treeFile(p.project, range.base, p.file))) throw new Error('Файла нет в выбранных коммитах.');
+        return clip(await this.git(p.project, range.base
+          ? ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--unified=12', range.base, range.head, '--', p.file]
+          : ['show', '--format=', '--root', '--no-ext-diff', '--no-textconv', '--no-renames', '--unified=12', range.head, '--', p.file]));
+      }
+      const base = await this.commit(p.project, p.base ?? 'HEAD');
+      if (!(await this.files(p.project)).includes(p.file) && !await this.treeFile(p.project, base, p.file)) throw new Error('Файл не отслеживается в выбранном проекте.');
+      return clip(await this.git(p.project, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--unified=12', base, '--', p.file]));
     }
     if (name === 'github_read') return this.github(githubArg.parse(args));
     if (name === 'skill_read') return this.skill(args);

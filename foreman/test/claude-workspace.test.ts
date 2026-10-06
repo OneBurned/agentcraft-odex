@@ -8,6 +8,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { WorkspaceReader, sourceFile, type Execute } from '../src/claude-workspace-access.js';
 import { claudeWorkspace, loadClaudeWorkspace, type WorkspaceAccess, workspaceTools } from '../src/claude-workspace.js';
+import { githubError } from '../src/workspace-command-error.js';
 const exec = promisify(execFile);
 const dirs: string[] = [];
 afterEach(async () => { for (const d of dirs.splice(0)) await fs.rm(d, { recursive: true, force: true }); });
@@ -27,6 +28,62 @@ async function fixture() {
   return { dir, repo, workspace, config, git, reader: new WorkspaceReader(workspace, config) };
 }
 describe('reviewer workspace boundaries', () => {
+  it('inventories all changes, including deleted and restricted files, and reads exact historical content', async () => {
+    const h = await fixture(); const base = (await h.git('rev-parse', 'HEAD')).stdout.trim();
+    await h.git('mv', 'README.md', 'Renamed file.md');
+    await fs.writeFile(path.join(h.repo, '.env'), 'PRIVATE_FIXTURE=changed');
+    await fs.writeFile(path.join(h.repo, 'added.md'), 'New file\n');
+    await h.git('add', '.'); await h.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'changes');
+    const head = (await h.git('rev-parse', 'HEAD')).stdout.trim();
+    const inventory = await h.reader.call('project_git', { project: 'one', action: 'changed_files', head });
+    expect(inventory).toMatchObject({ base, head, total: 4, nextOffset: null, files: [
+      { file: '.env', status: 'M', readable: false }, { file: 'README.md', status: 'D', readable: true },
+      { file: 'Renamed file.md', status: 'A', readable: true }, { file: 'added.md', status: 'A', readable: true },
+    ] });
+    expect(await h.reader.call('project_git', { project: 'one', action: 'diff', file: 'README.md', base, head })).toContain('-Original source');
+    expect(await h.reader.call('project_git', { project: 'one', action: 'show', file: 'README.md', head: base })).toMatchObject({ head: base, text: expect.stringContaining('1: Original source') });
+    await expect(h.reader.call('project_git', { project: 'one', action: 'show', file: 'README.md', head })).rejects.toThrow('нет');
+    await expect(h.reader.call('project_git', { project: 'one', action: 'show', file: '.env', head: base })).rejects.toThrow('разрешённый');
+    await expect(h.reader.call('project_git', { project: 'one', action: 'changed_files', head: '--output=file' })).rejects.toThrow();
+    await fs.writeFile(path.join(h.repo, 'added.md'), 'Later working changes');
+    expect(await h.reader.call('project_git', { project: 'one', action: 'show', file: 'added.md', head })).toMatchObject({ text: '1: New file\n2: ' });
+  });
+  it('handles an initial commit and pages a large complete inventory', async () => {
+    const h = await fixture(); const head = (await h.git('rev-parse', 'HEAD')).stdout.trim();
+    expect(await h.reader.call('project_git', { project: 'one', action: 'changed_files', head })).toMatchObject({ base: null, head, total: 2 });
+    expect(await h.reader.call('project_git', { project: 'one', action: 'diff', file: 'README.md', head })).toContain('+Original source');
+    await Promise.all(Array.from({ length: 105 }, (_, n) => fs.writeFile(path.join(h.repo, `file-${n}.md`), 'source')));
+    await h.git('add', '.'); await h.git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'many files');
+    expect(await h.reader.call('project_git', { project: 'one', action: 'changed_files' })).toMatchObject({ total: 106, nextOffset: 100 });
+    expect(await h.reader.call('project_git', { project: 'one', action: 'changed_files', offset: 100 })).toMatchObject({ total: 106, offset: 100, nextOffset: null, files: expect.any(Array) });
+  });
+  it('reports a full 500-document skill list accurately and enforces size limits', async () => {
+    const h = await fixture(); const skillsRoot = path.join(h.dir, 'skills');
+    await fs.mkdir(path.join(skillsRoot, 'common'), { recursive: true });
+    await Promise.all(Array.from({ length: 500 }, (_, n) => fs.writeFile(path.join(skillsRoot, `common/rule-${n}.md`), 'rule')));
+    const reader = new WorkspaceReader(h.workspace, { ...h.config, skillsRoot });
+    expect(await reader.call('skill_read', {})).toMatchObject({ limited: false, files: expect.any(Array) });
+    await fs.writeFile(path.join(skillsRoot, 'AGENTS.md'), '# index');
+    const limited = await reader.call('skill_read', {}) as { limited: boolean; files: string[] };
+    expect(limited.limited).toBe(true); expect(limited.files).toHaveLength(500);
+    await fs.writeFile(path.join(skillsRoot, 'common/large.md'), 'a'.repeat(128001));
+    await expect(reader.call('skill_read', { file: 'common/large.md' })).rejects.toThrow('128');
+  });
+  it.each([
+    [{ code: 'ENOENT' }, 'GITHUB_CLI_MISSING'], [{ killed: true }, 'GITHUB_TIMEOUT'],
+    [{ stderr: 'Bad credentials (HTTP 401)' }, 'GITHUB_AUTH_REQUIRED'],
+    [{ stderr: 'Forbidden (HTTP 403)' }, 'GITHUB_FORBIDDEN'],
+    [{ stderr: 'API rate limit (HTTP 403)' }, 'GITHUB_RATE_LIMIT'],
+    [{ stderr: 'Too many requests (HTTP 429)' }, 'GITHUB_RATE_LIMIT'],
+    [{ stderr: 'Not Found (HTTP 404)' }, 'GITHUB_NOT_FOUND_OR_HIDDEN'],
+    [{ stderr: 'No commit found (HTTP 422)' }, 'GITHUB_INVALID_REFERENCE_OR_REQUEST'],
+    [{ stderr: 'error connecting to api.github.com' }, 'GITHUB_NETWORK'],
+    [{ stderr: 'unknown failure' }, 'GITHUB_REQUEST_FAILED'],
+  ])('classifies GitHub errors without exposing raw diagnostics: %j', (input, code) => {
+    const error = githubError({ ...input, stdout: 'PRIVATE_TOKEN_FIXTURE' });
+    expect(error.code).toBe(code); expect(error.message).not.toContain('PRIVATE_TOKEN_FIXTURE');
+    if (code === 'GITHUB_NOT_FOUND_OR_HIDDEN') expect(error.message).toContain('не доказывает');
+  });
   it('reads current shared rules outside Git, limited to the permitted Markdown namespaces', async () => {
     const h = await fixture(); const skillsRoot = path.join(h.dir, 'skills');
     await fs.mkdir(path.join(skillsRoot, 'common/debugging-workflow'), { recursive: true });

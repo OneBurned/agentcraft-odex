@@ -30,9 +30,20 @@ and refuses conflicting access settings):
 node tools/setup-klava.mjs --workspace 'C:\Users\GB\Documents\Klava-reviewer' --traderecord 'C:\Users\GB\Documents\New project' --profile-dir 'C:\Users\GB\Documents\agentcraft-odex\.agentcraft-home\traderecord' --skills 'C:\Users\GB\Documents\agent-skills'
 ```
 
+For an existing workspace, append `--update` to that command. It can add a missing `skillsRoot`
+but refuses changing existing repositories, an existing skills root, or a profile's workspace.
+JSON object key order is ignored. Omitting `--skills` retains an already configured skills root.
+Before changing existing settings or managed guidance, it backs up available documents and
+`access.json` under `<workspace>/backups/setup-*`. Personal `CLAUDE.md`, `PROJECTS.md`, and
+`MEMORY.md` are never overwritten. Updated tool instructions go into managed `WORKSPACE.md`,
+which is loaded alongside the personal documents. A repeated identical update creates no backup
+and does not rewrite the access configuration. Without `--update`, an existing workspace is
+preserved and the installer explains when an update is needed.
+
 The configured projects are `traderecord` → `OneBurned/TITracker` and `agentcraft` →
 `OneBurned/agentcraft-odex`. A dedicated stdio MCP server offers source listing/reading/search,
-local Git status/log/per-file diff, and fixed GitHub GET operations for code, commits, PRs and
+local Git status/log/per-file diff, complete commit inventories and historical file reads,
+and fixed GitHub GET operations for code, commits, PRs and
 issues. Local reads include uncommitted changes to files already tracked/staged in Git; ignored
 and untracked files, typical credentials/runtime data, binary/oversized files, traversal and
 symlink escapes are rejected. Large results are explicitly bounded/paged. GitHub uses the
@@ -48,8 +59,7 @@ and commit. Existing before/after checks still reject automatic verdicts when th
 repository changes. This is a local Claude Code workspace, not a synchronized claude.ai Project
 or a shared transcript with the Codex app.
 
-Shared skills are not part of either repository and were initially inaccessible to the reviewer.
-The optional absolute `skillsRoot` in `access.json` now connects the configured `agent-skills`
+The optional absolute `skillsRoot` in `access.json` connects the configured `agent-skills`
 directory through `skill_read`: no arguments lists Markdown documents; `file` reads the current
 source with optional line bounds. Only root `AGENTS.md`, `common/**/*.md` and
 `projects/trackrecord/**/*.md` are allowed. Other projects, scripts, traversal and symlink escapes
@@ -62,6 +72,31 @@ The extension passed 23 focused tests including missing roots, current-file upda
 A real Claude call listed all 12 rule documents and read the TrackRecord domain rules successfully.
 The updated bundle is `dist/AgentCraft-Codex-0.4.7-klava-skills`; earlier Klava bundles do not
 contain `skill_read`. The local launcher uses the updated source directly.
+
+Commit review begins with `project_git` action `changed_files`, `head: <SHA>`, and optional
+`base: <SHA>`. Without a base it compares with the first parent, including initial commits.
+Follow `nextOffset` until null: the inventory includes deleted and content-restricted paths,
+with a per-path readability flag; moves appear as deletion plus addition. `show` reads a normal
+text file from a specified commit with line bounds; use the returned base to read deleted files.
+Per-file `diff` supports historical paths absent from the current checkout. A review must report
+inaccessible content or truncated output instead of claiming full coverage from a keyword search.
+`skill_read` only marks a 500-entry list limited if more entries or deeper unvisited folders exist.
+
+GitHub failures have bounded codes for missing CLI, expired login, forbidden access, rate limits,
+missing/hidden objects (404), invalid references/requests (422), timeout, network, and unknown errors.
+404 does not prove a commit is unpublished: private objects can be hidden from the current account.
+Raw CLI diagnostics and credentials are not returned to Claude. Publication still requires a
+separately authorized push; all workspace GitHub tools remain read-only.
+
+The review fixes passed typecheck and all 603 tests across 31 files. Tests cover upgrade backups,
+personal-file preservation, reordered JSON keys, rejected access changes, 500/501 skill entries,
+file size limits, initial commits, paginated inventories, historical deletions and GitHub error codes.
+The local `--update` run preserved hashes of all three personal documents and `access.json`;
+backup: `C:\Users\GB\Documents\Klava-reviewer\backups\setup-RG4jEL`.
+The new inventory returned all seven paths in `8556183`; the live GitHub request returned the
+specific 422 category. Current package: `dist/AgentCraft-Codex-0.4.7-klava-review-fixes`.
+Its isolated studio persistence/restart check passed. Neither the user's terminal nor the live
+game bridge was restarted; reload the terminal to use the updated tool implementation.
 
 Validation: 584 bridge tests passed, followed by 21 focused tests including review-context loading; typecheck,
 stdio MCP integration, path/access rejection and persistent memory tests passed. A real Claude
@@ -84,7 +119,7 @@ use normal Claude session persistence. Terminal and Minecraft transcripts are se
 instructions and `MEMORY.md` are shared. Restarting the game bridge is not required to open this terminal.
 This creates a local Claude Code workspace, not an ordinary cloud Project in the Claude chat UI.
 
-The launcher reloads all three Markdown files on every launch, passes them via a temporary
+The launcher reloads personal Markdown files and optional managed WORKSPACE.md on every launch, passes them via a temporary
 `--append-system-prompt-file`, and disables system prompt snapshots so resumed sessions use the
 current instructions. It deletes its generated context file on ordinary exit. No prompt is sent
 automatically in interactive mode. On first launch Claude may ask the user to trust this workspace.
