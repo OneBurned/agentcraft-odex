@@ -148,11 +148,48 @@ unchanged. Without conversation.json the previous independent-history mode remai
   process or child is still alive; Desktop recovery requires an explicit closed-session confirmation.
 
 Desktop receives a project-local `.mcp.json`, `CLAUDE.local.md` imports and `.claude/settings.json`
-that disables hooks, configures the Klava tools and denies native source read/edit/shell tools.
+that disables hooks, configures the Klava tools and denies native source read/edit/shell tools,
+including PowerShell, native scheduling/messaging and worktree tools. Generated permissions also deny `Artifact*`, the Desktop terminal,
+Claude Browser, Chrome, scheduled tasks, all `ccd_*` app tools (including session management
+and settings), the connector registry and the observed artifact/visualization connectors.
+The exact policy is in `tools/lib/klava-desktop-settings.mjs`.
 Desktop applies its own permission/trust UI and user configuration; CLI-only `--tools ''` and
 `--strict-mcp-config` flags do not transfer through `--desktop`. Do not claim identical enforcement
 between the Desktop UI and the restricted game/terminal launcher. Existing custom files are never
 silently overwritten. A Desktop MCP trust prompt may need the user's response.
+
+To prepare this policy for an existing workspace, add `--update` to the preparation command above.
+Inspect the prepared `.claude/settings.json`; after separate deployment approval, close the shared
+conversation, stop the bridge and use `--update --apply` instead of `--prepare <directory>`.
+The updater adds missing allow/deny entries, preserves custom rules, model/environment settings
+and personal documents, and backs up the exact previous settings before writing. Existing settings
+cannot change without `--update`; malformed settings and conflicting `.mcp.json`/import files
+are rejected before any writes. Formatting/key order alone does not require an update.
+
+This is an explicit deny policy, not an allow-only sandbox. Per the
+[Claude permission reference](https://code.claude.com/docs/en/permissions), denies take precedence
+over allows: denying `mcp__*` would also deny Klava. `dontAsk` still permits previously allowed
+tools and built-in reads, so it does not provide a strict allowlist either. Unknown/new connector
+IDs are not automatically denied. Desktop
+[uses shared settings and can add servers](https://code.claude.com/docs/en/desktop), so repeat the
+inventory check after app updates or connector changes. Never approve an unfamiliar tool assuming
+that this project policy isolates the whole application.
+
+Validation: `tools/smoke-klava-desktop-permissions.mjs` runs the installed CLI in a disposable
+workspace with generated project settings and harmless substitute MCP servers. It grants these
+probes through CLI allow rules (the disposable project has no trust approval), checks that
+project denies still remove their tools and that the Klava probe works. It never resumes the
+user's conversation. Browser server names are reserved by the CLI and cannot be injected as
+user MCP probes; browser and native Artifact behavior still need a Desktop check. After activation,
+open a fresh Code session through `Open-Klava-Code.cmd`, inspect its tools/permissions, verify
+that `klava.projects` works, and confirm terminal/browser/scheduler/session/Artifact tools are
+unavailable. If extra app tools appear, close the Code session and update the policy before use.
+
+Prepared t19 validation (2026-10-06, not deployed): 34 focused tests and TypeScript checking
+passed. The installed Claude CLI 2.1.291 connected six forbidden substitute servers but exposed
+none of their tools, even with caller-level allows; the Klava probe executed once. Result:
+`%TEMP%/ac-desktop-permissions-9HbqxM`. The live workspace/settings and Desktop session were
+not modified. Actual Desktop browser/Artifact injection remains a post-activation manual check.
 
 The real isolated smoke check `tools/smoke-klava-conversation.mjs` created a disposable native
 conversation, continued it through ClaudeDialog, added a CLI turn, and verified the game still knew
