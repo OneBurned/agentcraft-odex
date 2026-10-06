@@ -179,6 +179,7 @@ public final class AgentManager {
 				target = dev.agentcraft.client.studio.StudioPreferences.get().target(a.id(), StationAssigner.stationKey(a), target);
 			boolean meeting = gathering && !stale && a.isActive() && !followsPlayer(a) && !awaiting.containsKey(a.id());
 			boolean dancing = false, dancePlace = false;
+			var dancePose = dev.agentcraft.workspace.PoleDance.Pose.NONE;
 			if (meeting) {
 				Anchor shared = layout.get(AnchorNames.slot("meeting", ++meetingIndex));
 				if (shared == null) {
@@ -192,7 +193,10 @@ public final class AgentManager {
 				target = dev.agentcraft.client.studio.StudioPreferences.get().target(a.id(), "meeting", shared == null ? target : shared);
 			} else if (resting.contains(a.id()) && pf != null) {
 				var rest = restDirector.target(a.id(), lvl, pf, entities.get(a.id()), ticks);
-				if (rest != null) { target = rest.anchor(); dancing = rest.dance(); dancePlace = target.name().startsWith("dance_"); }
+				if (rest != null) {
+					target = rest.anchor(); dancing = rest.dance(); dancePlace = target.name().startsWith("dance_");
+					dancePose = rest.pose();
+				}
 			}
 			if (target == null) {
 				continue;
@@ -210,6 +214,8 @@ public final class AgentManager {
 			AgentView v = e.view();
 			v.update(a, stale, awaiting.get(a.id()), awaitingCounts.getOrDefault(a.id(), 0));
 			v.dancing = dancing; v.planningGathering = meeting;
+			v.danceBack = dancePose.back(); v.danceDip = dancePose.dip();
+			v.danceFacing = dancing ? target.yaw() + 180f * dancePose.back() : null;
 			v.station = meeting ? "meeting" : StationAssigner.stationKey(a);
 			v.anchor = target.name();
 			if (playerFeet != null && !stale && followsPlayer(a)) {

@@ -5,6 +5,7 @@ import dev.agentcraft.client.foreman.Protocol.AgentState;
 import dev.agentcraft.layout.Anchor;
 import dev.agentcraft.layout.AnchorNames;
 import dev.agentcraft.layout.Anchors;
+import dev.agentcraft.workspace.PoleDance;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.util.Mth;
@@ -28,7 +29,8 @@ public final class AgentLife {
 	public static final int P_RAX = 0, P_RAY = 1, P_RAZ = 2, P_LAX = 3, P_LAY = 4, P_LAZ = 5;
 	public static final int P_RLX = 6, P_RLY = 7, P_RLZ = 8, P_LLX = 9, P_LLY = 10, P_LLZ = 11;
 	public static final int P_LEAN = 12, P_ARMW = 13, P_LEGW = 14, P_BOOK = 15;
-	public static final int N = 16;
+	public static final int P_DIP = 16;
+	public static final int N = 17;
 
 	/** What the body is doing (picked every tick). */
 	public enum Posture {
@@ -391,6 +393,14 @@ public final class AgentLife {
 				t[P_LEAN] = 0.05f + 0.07f * Mth.sin(beat * 0.5f);
 				t[P_LEGW] = 0.35f;
 				t[P_RLX] = 0.28f * Mth.sin(beat); t[P_LLX] = -t[P_RLX];
+				float back = e.view().danceBack;
+				t[P_DIP] = e.view().danceDip;
+				// Hold the arms overhead and stop stepping during the turn/dips.
+				t[P_RAX] = Mth.lerp(back, t[P_RAX], -2.65f);
+				t[P_LAX] = Mth.lerp(back, t[P_LAX], -2.65f);
+				t[P_RLX] *= 1 - back; t[P_LLX] *= 1 - back;
+				t[P_LEGW] = Mth.lerp(back, t[P_LEGW], 1f);
+				t[P_LEAN] = Mth.lerp(back, t[P_LEAN], 0.03f) + t[P_DIP] * 0.18f;
 			}
 			case IDLE -> {
 			}
@@ -476,7 +486,7 @@ public final class AgentLife {
 
 	private void look(Minecraft mc, AgentView v, boolean walking, boolean snap) {
 		float body = e.yBodyRot;
-		Vec3 eye = new Vec3(e.getX(), e.getY() + EYE + sitOffset(), e.getZ());
+		Vec3 eye = new Vec3(e.getX(), e.getY() + EYE + sitOffset() - PoleDance.lowering(cur[P_DIP]), e.getZ());
 		float wantYaw = body;
 		float wantPitch = 0f;
 		boolean tracking = false;
@@ -547,7 +557,10 @@ public final class AgentLife {
 		}
 		float rel = Mth.wrapDegrees(wantYaw - body);
 		boolean canTurnBody = !walking && sit < 0.05f && (faceBody || posture == Posture.IDLE || posture == Posture.TALK || posture == Posture.WAIT);
-		if (tracking && canTurnBody && Math.abs(rel) > (faceBody ? 25 : 70)) {
+		if (v.dancing && !walking && v.danceFacing != null) {
+			// Facing is independent of route targets: turning must not restart pathfinding.
+			e.motion().faceTowards(v.danceFacing);
+		} else if (tracking && canTurnBody && Math.abs(rel) > (faceBody ? 25 : 70)) {
 			// turn towards whoever we look at (waiting agents face you)
 			e.motion().faceTowards(Mth.wrapDegrees(wantYaw));
 		} else {
@@ -757,7 +770,8 @@ public final class AgentLife {
 		float sitF = sitPrev + (sit - sitPrev) * pt;
 		s.sit = sitF;
 		s.sitDrop = (float) (drop * sitF);
-		s.plateBase = (float) Nameplate.HEIGHT + s.sitDrop;
+		s.danceDrop = -PoleDance.lowering(frame[P_DIP]);
+		s.plateBase = (float) Nameplate.HEIGHT + s.sitDrop + s.danceDrop;
 		s.book = frame[P_BOOK];
 		float flip = (age - pageFlipStart + pt) / 12f;
 		s.pageFlip = flip >= 0 && flip <= 1 ? flip : 0f;

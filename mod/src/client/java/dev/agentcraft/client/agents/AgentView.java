@@ -35,6 +35,8 @@ public final class AgentView {
 	public boolean paused;
 	/** Local presentation overrides; never sent as task/execution state. */
 	public boolean dancing, planningGathering;
+	public float danceBack, danceDip;
+	public @Nullable Float danceFacing;
 	/** The Foreman link is down: show the last known state, dimmed. */
 	public boolean stale;
 	public AgentPose pose = AgentPose.STAND;

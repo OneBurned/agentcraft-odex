@@ -5,6 +5,7 @@ import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.player.PlayerModel;
 import net.minecraft.client.renderer.entity.state.AvatarRenderState;
 import net.minecraft.util.Mth;
+import dev.agentcraft.workspace.PoleDance;
 
 /**
  * The vanilla player model plus AgentCraft postures: after the vanilla setup (walk swing, head
@@ -46,6 +47,11 @@ public final class AgentModel extends PlayerModel {
 			leftLeg.yRot = Mth.lerp(lw, leftLeg.yRot, p[AgentLife.P_LLY]);
 			leftLeg.zRot = Mth.lerp(lw, leftLeg.zRot, p[AgentLife.P_LLZ]);
 		}
+		float dip = p[AgentLife.P_DIP];
+		rightLeg.xRot -= PoleDance.LEG_PITCH * dip;
+		leftLeg.xRot -= PoleDance.LEG_PITCH * dip;
+		rightLeg.zRot += PoleDance.LEG_ROLL * dip;
+		leftLeg.zRot -= PoleDance.LEG_ROLL * dip;
 		float lean = p[AgentLife.P_LEAN];
 		if (Math.abs(lean) > 0.001f) {
 			lean(lean);

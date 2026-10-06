@@ -114,8 +114,8 @@ public class AgentRenderer extends AvatarRenderer<ClientAgentEntity> {
 
 	@Override
 	protected void setupRotations(AvatarRenderState state, PoseStack poseStack, float bodyRot, float entityScale) {
-		if (state instanceof AgentRenderState s && s.sitDrop != 0f) {
-			poseStack.translate(0f, s.sitDrop, 0f);
+		if (state instanceof AgentRenderState s && (s.sitDrop != 0f || s.danceDrop != 0f)) {
+			poseStack.translate(0f, s.sitDrop + s.danceDrop, 0f);
 		}
 		super.setupRotations(state, poseStack, bodyRot, entityScale);
 	}
@@ -131,7 +131,7 @@ public class AgentRenderer extends AvatarRenderer<ClientAgentEntity> {
 	/** An open vanilla book held in both hands in front of the chest, pages facing the reader's eyes. */
 	private void submitBook(AgentRenderState s, PoseStack poseStack, SubmitNodeCollector collector) {
 		poseStack.pushPose();
-		poseStack.translate(0f, s.sitDrop, 0f);
+		poseStack.translate(0f, s.sitDrop + s.danceDrop, 0f);
 		poseStack.rotateDegrees(Axis.YP, -s.bodyRot);
 		// hands meet ~1.0 block above the feet, 0.42 in front (READ pose, model scale 0.9375)
 		float open = Math.min(1f, s.book);

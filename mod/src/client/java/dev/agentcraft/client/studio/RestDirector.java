@@ -6,6 +6,7 @@ import dev.agentcraft.layout.Anchor;
 import dev.agentcraft.layout.Anchors;
 import dev.agentcraft.workspace.RestCoordinator;
 import dev.agentcraft.workspace.RestPlace;
+import dev.agentcraft.workspace.PoleDance;
 import java.util.*;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -28,13 +29,13 @@ public final class RestDirector {
     private static volatile Music music;
     private static int musicTicks;
     private final RestCoordinator choices = new RestCoordinator();
-    private final Map<String, Integer> steps = new HashMap<>();
-    private final Map<String, Long> nextStep = new HashMap<>();
+    private record DanceSession(Anchor pole, PoleDance sequence) {}
+    private final Map<String, DanceSession> dances = new HashMap<>();
     private record Reach(boolean ok, long until) {}
     private final Map<String, Reach> reachable = new HashMap<>();
     private Object world;
     private static final int[][] RING = {{0,1},{1,1},{1,0},{1,-1},{0,-1},{-1,-1},{-1,0},{-1,1}};
-    public record Target(Anchor anchor, boolean dance) {}
+    public record Target(Anchor anchor, boolean dance, PoleDance.Pose pose) {}
 
     public static void init() {
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> { if (watch != null && watch.server == server) { watch = null; music = null; } });
@@ -58,9 +59,9 @@ public final class RestDirector {
         });
     }
     public void begin(ClientLevel level, Set<String> resting, Collection<String> agents) {
-        if (world != level) { world = level; choices.clear(); steps.clear(); nextStep.clear(); reachable.clear(); }
+        if (world != level) { world = level; choices.clear(); dances.clear(); reachable.clear(); }
         if (reachable.size() > 256) reachable.clear();
-        choices.retain(resting); steps.keySet().retainAll(resting); nextStep.keySet().retainAll(resting);
+        choices.retain(resting); dances.keySet().retainAll(resting);
         Set<BlockPos> poles = new HashSet<>();
         for (String agent : agents) for (RestPlace p : StudioPreferences.get().rest(agent))
             if (p.dance()) poles.add(p.anchor().blockPos());
@@ -109,18 +110,25 @@ public final class RestDirector {
             candidates.add(new RestCoordinator.Candidate(p.id(),p.occupancyKey(),p.dance()));
         }
         var chosen=choices.select(agent,candidates,tick);
-        if (chosen == null) return null;
+        if (chosen == null) { dances.remove(agent); return null; }
         RestPlace place=options.stream().filter(p -> p.id().equals(chosen.id())).findFirst().orElseThrow();
-        if (!place.dance()) return new Target(place.anchor().withName("rest_"+place.id()),false);
-        int step=steps.getOrDefault(agent,0);
-        Anchor point=dancePoint(place,step,pf);
-        if (entity != null && entity.position().distanceToSqr(point.pos()) < 0.06 && tick >= nextStep.getOrDefault(agent,0L)) {
-            step=(step+1)%RING.length; steps.put(agent,step); nextStep.put(agent,tick+45);
-            point=dancePoint(place,step,pf);
+        if (!place.dance()) {
+            dances.remove(agent);
+            return new Target(place.anchor().withName("rest_"+place.id()),false,PoleDance.Pose.NONE);
         }
+        DanceSession session=dances.get(agent);
+        if (session == null || !session.pole.equals(place.anchor())) {
+            session=new DanceSession(place.anchor(),new PoleDance()); dances.put(agent,session);
+        }
+        var sequence=session.sequence;
+        Anchor point=dancePoint(place,sequence.step(),pf);
+        boolean arrived=entity != null && !entity.motion().walking() && entity.position().distanceToSqr(point.pos()) < 0.0025;
+        boolean facing=entity != null && Math.abs(net.minecraft.util.Mth.wrapDegrees(entity.yBodyRot-point.yaw())) < 8;
+        var pose=sequence.advance(tick,arrived,facing);
+        point=dancePoint(place,sequence.step(),pf);
         // Retargeting already follows collision-aware paths; do not animate until near the pole.
         boolean dancing=entity != null && entity.position().distanceToSqr(place.anchor().pos()) < 3.5;
-        return new Target(point,dancing);
+        return new Target(point,dancing,pose);
     }
     private boolean reachable(String agent, RestPlace place, ClientAgentEntity entity, GridPathfinder pf, long tick) {
         if (entity == null || entity.position().distanceToSqr(place.anchor().pos()) < 3.5) return true;
@@ -129,7 +137,9 @@ public final class RestDirector {
         if (known == null || tick >= known.until) {
             var seat=entity.life().seat();
             var start=seat != null && seat.approach() != null ? seat.approach() : entity.position();
-            known=new Reach(pf.find(start,dancePoint(place,steps.getOrDefault(agent,0),pf).pos()) != null,tick+100);
+            var session=dances.get(agent);
+            int step=session != null && session.pole.equals(place.anchor()) ? session.sequence.step() : 0;
+            known=new Reach(pf.find(start,dancePoint(place,step,pf).pos()) != null,tick+100);
             reachable.put(key,known);
         }
         return known.ok;

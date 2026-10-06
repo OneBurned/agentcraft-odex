@@ -9,6 +9,29 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### 0.4.5 turn and dip dance sequence (prepared)
+
+Every agent's existing pole dance now pauses at opposite sides of the ring, turns its back to
+the pole, performs two slow dips, turns back upright and resumes the circle. No new settings or
+saved-data migration are needed. `PoleDance` advances only after exact arrival and standing
+facing the pole; its 256-tick sequence holds the route target fixed. Each dip lasts 64 ticks.
+The standing-facing override follows a smooth yaw curve without rebuilding paths. Model pose
+channels blend the raised arms, rigid-leg tilt and render-only lowering; the nameplate follows
+the lowering. This is a stylized vanilla-model dip, without articulated knees.
+
+Each agent owns a separate sequence. Work, questions, planning, pause/offline state or loss of
+music/valid pole eligibility discard it, and a changed pole/world starts upright. The next
+rest begins with the normal approach instead of resuming halfway through a dip. Real execution
+states and the bridge are unchanged.
+
+Validation: mod build and all 33 Java tests passed, including eight choreography checks for
+arrival/facing gates, fixed position during the sequence, exactly two backward-facing dips,
+continuous turns, displacement/reset, independent agents, ring progression and rigid-leg
+floor contact. These checks do not replace visual verification in Minecraft. Version 0.4.5
+is prepared for separate installation approval; 0.4.4 remains installed. The package is
+`dist/AgentCraft-Codex-0.4.5-ready` with its matching Windows ZIP. Updating from 0.4.4 requires
+only the mod, without restarting the bridge. Minecraft was not auto-launched.
+
 ### 0.4.4 rest places, music and planning (installed)
 
 Opening the Plan tab (including its task forms/details) gathers visible active characters at
