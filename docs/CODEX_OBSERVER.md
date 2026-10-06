@@ -73,9 +73,15 @@ the full notes and reports remain accessible in the library. Local appearance is
 are keyed by the singleplayer save path. These client settings are not distributed to other players.
 An existing workspace and the overworld singleplayer setup are still required.
 
-Release 0.4.0 requires both the new JAR and bridge, followed by a game restart. The previously installed
-0.3.2 remains unchanged until a separately approved installation. In-game visual checks and a real
-authenticated Claude review remain pending; build and automated checks do not substitute for those.
+Release 0.4.0 was installed with user approval on 2026-10-06 into
+`C:\Users\GB\AppData\Roaming\.minecraft`. Installed JAR SHA-256 matches the tested package.
+The source bridge was restarted at commit `ce1c9f6`, keeping `.agentcraft-home/traderecord`, tasks
+and memory. The binding to this Codex chat was renewed after the app connection changed.
+Client settings are unchanged. Previous mods are in `agentcraft-backups/20261006-122746-842`;
+the bridge state and client config are in `agentcraft-backups/20261006-122746-499-0.4.0`.
+Minecraft was closed and was not launched by the update. Start the existing Fabric profile manually.
+In-game visual checks and a real authenticated Claude review remain pending; build and automated
+checks do not substitute for those. Claude Code still requires the separate browser login.
 
 Validation: the full Foreman check passed 556 tests, TypeScript and generated protocol documentation;
 an additional immediate-pause regression and subsequent changes passed focused queue/observer/review
