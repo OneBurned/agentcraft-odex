@@ -9,7 +9,7 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
-### 0.4.8 planning with Klava (prepared, not activated)
+### 0.4.8 planning with Klava (installed)
 
 **Обсудить план** in both planning surfaces pauses the queue and opens a console message
 addressed to `@Claude`. The user adds their idea and presses Enter. Klava discusses scope,
@@ -47,19 +47,27 @@ The managed instructions explicitly extend older reviewer-only instructions for 
 To disable, remove both planning bindings while the bridge is stopped; keep task state and native
 conversation history. To restore permissions/instructions, use the printed planning backup.
 
-Package: `dist/AgentCraft-Codex-0.4.8-klava-planning`. Runtime installation and visual Minecraft
-verification are pending; the live 0.4.7 setup described below remains installed.
+Package: `dist/AgentCraft-Codex-0.4.8-klava-planning`. Installed with user approval on 2026-10-06;
+the bridge runs source revision `5c9ea12` on port 7878. The installed 0.4.8 JAR matches the package.
+The real MCP planning_list returned both configured projects and the unchanged empty pool in
+planning mode. Both planning tools are advertised. Character profiles, personal instructions,
+memory, native session transcript and Minecraft settings are preserved. The Codex thread binding
+is unchanged; its seen-message cursor advanced normally. No Claude turn or draft was submitted.
+Minecraft was not started; in-game visual verification remains pending.
+Full backup and verification: `artifacts/backups/install-0.4.8-2026-10-06T14-29-38-463Z`.
+Workspace setup backup: `Klava-reviewer/backups/planning-5e563b01-0c82-458a-b7d7-0de5c1ac7c20`.
 Validation: TypeScript, all 619 Foreman tests, protocol-doc consistency, 10 tools tests and
 the Gradle build with 33 Java tests passed. The packaged MCP server created a draft through
 an isolated bridge; approval stayed unset and retry/restart returned the same card. No live
 Claude message or user queue task was submitted. Activation files are prepared under
-`artifacts/klava-planning-prepared` without modifying the live workspace.
+`artifacts/klava-planning-prepared`; the live workspace was activated separately after approval.
 
 ### Shared Klava conversation (active)
 
 One explicitly bound native Claude Code session can serve Minecraft, the interactive terminal
 and the Desktop **Code** surface. This is not a Claude Chat/Cowork Project conversation.
-The live bridge runs revision `4e68f5f`, activated with user approval on 2026-10-06.
+The shared conversation was activated at revision `4e68f5f` on 2026-10-06; the current bridge
+revision is listed in the 0.4.8 installation section above.
 It is bound to the existing terminal session `114d2184-b1c1-438d-962e-5323a187d364`.
 The migration files are also retained under `artifacts/klava-shared-conversation-prepared`.
 Its native transcript was not rewritten.
@@ -124,7 +132,7 @@ Package: `dist/AgentCraft-Codex-0.4.7-shared-conversation-release`.
 ### Klava review workspace and GitHub (active)
 
 Dialogs and automated reviews can now share an explicitly configured personal workspace.
-The Minecraft mod remains 0.4.7; the bridge runs source revision `4e68f5f`. The local workspace is
+The Minecraft mod is 0.4.8; the bridge runs source revision `5c9ea12`. The local workspace is
 `C:\Users\GB\Documents\Klava-reviewer`. Its `CLAUDE.md` defines personality/review rules,
 `PROJECTS.md` explains both existing products, and `MEMORY.md` stores durable notes. These files
 are reloaded before each conversation or review and sent through stdin, avoiding Windows
