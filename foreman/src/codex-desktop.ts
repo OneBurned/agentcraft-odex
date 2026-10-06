@@ -77,6 +77,32 @@ export function textChunks(text: string, size = 380): string[] {
 }
 
 interface ChatState { threadId: string; seen: string[]; }
+export interface ChatActivity {
+  key: string;
+  phase: 'working' | 'waiting' | 'completed' | 'interrupted' | 'error' | 'idle' | 'unavailable';
+  startedAt?: number;
+}
+
+// read_thread returns newest turns first. Lifecycle uses metadata, never guesses from prose.
+export function chatActivity(data: any): ChatActivity {
+  const turn = data.turns[0];
+  const key = `${data.thread.id}/${turn?.id ?? ''}`;
+  const startedAt = typeof turn?.startedAt === 'number' ? turn.startedAt * 1000 : undefined;
+  const status = data.thread.status;
+  let phase: ChatActivity['phase'];
+  if (status?.type === 'systemError') phase = 'error';
+  else if (status?.type === 'notLoaded') phase = 'unavailable';
+  else if (status?.type === 'active') {
+    phase = status.activeFlags?.some((f: string) => ['waitingOnApproval', 'waitingOnUserInput'].includes(f))
+      ? 'waiting' : 'working';
+  } else if (turn?.status === 'inProgress') phase = 'working';
+  else if (turn?.status === 'failed') phase = 'error';
+  else if (turn?.status === 'interrupted') phase = 'interrupted';
+  else if (turn?.status === 'completed') phase = 'completed';
+  else phase = turn ? 'unavailable' : 'idle';
+  return { key, phase, startedAt };
+}
+
 export class DesktopChat {
   private timer?: NodeJS.Timeout;
   private polling = false;
@@ -89,6 +115,7 @@ export class DesktopChat {
     configFile: string; stateFile: string; call?: AppCall;
     onText: (text: string, final: boolean) => void;
     onStatus: (message: string) => void;
+    onActivity?: (activity: ChatActivity) => void;
   }) {
     try { this.state = readJson<ChatState>(options.stateFile) ?? { threadId: '', seen: [] }; }
     catch { this.state = { threadId: '', seen: [] }; }
@@ -107,12 +134,17 @@ export class DesktopChat {
     this.polling = true;
     try {
       const binding = readBinding(this.options.configFile);
-      if (!binding) { this.online = false; this.status('Чат Codex не подключён. Попроси Codex подключить этот чат к игре.'); return; }
+      if (!binding) {
+        this.online = false;
+        this.options.onActivity?.({ key: '', phase: 'unavailable' });
+        this.status('Чат Codex не подключён. Попроси Codex подключить этот чат к игре.'); return;
+      }
       const data = await (this.options.call ?? appCall)(binding, 'read_thread', {
         turnLimit: 3, includeOutputs: false, maxOutputCharsPerItem: 20000,
       });
       if (this.stopped) return;
       if (data.thread?.id !== binding.threadId || !Array.isArray(data.turns)) throw new Error('Codex вернул другой чат или неизвестный формат.');
+      this.options.onActivity?.(chatActivity(data));
       const baseline = this.state.threadId !== binding.threadId;
       if (baseline) this.state = { threadId: binding.threadId, seen: [] };
       for (const turn of [...data.turns].reverse()) {
@@ -130,7 +162,11 @@ export class DesktopChat {
       writeJsonAtomic(this.options.stateFile, this.state);
       this.online = true;
       this.status(`Чат Codex: ${binding.title}. Пиши задачу в консоли; Enter — отправить.`);
-    } catch (e) { this.online = false; this.status((e as Error).message); }
+    } catch (e) {
+      this.online = false;
+      if (!this.stopped) this.options.onActivity?.({ key: '', phase: 'unavailable' });
+      this.status((e as Error).message);
+    }
     finally { this.polling = false; }
   }
   async send(text: string): Promise<Record<string, unknown>> {

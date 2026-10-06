@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { ObserverBackend } from '../src/agents/observer.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ObserverBackend, REST_DELAY_MS } from '../src/agents/observer.js';
 import { parseClientMessage, type ClientMessage, type ObserverUpdate, type Outbound } from '../src/protocol.js';
 import { makeForeman, rmrf, tempDir, type Harness } from './helpers.js';
 
@@ -25,6 +25,8 @@ async function send(h: Harness, msg: ClientMessage) {
 afterEach(async () => {
   for (const h of harnesses.splice(0)) await h.fm.close();
   for (const home of homes.splice(0)) rmrf(home);
+  vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('Codex observer', () => {
@@ -73,9 +75,106 @@ describe('Codex observer', () => {
   it('expires stale activity without claiming that external work completed', async () => {
     const h = await setup();
     await send(h, update());
-    h.fm.tasks.list()[0]!.updatedAt = Date.now() - 6 * 60_000;
+    vi.spyOn(h.fm.ctx, 'now').mockReturnValue(Date.now() + 6 * 60_000);
     h.backend.expireActivity();
     expect(h.fm.requireAgent('marlow').state).toBe('idle');
+    expect(h.fm.tasks.list()[0]!.status).toBe('doing');
+  });
+
+  it('walks to the desk for a chat, holds there after the answer, then rests without completing development tasks', async () => {
+    const h = await setup(); vi.useFakeTimers();
+    await send(h, update());
+    h.backend.onChatActivity({ key: 'chat/old', phase: 'completed' });
+    h.backend.onChatActivity({ key: 'chat/new', phase: 'working', startedAt: h.fm.ctx.now() + 1 });
+    expect(h.fm.requireAgent('marlow')).toMatchObject({ state: 'thinking', station: 'desk' });
+    expect(h.fm.requireAgent('marlow').taskId).toBeUndefined();
+    h.backend.onChatActivity({ key: 'chat/new', phase: 'completed' });
+    expect(h.fm.requireAgent('marlow')).toMatchObject({ state: 'done', station: 'desk' });
+    vi.advanceTimersByTime(REST_DELAY_MS - 1);
+    h.backend.onChatActivity({ key: 'chat/new', phase: 'completed' });
+    expect(h.fm.requireAgent('marlow').station).toBe('desk');
+    vi.advanceTimersByTime(1);
+    expect(h.fm.requireAgent('marlow').station).toBe('lounge');
+    expect(h.fm.tasks.list()[0]!.status).toBe('doing');
+  });
+
+  it('keeps detailed stages, temporarily waits for native approval, then restores the stage', async () => {
+    const h = await setup();
+    h.backend.onChatActivity({ key: 'chat/1', phase: 'working' });
+    await send(h, update({ state: 'testing' }));
+    h.backend.onChatActivity({ key: 'chat/1', phase: 'working' });
+    expect(h.fm.requireAgent('marlow')).toMatchObject({ state: 'testing', station: 'testbench' });
+    h.backend.onChatActivity({ key: 'chat/1', phase: 'waiting' });
+    expect(h.fm.requireAgent('marlow')).toMatchObject({ state: 'waiting_user', station: 'user' });
+    await send(h, update({ state: 'testing' }));
+    expect(h.fm.requireAgent('marlow').state).toBe('waiting_user');
+    h.backend.onChatActivity({ key: 'chat/1', phase: 'working' });
+    expect(h.fm.requireAgent('marlow')).toMatchObject({ state: 'testing', station: 'testbench' });
+    await send(h, update({ state: 'waiting_user' }));
+    h.backend.onChatActivity({ key: 'chat/1', phase: 'completed' });
+    expect(h.fm.requireAgent('marlow').state).toBe('waiting_user');
+    h.backend.onChatActivity({ key: 'chat/2', phase: 'working', startedAt: Date.now() + 1 });
+    expect(h.fm.requireAgent('marlow')).toMatchObject({ state: 'thinking', station: 'desk' });
+  });
+
+  it('keeps a fresh report arriving before the first poll of a new turn, but clears the old turn on a quick reply', async () => {
+    const h = await setup();
+    h.backend.onChatActivity({ key: 'chat/old', phase: 'completed' });
+    const startedAt = h.fm.ctx.now();
+    await send(h, update({ state: 'reading' }));
+    h.backend.onChatActivity({ key: 'chat/new', phase: 'working', startedAt });
+    expect(h.fm.requireAgent('marlow')).toMatchObject({ state: 'reading', station: 'library' });
+    await send(h, update({ state: 'waiting_user' }));
+    h.backend.onChatActivity({ key: 'chat/new', phase: 'completed', startedAt });
+    // Codex timestamps have second precision: the next turn can share the same timestamp.
+    h.backend.onChatActivity({ key: 'chat/next', phase: 'working', startedAt });
+    expect(h.fm.requireAgent('marlow')).toMatchObject({ state: 'thinking', station: 'desk' });
+  });
+
+  it('cancels delayed rest when a new message or explicit stage arrives', async () => {
+    const h = await setup(); vi.useFakeTimers();
+    h.backend.onChatActivity({ key: 'chat/1', phase: 'working' });
+    h.backend.onChatActivity({ key: 'chat/1', phase: 'completed' });
+    vi.advanceTimersByTime(5000);
+    h.backend.onChatActivity({ key: 'chat/2', phase: 'working' });
+    vi.advanceTimersByTime(REST_DELAY_MS);
+    expect(h.fm.requireAgent('marlow')).toMatchObject({ state: 'thinking', station: 'desk' });
+    await send(h, update({ state: 'done' }));
+    vi.advanceTimersByTime(5000);
+    await send(h, update({ state: 'reading' }));
+    vi.advanceTimersByTime(REST_DELAY_MS);
+    expect(h.fm.requireAgent('marlow')).toMatchObject({ state: 'reading', station: 'library' });
+  });
+
+  it('does not mistake interrupted work or connection loss for completion and resumes after reconnect', async () => {
+    const h = await setup(); vi.useFakeTimers();
+    h.backend.onChatActivity({ key: 'chat/1', phase: 'completed' });
+    expect(h.fm.requireAgent('marlow').state).toBe('idle');
+    h.backend.onChatActivity({ key: 'chat/2', phase: 'working' });
+    h.backend.onChatActivity({ key: 'chat/2', phase: 'interrupted' });
+    expect(h.fm.requireAgent('marlow').state).toBe('blocked');
+    h.backend.onChatActivity({ key: 'chat/3', phase: 'working' });
+    h.backend.onChatActivity({ key: '', phase: 'unavailable' });
+    expect(h.fm.requireAgent('marlow')).toMatchObject({ state: 'idle', station: 'desk' });
+    h.backend.onChatActivity({ key: 'chat/3', phase: 'working' });
+    expect(h.fm.requireAgent('marlow').state).toBe('thinking');
+    h.backend.onChatActivity({ key: 'chat/3', phase: 'completed' });
+    h.backend.onChatActivity({ key: '', phase: 'unavailable' });
+    vi.advanceTimersByTime(REST_DELAY_MS);
+    expect(h.fm.requireAgent('marlow').station).toBe('desk');
+    h.backend.onChatActivity({ key: 'chat/3', phase: 'completed' });
+    vi.advanceTimersByTime(REST_DELAY_MS);
+    expect(h.fm.requireAgent('marlow').station).toBe('lounge');
+  });
+
+  it('keeps an active chat at the desk after detailed progress expires', async () => {
+    const h = await setup();
+    h.backend.onChatActivity({ key: 'chat/1', phase: 'working' });
+    await send(h, update({ state: 'reading' }));
+    vi.spyOn(h.fm.ctx, 'now').mockReturnValue(Date.now() + 6 * 60_000);
+    h.backend.onChatActivity({ key: 'chat/1', phase: 'working' });
+    h.backend.expireActivity();
+    expect(h.fm.requireAgent('marlow')).toMatchObject({ state: 'thinking', station: 'desk' });
     expect(h.fm.tasks.list()[0]!.status).toBe('doing');
   });
 

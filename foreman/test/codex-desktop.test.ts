@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DesktopChat, pipeRequest, readBinding, textChunks, type ChatBinding } from '../src/codex-desktop.js';
+import { DesktopChat, chatActivity, pipeRequest, readBinding, textChunks, type ChatBinding } from '../src/codex-desktop.js';
 import { tempDir, rmrf } from './helpers.js';
 
 const dirs: string[] = [];
@@ -12,14 +12,40 @@ function fixture() {
   const dir = tempDir('ac-chat-'); dirs.push(dir);
   const configFile = path.join(dir, 'binding.json'), stateFile = path.join(dir, 'state.json');
   fs.writeFileSync(configFile, JSON.stringify(binding));
-  const onText = vi.fn(), onStatus = vi.fn();
+  const onText = vi.fn(), onStatus = vi.fn(), onActivity = vi.fn();
   const response = { thread: { id: binding.threadId }, turns: [{ id: 't1', status: 'completed', items: [] as any[] }] };
   const call = vi.fn(async (_b: ChatBinding, tool: string, _args: any) => tool === 'read_thread' ? response : { threadId: binding.threadId });
-  const options = { configFile, stateFile, call, onText, onStatus };
+  const options = { configFile, stateFile, call, onText, onStatus, onActivity };
   return { ...options, dir, response, options, chat: new DesktopChat(options) };
 }
 
 describe('desktop chat relay', () => {
+  it('reports live activity on the first read, despite baselining the transcript', async () => {
+    const f = fixture(); f.response.turns[0]!.status = 'inProgress';
+    await f.chat.poll();
+    expect(f.onActivity).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'working' }));
+    f.response.turns[0]!.status = 'completed'; await f.chat.poll();
+    expect(f.onActivity).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'completed' }));
+    f.call.mockRejectedValueOnce(new Error('offline')); await f.chat.poll();
+    expect(f.onActivity).toHaveBeenLastCalledWith({ key: '', phase: 'unavailable' });
+    fs.unlinkSync(f.configFile); await f.chat.poll();
+    expect(f.onActivity).toHaveBeenLastCalledWith({ key: '', phase: 'unavailable' });
+  });
+  it.each([
+    [{ type: 'active', activeFlags: [] }, 'completed', 'working'],
+    [{ type: 'active', activeFlags: ['waitingOnApproval'] }, 'inProgress', 'waiting'],
+    [{ type: 'active', activeFlags: ['waitingOnUserInput'] }, 'inProgress', 'waiting'],
+    [{ type: 'idle' }, 'completed', 'completed'],
+    [{ type: 'idle' }, 'interrupted', 'interrupted'],
+    [{ type: 'idle' }, 'failed', 'error'],
+    [{ type: 'systemError' }, 'inProgress', 'error'],
+    [{ type: 'notLoaded' }, 'completed', 'unavailable'],
+    [{ type: 'idle' }, 'unknown', 'unavailable'],
+  ])('uses actual thread and latest turn metadata: %j / %s', (status, turnStatus, phase) => {
+    expect(chatActivity({ thread: { id: 'chat', status }, turns: [
+      { id: 'new', status: turnStatus, startedAt: 123 }, { id: 'old', status: 'inProgress' },
+    ] })).toEqual({ key: 'chat/new', phase, startedAt: 123000 });
+  });
   it('baselines old text, forwards only public agent text and persists deduplication across restart', async () => {
     const f = fixture();
     f.response.turns[0]!.items.push({ type: 'agentMessage', id: 'old', phase: 'final', text: 'old answer' });
@@ -77,6 +103,7 @@ describe('desktop chat relay', () => {
     const pending = f.chat.poll(); f.chat.stop();
     f.response.turns[0]!.items.push({ type: 'agentMessage', id: 'late', phase: 'final', text: 'late' });
     release(f.response); await pending; expect(f.onText).not.toHaveBeenCalled();
+    expect(f.onActivity).toHaveBeenCalledTimes(1);
   });
   it('splits long answers to fit the game feed', () => {
     const chunks = textChunks('строка '.repeat(200));

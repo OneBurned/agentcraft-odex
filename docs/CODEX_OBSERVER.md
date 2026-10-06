@@ -180,6 +180,32 @@ The console now has Russian observer-specific help and `/help blocks` (`/blocks`
 every equipment/decorative block. The installer also detects source=target when extracted into
 the game directory, avoiding moving its own source JARs into backup; copied JAR hashes are checked.
 
+## Character behavior during chat (bridge update for 0.3.0)
+
+Every five seconds the bridge reads the bound thread's actual lifecycle metadata, independently
+of transcript forwarding. An active reply sends Codex to `desk` in `thinking` state, including
+when the message was entered in the desktop app. Delivery acknowledgement alone does not move
+the character or claim that work started. Fresh explicit progress has priority over generic
+chat activity: reading, editing, testing and review keep their assigned stations.
+
+Native `waitingOnApproval` / `waitingOnUserInput` flags send the character to `user`; handling
+the request remains in Codex. Normal questions in a final answer require an explicit
+`waiting_user` progress report; the bridge does not interpret prose. Such a report, or a blocked
+or error report, survives reply completion. A new turn clears the previous turn's activity.
+
+A completed reply shows `Ответ готов` at the desk and returns to `lounge` after ten seconds.
+An explicit `done` report uses the same delay. A new reply or progress report cancels the pending
+return. Interrupted/failed replies show stopped/error; disconnection never means success.
+Completion of a conversation reply does not complete development tasks or change CI results.
+The goal bar and task board still represent explicitly reported tasks, not every chat message.
+Historical completed turns are not replayed on startup; an already active turn is recognized.
+
+When detailed work progress expires after five minutes, a live active chat keeps Codex thinking
+at the desk. Without a current chat status, the old activity expires as before. No automatic
+mining, building or fighting was added; the existing movement and posture system displays work.
+The mod JAR remains 0.3.0: only the bridge needs updating and restarting, without restarting
+Minecraft. The prepared package is `dist/AgentCraft-Codex-0.3.0-chat-behavior-Windows.zip`.
+
 ## Publish a real status from a chat
 
 ```powershell
@@ -200,7 +226,7 @@ Required fields: `key`, `title`, `state`, `activity`. Optional: `log`, `summary`
 | waiting_user | Waiting near the player; blocked task |
 | blocked / error | Blocked task with the supplied reason |
 | review | Review column, character at merge station; actual review happens in Codex |
-| done | Completed task; character returns to the lounge |
+| done | Completed task; ten seconds at the desk, then the lounge |
 
 `--ci running|pass|fail|unknown` is an explicit report, not an automatic test detector. Only report
 `pass` after the relevant checks actually pass. Logs are deliberately supplied summaries, never
@@ -214,11 +240,11 @@ Origins by default; it trusts local processes, not an authenticated remote audie
 
 ## Limits
 
-- Updates occur when Codex explicitly calls the bridge at meaningful work stages. This is not
-  a capture of every tool call, automatic chat-history access, or a background Codex agent.
-- After five minutes without an active-work update, the character becomes idle with a stale-status
-  message. The task remains at its last reported status; no completion is inferred.
-- Restart restores tasks/logs and puts the character idle until the next real report.
+- Detailed stages come from explicit progress calls; generic chat activity comes from the bound
+  thread's lifecycle metadata. No tool-call classification or background coding agent is used.
+- After five minutes without an active-work update, the character follows live chat activity or
+  becomes idle with a stale-status message. The task remains at its last reported status.
+- Restart restores tasks/logs and waits for a fresh report or current chat lifecycle snapshot.
 - The existing Minecraft studio remains visible. Autonomous agent/task controls and tool
   approvals remain disabled; text messages can reach the explicitly bound desktop chat.
 - Separate chats share one displayed character; the most recent report determines its activity.
@@ -227,6 +253,15 @@ Origins by default; it trusts local processes, not an authenticated remote audie
   these changes. Review code using Codex/Git.
 
 ## Validation
+
+Chat-behavior bridge update: the full Foreman check passed (516 tests, TypeScript and protocol
+docs); after an additional rapid-follow-up/poll-order fix, TypeScript and all 31 focused relay /
+observer tests passed. Fake-clock checks cover delayed rest and cancellation, explicit-stage
+priority, approval waiting/resumption, disconnection/recovery, old-history baseline and stale
+progress. The portable bridge on isolated port 17878 recognized the real active desktop reply
+as `thinking/desk` and preserved an explicit `testing/testbench` stage over the next live poll.
+The existing game client was not restarted or visually driven; actual walking uses unchanged
+mod code and still depends on the world's assigned spots and passable paths.
 
 0.3.0: Gradle build/eight model tests, all 501 Foreman checks and the protocol-doc check passed.
 Desktop relay tests cover transcript filtering, initial baseline, final-answer completion,
