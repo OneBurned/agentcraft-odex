@@ -9,7 +9,7 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
-### 0.4.2 additional appearances (prepared)
+### 0.4.2 additional appearances (installed)
 
 Six user-supplied PNGs are bundled unchanged as cosmetic skins: `girl_swimsuit`
 (**Девушка в купальнике**), `gta_sa_girl` (**Проститутка из GTA SA**), `skuf` (**Скуф**),
@@ -19,15 +19,19 @@ at runtime the mod invokes Minecraft's own legacy skin converter for limb mirror
 transparency. The other four use 64×64. Custom PNG import remains 64×64.
 The command desk uses Russian/English display names. Each can be
 applied to either agent; they do not add executors or change roles. The bridge advertises and validates these extra skins separately
-from the six-agent cast. Installation requires the 0.4.2 JAR and updated bridge; current
-installation remains 0.4.1 until separately approved.
+from the six-agent cast. Version 0.4.2 (`8305407`) was installed with user approval on
+2026-10-06 while Minecraft was closed. The updated bridge was restarted, its connection to
+this Codex chat confirmed, and all six skin IDs verified in the live studio response.
+Client settings were preserved byte-for-byte. Previous mods are backed up under
+`.minecraft/agentcraft-backups/20261006-125839-685`; the bridge profile and client settings
+were copied to `artifacts/backups/install-0.4.2-20261006-125819-271`.
 
 Validation: mod build and eight Java tests passed; bridge typecheck and 20 studio tests
 passed. An isolated profile check accepted all six skins for both agents without dispatching
 work. All six PNGs in `dist/AgentCraft-Codex-0.4.2-six-skins-ready` match the supplied files
 byte-for-byte; both locale labels and the legacy converter invoker are packaged. The matching
 archive is `dist/AgentCraft-Codex-0.4.2-six-skins-Windows.zip`. In-game appearance still needs
-verification after installation; Minecraft was not launched during preparation.
+verification in Minecraft; the game was not launched during preparation or installation.
 
 ### 0.4.1 preview crash fix (installed)
 
