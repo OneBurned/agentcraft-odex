@@ -9,7 +9,7 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
-### 0.4.10 task board (prepared, not installed)
+### 0.4.10 task board (installed 2026-10-06)
 
 The wall shows only current pool tasks in observer mode (`queueStage` present). Service progress
 records still exist in the feed and monitors but do not crowd this board. Done and cancelled pool
@@ -27,8 +27,11 @@ pagination and full-title tooltips. Back/Escape from details returns to the same
 The complete title is also included in the scrollable details body. An empty current pool has a
 separate message and retains access to history.
 
-Package: `dist/AgentCraft-Codex-0.4.10-task-board`. Requires an approved JAR replacement with
-Minecraft closed; the running bridge is compatible and needs no restart for this UI update.
+Package: `dist/AgentCraft-Codex-0.4.10-task-board`, behavior revision `8ff0e57`. Installed with user
+approval while Minecraft was closed. The installed JAR version and SHA-256 match the tested build.
+Previous JAR: `.minecraft/agentcraft-backups/20261006-213049-886-0.4.10`.
+Verification: `artifacts/install-0.4.10-task-board.json`. Both AgentCraft configs, options.txt and
+Fabric API retain their hashes. The bridge was not restarted; its connection/auth are healthy.
 Validation: Gradle build and 39 Java tests, including pool/progress separation, lifecycle/history,
 queue-stage precedence and legacy backend selection. The isolated portable check passed
 (protocol, draft approval, memory, native projection and bundled MCP draft creation/restart);
@@ -38,7 +41,8 @@ visual verification after installation; Minecraft is not launched automatically.
 ### Review/queue bridge update (installed 2026-10-06)
 
 The local bridge runs revision `a1388ba` with t19–t22 and t24, installed with user approval.
-The 0.4.9 Minecraft JAR is unchanged. Review starts, safe tool steps (2.5-second limit) and complete
+This bridge update did not change the Minecraft JAR; the current mod version is listed above.
+Review starts, safe tool steps (2.5-second limit) and complete
 verdicts appear in the shared feed and monitor journal. Paused attempts keep separate commit ranges;
 dirty suspended work resumes first. Abandoned conversation locks show return instructions, and
 oversized diffs produce an actionable question. Ordinary Claude dialog streaming is unchanged.
@@ -260,7 +264,7 @@ Package: `dist/AgentCraft-Codex-0.4.7-shared-conversation-release`.
 ### Klava review workspace and GitHub (active)
 
 Dialogs and automated reviews can now share an explicitly configured personal workspace.
-The Minecraft mod is 0.4.9; the bridge runs source revision `4a2bda0`. The local workspace is
+The Minecraft mod is 0.4.10; the bridge runs source revision `a1388ba`. The local workspace is
 `C:\Users\GB\Documents\Klava-reviewer`. Its `CLAUDE.md` defines personality/review rules,
 `PROJECTS.md` explains both existing products, and `MEMORY.md` stores durable notes. These files
 are reloaded before each conversation or review and sent through stdin, avoiding Windows
