@@ -310,7 +310,10 @@ The JAR update requires a Minecraft restart. No bridge restart is needed for the
 
 Validation: Gradle build and existing model tests on Oracle Java 25.0.2. In-game rendering,
 click/toggle and world-reload verification remain pending; Minecraft was not launched or
-restarted automatically. The 0.3.2 package is prepared, not installed in the user's game yet.
+restarted automatically. Version 0.3.2 was installed on 2026-10-06 in
+`C:\Users\GB\AppData\Roaming\.minecraft` with Minecraft closed. Installed JAR hash matches the
+release; prior mods are under `agentcraft-backups` and the client settings hash is unchanged.
+The running bridge is unchanged; the user can now launch their Fabric profile manually.
 
 0.3.1: Gradle build/model tests and the full Foreman check passed (527 tests, TypeScript,
 protocol documentation). Control tests cover native IPC framing/owner targeting, bound queue
