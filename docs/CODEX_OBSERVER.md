@@ -9,7 +9,7 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
-### 0.4.1 preview crash fix (prepared, not installed)
+### 0.4.1 preview crash fix (installed)
 
 The user's `crash-2026-10-06_12.33.14-client.txt` shows `Entity.getId()` throwing from
 `ItemModelResolver.updateForLiving` while `StudioScreen` renders a character preview.
@@ -17,12 +17,14 @@ World NPCs received an ID in `AgentManager.spawn`, but screen-only previews bypa
 ID allocation now happens in `ClientAgentEntity` construction, shared across world NPCs and
 previews, with negative IDs. The manager no longer assigns a second ID. This fixes the same
 initialization defect for both Codex and Claude without inserting previews into the world.
-Saved skins and the bridge are unchanged. Version 0.4.1 is prepared only at the user's request;
-the installed version remains 0.4.0. Rendering in Minecraft still needs verification after
-the user approves installing the fixed JAR and restarts the game.
+Saved skins and the bridge are unchanged. Version 0.4.1 (`6d7d85c`) was installed with user
+approval on 2026-10-06 while Minecraft was closed. The installed JAR matches the tested package;
+AgentCraft client settings are unchanged. Previous mods are in
+`.minecraft/agentcraft-backups/20261006-123929-804`. Rendering still needs verification when
+the user manually starts their Fabric profile and opens the appearance tab.
 Validation: Gradle build and all eight model tests passed. Inspection of the compiled constructor
 confirms `setId` precedes `AgentLife` initialization and return; the world manager no longer assigns
-an ID independently. Minecraft was not launched for the check, and the installed JAR was not replaced.
+an ID independently. Minecraft was not launched for the check or after installation.
 
 ### Using the command desk
 
