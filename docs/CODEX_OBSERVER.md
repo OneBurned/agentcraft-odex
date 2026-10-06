@@ -9,7 +9,7 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
-### 0.4.6 separate planning desk (prepared)
+### 0.4.6 separate planning desk (installed)
 
 The new **Стол планирования / Planning Desk** block (`agentcraft:planning_desk`) opens a
 planning-only view of the existing `StudioScreen`. It shares the same `studio.action` calls,
@@ -30,8 +30,15 @@ Validation: build and all 33 existing Java tests passed. Resource checks verifie
 references, element bounds, four facing variants, item model, both locale names and list/footer
 bounds at common GUI heights. No new backend or persistence behavior is introduced. In-game
 model and UI verification is pending; Minecraft was not auto-launched. Package:
-`dist/AgentCraft-Codex-0.4.6-ready` and the matching Windows ZIP. Installation awaits separate
-approval; 0.4.5 remains installed. The bridge does not need an update or restart.
+`dist/AgentCraft-Codex-0.4.6-ready` and the matching Windows ZIP. Version 0.4.6 (`f8fd255`)
+was installed with user approval on 2026-10-06. After the user saved and left the world, the
+remaining game window was closed normally and process exit confirmed before replacement.
+The installed JAR matches the package (SHA-256
+`BE5337EB96AFE43AB55FC6B118B1664B83C868F3C4E4ADA1BEEFBA861A3F32F6`). Existing settings were
+preserved byte-for-byte and backed up to `artifacts/backups/install-0.4.6-20261006-142532-137`;
+previous mods are under `.minecraft/agentcraft-backups/20261006-142532-203`.
+The bridge was unchanged and not restarted. Minecraft was not relaunched; in-game verification
+of the new block and UI remains pending.
 
 ### 0.4.5 turn and dip dance sequence (installed)
 
