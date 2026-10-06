@@ -9,6 +9,31 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### Review/queue bridge update (installed 2026-10-06)
+
+The local bridge runs revision `a1388ba` with t19–t22 and t24, installed with user approval.
+The 0.4.9 Minecraft JAR is unchanged. Review starts, safe tool steps (2.5-second limit) and complete
+verdicts appear in the shared feed and monitor journal. Paused attempts keep separate commit ranges;
+dirty suspended work resumes first. Abandoned conversation locks show return instructions, and
+oversized diffs produce an actionable question. Ordinary Claude dialog streaming is unchanged.
+
+Klava's existing Desktop settings were migrated with `--update --apply`: native/app-tool deny
+rules are installed and all 11 scoped Klava tools remain allowed. The policy is an explicit deny
+list; real Code browser/Artifact injection still needs a new-session manual check described below.
+No Desktop conversation was opened during installation.
+
+The bridge restarted on port 7878 (PID 14460); chat binding/auth are healthy. All five pool cards
+remain done, with no active reply or decision; the queue restores paused after restart. Fifteen
+protected files, including personal instructions/memory, native Claude history, bindings, Minecraft
+settings and the JAR, have unchanged hashes. Profiles and queue items also match the backup.
+Backup/verification: `artifacts/backups/review-updates-2026-10-06T16-14-30-472Z` (includes previous
+bridge source `4a2bda0`, profile and workspace). Settings migration backup:
+`Klava-reviewer/backups/conversation-82d940e2-9d52-441e-8591-338228e1158c`.
+Validation before activation: 650 Foreman tests, TypeScript, an isolated real Claude streaming
+review and the Desktop-permission CLI smoke check. Four feed/pause tests were repeated after
+adding monitor-journal steps. In-game layout and real Desktop injection are not visually verified.
+No Minecraft launch, JAR replacement or production deployment was performed.
+
 ### 0.4.9 readable console and task-wall controls (installed)
 
 The console uses nearly the full available window and shows all wrapped lines, preserving
@@ -33,7 +58,7 @@ buttons cannot be activated through the task-wall dev press helper either. Sim/C
 task controls retain their existing actions.
 
 Package: `dist/AgentCraft-Codex-0.4.9-readable-console`. Installed with user approval on 2026-10-06;
-the live bridge runs source revision `4a2bda0`. The installed JAR matches the tested package.
+the JAR behavior is from revision `4a2bda0`; the current bridge revision is listed above. The installed JAR matches the tested package.
 Four draft cards t19–t22, both character profiles, chat/session binding, personal Markdown files,
 native Claude transcript and Minecraft settings were preserved. The restarted bridge publishes
 fullText on new Codex messages. No draft was approved or started. Minecraft was not launched;
