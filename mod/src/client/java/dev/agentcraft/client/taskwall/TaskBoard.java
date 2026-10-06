@@ -11,6 +11,7 @@ import dev.agentcraft.client.ui.Kit;
 import dev.agentcraft.client.ui.StatusMap;
 import dev.agentcraft.client.ui.TextUtil;
 import dev.agentcraft.client.ui.UiStyle;
+import dev.agentcraft.task.TaskBoardTasks;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -31,18 +32,18 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * The kanban model of one Task Wall panel: Plan, Queued, Working, Review, Needs decision, Done.
- * Cancelled tasks are hidden. Laid out in board pixels and cached until the tasks or the
+ * Finished tasks live in history; observer progress cards are excluded. Cached until the tasks or the
  * panel size change (agent changes only refresh the card contents); cards and columns then glide
  * to their new places ({@link #step}). One instance per panel origin, client thread only.
  *
  * <p>Layout, in order of what matters on a small wall seen from across a room:
  * <ul>
- *   <li><b>Column widths follow the content.</b> An empty column shrinks to a slim lane with its
- *       header; the rest share the width, and a column that overflows borrows width from one with
+ *   <li><b>Column widths follow the content.</b> Empty columns are hidden;
+ *       the rest share the width, and a column that overflows borrows width from one with
  *       slack (a small hill-climb over a card-score, see {@link #allocate}).</li>
  *   <li><b>Cards are sized to their title</b> (1 to 3 lines). When a column runs out of height the
- *       titles are capped at 2 lines, then the oldest/least urgent cards become one-line compact
- *       cards, and only then does the tail go behind "+N more". Wide columns put 2 cards per row
+ *       titles are capped at 2 lines, then the least urgent cards go behind the overflow chip.
+ *       Wide columns put 2 cards per row
  *       when that shows more.</li>
  *   <li>A card keeps drawing its previous content while its size animates, until the new content
  *       fits (so a shrinking card never shows an empty body and a growing one never overflows).</li>
@@ -330,9 +331,9 @@ final class TaskBoard {
 	long agentSeq = Long.MIN_VALUE;
 	float pw, ph;             // panel px
 	float ix0, iy0, ix1, iy1; // inside the trim
-	float cardsTop;
-	boolean listMode;         // one list instead of four columns (small boards)
-	private final Column[] four = {new Column(Col.TODO), new Column(Col.DOING), new Column(Col.REVIEW), new Column(Col.DONE)};
+	float cardsTop, footerY;
+	boolean listMode;         // one list when the occupied columns would be too narrow
+	private final List<Column> allColumns = java.util.Arrays.stream(Col.values()).map(Column::new).toList();
 	private final Column list = new Column(Col.TODO);
 	final List<Column> columns = new ArrayList<>(4);
 	final Map<String, Card> cards = new LinkedHashMap<>();
@@ -342,8 +343,10 @@ final class TaskBoard {
 	final DisplayDraw.Rects shadows = new DisplayDraw.Rects();
 	final DisplayDraw.Rects veil = new DisplayDraw.Rects();
 	final DisplayDraw.Rects badge = new DisplayDraw.Rects();
+	final DisplayDraw.Rects emptyNote = new DisplayDraw.Rects();
 	long lastStep;
 	int total;
+	int historyCount;
 	/** Planner cost of the last full layout (dev stats). */
 	long layoutNanos;
 
@@ -370,19 +373,19 @@ final class TaskBoard {
 	static int densityOverride;
 
 	static Col colOf(Task t) {
-		if ("plan".equals(t.queueStage())) return Col.PLAN;
-		if ("question".equals(t.queueStage())) return Col.QUESTION;
-		return switch (t.status()) {
-			case DOING -> Col.DOING;
-			case REVIEW -> Col.REVIEW;
-			case DONE -> Col.DONE;
-			case BLOCKED -> t.worktree() != null || t.branch() != null ? Col.DOING : Col.TODO;
+		return switch (TaskBoardTasks.stage(t.queueStage(), t.status().wire(), t.worktree() != null || t.branch() != null)) {
+			case "plan" -> Col.PLAN;
+			case "question" -> Col.QUESTION;
+			case "coding" -> Col.DOING;
+			case "review" -> Col.REVIEW;
+			case "done", "cancelled" -> Col.DONE;
 			default -> Col.TODO;
 		};
 	}
 
-	static boolean shown(Task t) {
-		return t.status() != TaskStatus.CANCELLED && t.status() != TaskStatus.UNKNOWN;
+	static boolean shown(@Nullable ForemanState s, Task t, boolean history) {
+		boolean observer = s != null && dev.agentcraft.client.console.ConsoleCommands.observer(s);
+		return TaskBoardTasks.visible(observer, t.queueStage(), t.status().wire(), history);
 	}
 
 	/** Title text as shown on the wall (markdown backticks dropped). */
@@ -431,13 +434,8 @@ final class TaskBoard {
 		iy0 = trim + PAD - 1;
 		ix1 = pw - trim - PAD;
 		iy1 = ph - trim - PAD + 1;
-		float equal = (ix1 - ix0 - GAP * (Col.values().length - 1)) / Col.values().length;
-		boolean wasList = listMode;
-		// too narrow for four readable columns (small boards): one list, most urgent first
-		listMode = equal < LIST_BELOW;
-		if (wasList != listMode) {
-			snap = true;
-		}
+		footerY = iy1 - HEADER_H;
+		iy1 = footerY - GAP;
 		cardsTop = iy0 + HEADER_H + 3;
 		float avail = iy1 - cardsTop;
 
@@ -447,10 +445,12 @@ final class TaskBoard {
 			by.put(c, new ArrayList<>());
 		}
 		int total = 0;
+		historyCount = 0;
 		Set<String> titleIds = new HashSet<>();
 		if (s != null) {
 			for (Task t : s.tasks().values()) {
-				if (shown(t)) {
+				if (shown(s, t, true)) historyCount++;
+				if (shown(s, t, false)) {
 					by.get(colOf(t)).add(t);
 					total++;
 					titleIds.add(t.id());
@@ -469,20 +469,31 @@ final class TaskBoard {
 		by.get(Col.DOING).sort(blockedFirst.thenComparing(prio));
 		by.get(Col.REVIEW).sort(Comparator.comparingLong(Task::updatedAt));
 		by.get(Col.DONE).sort(Comparator.comparingLong(Task::updatedAt).reversed());
+		by.get(Col.PLAN).sort(prio);
+		by.get(Col.QUESTION).sort(Comparator.comparingLong(Task::updatedAt));
 
 		// --- lanes and their widths
+		int occupied = (int) by.values().stream().filter(ts -> !ts.isEmpty()).count();
+		float equal = (ix1 - ix0 - GAP * (occupied - 1)) / Math.max(1, occupied);
+		boolean wasList = listMode;
+		int headerWidth = by.entrySet().stream().filter(e -> !e.getValue().isEmpty())
+			.mapToInt(e -> font.width(e.getKey().label.toUpperCase(Locale.ROOT)) + font.width(Integer.toString(e.getValue().size())) + 14)
+			.max().orElse(LIST_BELOW);
+		listMode = occupied > 0 && equal < Math.max(LIST_BELOW, headerWidth);
+		if (wasList != listMode) snap = true;
 		columns.clear();
-		List<List<Task>> laneTasks = new ArrayList<>(4);
+		List<List<Task>> laneTasks = new ArrayList<>();
 		if (listMode) {
 			List<Task> ts = new ArrayList<>();
-			for (Col k : List.of(Col.DOING, Col.REVIEW, Col.TODO, Col.DONE)) {
+			for (Col k : List.of(Col.QUESTION, Col.DOING, Col.REVIEW, Col.TODO, Col.PLAN)) {
 				ts.addAll(by.get(k));
 			}
 			ts.sort(Comparator.comparing((Task t) -> t.status() != TaskStatus.BLOCKED));
 			columns.add(list);
 			laneTasks.add(ts);
 		} else {
-			for (Column c : four) {
+			for (Column c : allColumns) {
+				if (by.get(c.col).isEmpty()) continue;
 				columns.add(c);
 				laneTasks.add(by.get(c.col));
 			}
@@ -523,16 +534,17 @@ final class TaskBoard {
 				case REVIEW -> col.needYou > 0 ? "waiting" : "thinking";
 				case DONE -> "done";
 			};
-			String label = listMode ? "TASKS" : col.col.label.toUpperCase(Locale.ROOT);
+			String label = listMode ? "ЗАДАЧИ" : col.col.label.toUpperCase(Locale.ROOT);
 			String cs = Integer.toString(col.count);
 			// an explicit "1 blocked" chip (not a red dot next to the count, which read as "4 blocked")
-			String bl = col.blocked > 0 ? col.blocked + " blocked" : "";
+			String bl = col.blocked > 0 ? col.blocked + " ждут" : "";
 			if (!bl.isEmpty() && font.width(label) + font.width(cs) + font.width(bl) + 24 > col.w) {
 				bl = col.blocked + "!";
 			}
+			if (!bl.isEmpty() && font.width(label) + font.width(cs) + font.width(bl) + 24 > col.w) bl = "";
 			if (font.width(label) + font.width(cs) + (bl.isEmpty() ? 0 : font.width(bl) + 12) + 12 > col.w) {
 				// tiny board: the count says it all
-				label = cs + (listMode ? " tasks" : "");
+				label = cs + (listMode ? " задач" : "");
 				cs = "";
 			}
 			col.blockedSeq = seq(bl);
@@ -606,7 +618,7 @@ final class TaskBoard {
 				}
 			}
 			if (!col.hidden.isEmpty()) {
-				String more = "+" + col.hidden.size() + " more";
+				String more = "+" + col.hidden.size() + " ещё";
 				col.chip = seq(more);
 				col.chipW = font.width(more) + 10;
 				col.chipY = rowY[plan.shownRows()] - 1;
@@ -646,6 +658,7 @@ final class TaskBoard {
 	 */
 	private float[] allocate(Font font, List<List<Task>> lanes, float avail) {
 		int n = lanes.size();
+		if (n == 0) return new float[0];
 		float total = ix1 - ix0 - GAP * (n - 1);
 		float[] w = new float[n];
 		float emptyW = Math.min(emptyWidth(font), total / n);
@@ -678,7 +691,9 @@ final class TaskBoard {
 					continue;
 				}
 				for (float step : steps) {
-					if (w[a] - step < CARD_MIN_W) {
+					float minWidth = Math.max(CARD_MIN_W, font.width(columns.get(a).col.label.toUpperCase(Locale.ROOT))
+						+ font.width(Integer.toString(lanes.get(a).size())) + 14);
+					if (w[a] - step < minWidth) {
 						break;
 					}
 					float lose = score(memo, lanes, a, w[a], avail) - score(memo, lanes, a, w[a] - step, avail);
@@ -733,12 +748,9 @@ final class TaskBoard {
 	}
 
 	/**
-	 * The best mix for one card width: tries every split of the rows into full (titles up to 3, then
-	 * 2 lines), brief and compact rows that fits the height, top rows getting the most room (they are
-	 * the most urgent / newest); when even all-compact overflows, the tail hides behind "+N more".
-	 * Score per card by how much of its title shows ({@link #shown}): full 3 x (0.6 + 0.4 shown),
-	 * brief 2 x (0.6 + 0.4 shown), compact 1.2 x (0.3 + 0.7 shown), hidden -2; so a few px more on a
-	 * column of one-liners counts, and the width allocator can find it.
+	 * The best mix for one card width: full (titles up to 3, then 2 lines) and brief rows.
+	 * Overflow opens the paged index instead of squeezing titles into unreadable one-line cards.
+	 * Score by visible title: full 3 x (0.6 + 0.4 shown), brief 2 x (0.6 + 0.4 shown), hidden -2.
 	 */
 	private Plan plan(List<Task> ts, Col col, float cardW, int perRow, float avail) {
 		int n = ts.size();
@@ -750,14 +762,12 @@ final class TaskBoard {
 		}
 		int[] w = titleWidths(cardW);
 		float[] sBrief = new float[n + 1];
-		float[] sCompact = new float[n + 1];
 		for (int i = 0; i < n; i++) {
 			Task t = ts.get(i);
 			Title ti = titles.get(t.id());
 			boolean face = compactFace(t, col);
 			int bw1 = w[1] - (face ? FACE_ROOM : 0);
 			sBrief[i + 1] = sBrief[i] + 2f * (0.6f + 0.4f * shown(ti, bw1, w[1], 2));
-			sCompact[i + 1] = sCompact[i] + 1.2f * (0.3f + 0.7f * shown(ti, bw1, w[1], 1));
 		}
 		Plan best = null;
 		for (int maxL = MAX_LINES; maxL >= 2; maxL--) {
@@ -772,19 +782,13 @@ final class TaskBoard {
 				sFull[i + 1] = sFull[i] + 3f * (0.6f + 0.4f * shown(ti, t.assignee() != null ? w[0] : w[1], w[1], maxL));
 			}
 			for (int fr = rows; fr >= 0; fr--) {
-				for (int br = rows - fr; br >= 0; br--) {
-					int cr = rows - fr - br;
-					float h = hFull[fr] + br * BRIEF_H + cr * COMPACT_H + GAP * (rows - 1);
-					if (h > avail) {
-						continue;
-					}
-					int nf = Math.min(n, fr * perRow);
-					int nb = Math.min(n, (fr + br) * perRow);
-					float sc = sFull[nf] + (sBrief[nb] - sBrief[nf]) + (sCompact[n] - sCompact[nb]);
-					if (best == null || sc * weight > best.score() + 0.01f) {
-						best = new Plan(perRow, cardW, maxL, fr, br, rows, rows, sc * weight);
-					}
-					break; // more brief rows score higher than more compact ones: the first fit is the best for this fr
+				int br = rows - fr;
+				float h = hFull[fr] + br * BRIEF_H + GAP * (rows - 1);
+				if (h > avail) continue;
+				int nf = Math.min(n, fr * perRow);
+				float sc = sFull[nf] + (sBrief[n] - sBrief[nf]);
+				if (best == null || sc * weight > best.score() + 0.01f) {
+					best = new Plan(perRow, cardW, maxL, fr, br, rows, rows, sc * weight);
 				}
 			}
 			if (best != null && best.fullRows() == rows) {
@@ -794,11 +798,11 @@ final class TaskBoard {
 		if (best != null) {
 			return best;
 		}
-		// all compact; the tail goes behind "+N more"
-		int shownRows = Math.max(0, (int) ((avail - CHIP_H) / (COMPACT_H + GAP)));
+		// Keep two-line titles; the remaining cards are available from the complete index.
+		int shownRows = Math.max(0, (int) ((avail - CHIP_H) / (BRIEF_H + GAP)));
 		int shown = Math.min(n, shownRows * perRow);
-		float sc = sCompact[shown] - 2f * (n - shown);
-		return new Plan(perRow, cardW, 2, 0, 0, rows, shownRows, weight * sc);
+		float sc = sBrief[shown] - 2f * (n - shown);
+		return new Plan(perRow, cardW, 2, 0, shownRows, rows, shownRows, weight * sc);
 	}
 
 	/** About how much of a title shows in {@code max} lines ({@code w1} px, then {@code w}): 1 when it all fits. */
@@ -933,7 +937,9 @@ final class TaskBoard {
 			}
 		}
 		String yours = StatusMap.needsYouLabel(s, t);
-		if (blocked && !reason.isEmpty()) {
+		if (listMode && t.queueStage() != null) {
+			hint = c.col.label;
+		} else if (blocked && !reason.isEmpty()) {
 			hint = t.id(); // the reason has its own lines above the footer
 		} else if (blocked) {
 			String why = t.blockedReason() == null ? "" : t.blockedReason().replace("`", "").strip();

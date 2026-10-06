@@ -9,6 +9,32 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### 0.4.10 task board (prepared, not installed)
+
+The wall shows only current pool tasks in observer mode (`queueStage` present). Service progress
+records still exist in the feed and monitors but do not crowd this board. Done and cancelled pool
+tasks remain in **История**, newest first; nothing is deleted. Other backends retain tasks without
+`queueStage`. Queue stage determines the label: План, В очереди, В работе, Ревью, Нужно решение,
+Готово (in history), Отменена (in history). Queue pause is not a task stage, and Done is not an
+installation/deployment confirmation.
+
+Empty columns are hidden. Plan and question cards participate in both column and narrow-list
+layouts. Column widths account for occupied stages and Russian headings. When crowded, cards
+retain two title lines and the rest move behind an overflow link, rather than collapsing to one
+line. Right-click a card to open its full Studio details. Right-click the footer, blank board area
+or overflow link to open **Текущие / История**, with two-line titles, explicit stage/assignee,
+pagination and full-title tooltips. Back/Escape from details returns to the same list and page.
+The complete title is also included in the scrollable details body. An empty current pool has a
+separate message and retains access to history.
+
+Package: `dist/AgentCraft-Codex-0.4.10-task-board`. Requires an approved JAR replacement with
+Minecraft closed; the running bridge is compatible and needs no restart for this UI update.
+Validation: Gradle build and 39 Java tests, including pool/progress separation, lifecycle/history,
+queue-stage precedence and legacy backend selection. The isolated portable check passed
+(protocol, draft approval, memory, native projection and bundled MCP draft creation/restart);
+the packaged JAR matches the build. In-game layout and clicks still require
+visual verification after installation; Minecraft is not launched automatically.
+
 ### Review/queue bridge update (installed 2026-10-06)
 
 The local bridge runs revision `a1388ba` with t19–t22 and t24, installed with user approval.

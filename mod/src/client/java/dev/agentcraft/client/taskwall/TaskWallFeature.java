@@ -36,8 +36,8 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * Task Wall: a live kanban of {@code Foreman.state().tasks()} on every connected task_board panel
- * ({@link TaskBoardRenderer}); right-click a card to open its {@link TaskScreen} (retry, prioritize,
- * reassign, cancel). The screen is shootable as {@code dev.screen {open:"task"}}.
+ * ({@link TaskBoardRenderer}); right-click a card for full details, or blank space/overflow/footer
+ * for the current/history index. Queue cards open Studio controls; legacy backends keep task actions.
  *
  * <p>Dev: {@code dev.taskwall} lists the laid-out boards and cards; {@code {open: taskId}} opens a
  * task's screen; {@code {press: buttonId}} presses a button in the open task screen (prev next
@@ -101,9 +101,13 @@ public final class TaskWallFeature {
 			String id = taskAt(pos, state, hit);
 			if (id != null) {
 				mc.gui.setScreen(TaskScreen.forTask(id));
+			} else {
+				mc.gui.setScreen(new TaskBoardScreen(false));
 			}
 		});
 		DevBridge.registerScreen("task", mc -> TaskScreen.forTask(defaultTask()));
+		DevBridge.registerScreen("taskboard", mc -> new TaskBoardScreen(false));
+		DevBridge.registerScreen("taskhistory", mc -> new TaskBoardScreen(true));
 		DevBridge.register("dev.taskwall", 10_000, "{open?: taskId, press?: button, aim?: taskId, board?: \"x y z\" origin, lightFloor?: 0-15, ppb?: 0-256, relayout?} "
 				+ "-> task wall boards/cards; opens/presses/aims; lightFloor/ppb override the light floor / density (0 = auto); relayout re-plans",
 			(req, mc) -> {
@@ -258,10 +262,7 @@ public final class TaskWallFeature {
 		if (c != null) {
 			return c.id;
 		}
-		TaskBoard.Column col = b.columnAt(p[0]);
-		if (col != null && col.chip != null && p[1] >= col.chipY - 2 && p[1] <= col.chipY + TaskBoard.CHIP_H + 2 && !col.hidden.isEmpty()) {
-			return col.hidden.get(0);
-		}
+		// Empty space, the footer and overflow chips open the complete paged index.
 		return null;
 	}
 
@@ -308,6 +309,8 @@ public final class TaskWallFeature {
 			j.addProperty("size", b.panelW + "x" + b.panelH);
 			j.addProperty("ppb", b.ppb);
 			j.addProperty("listMode", b.listMode);
+			j.addProperty("activeCount", b.total);
+			j.addProperty("historyCount", b.historyCount);
 			j.addProperty("layoutUs", b.layoutNanos / 1000);
 			j.addProperty("ageMs", (System.nanoTime() - b.lastUsedNanos) / 1_000_000L);
 			JsonObject cols = new JsonObject();

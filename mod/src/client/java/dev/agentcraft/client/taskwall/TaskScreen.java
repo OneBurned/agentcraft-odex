@@ -55,6 +55,7 @@ public class TaskScreen extends Screen {
 	private long latestSeq = Long.MIN_VALUE;
 	private @Nullable LogEntry latest;
 	private int px, py, ph;
+	private @Nullable Screen returnTo;
 
 	private record Btn(String id, String label, int x, int y, int w, int h, boolean primary, boolean enabled, @Nullable String agent) {
 		boolean hit(double mx, double my) {
@@ -72,9 +73,16 @@ public class TaskScreen extends Screen {
 	}
 
 	public static Screen forTask(String id) {
-		Task t = Foreman.state() == null ? null : Foreman.state().task(id);
-		return t != null && t.queueStage() != null ? new dev.agentcraft.client.studio.StudioScreen(id) : new TaskScreen(id);
+		return forTask(id, new TaskBoardScreen(false));
 	}
+	static Screen forTask(String id, Screen parent) {
+		Task t = Foreman.state() == null ? null : Foreman.state().task(id);
+		if (t != null && t.queueStage() != null) return new dev.agentcraft.client.studio.StudioScreen(id, parent);
+		TaskScreen screen = new TaskScreen(id);
+		screen.returnTo = parent;
+		return screen;
+	}
+	@Override public void onClose() { minecraft.gui.setScreen(returnTo); }
 	private boolean observer() { return dev.agentcraft.client.console.ConsoleCommands.observer(Foreman.state()); }
 
 	@Override
@@ -87,7 +95,7 @@ public class TaskScreen extends Screen {
 		return s == null ? null : s.task(taskId);
 	}
 
-	/** Tasks in wall order (Todo, Doing, Review, Done); cancelled tasks are not on the wall and not included. */
+	/** Current tasks in stage order, using the same selection as the wall. */
 	static List<Task> wallOrder() {
 		ForemanState s = Foreman.state();
 		List<Task> out = new ArrayList<>();
@@ -97,7 +105,7 @@ public class TaskScreen extends Screen {
 		for (TaskBoard.Col c : TaskBoard.Col.values()) {
 			List<Task> col = new ArrayList<>();
 			for (Task t : s.tasks().values()) {
-				if (TaskBoard.shown(t) && TaskBoard.colOf(t) == c) {
+				if (TaskBoard.shown(s, t, false) && TaskBoard.colOf(t) == c) {
 					col.add(t);
 				}
 			}
@@ -120,7 +128,7 @@ public class TaskScreen extends Screen {
 	private List<Task> browseOrder() {
 		List<Task> all = wallOrder();
 		Task t = task();
-		if (t != null && !TaskBoard.shown(t)) {
+		if (t != null && !TaskBoard.shown(Foreman.state(), t, false)) {
 			all.add(t);
 		}
 		return all;

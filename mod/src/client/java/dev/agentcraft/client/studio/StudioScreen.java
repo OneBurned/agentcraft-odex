@@ -30,6 +30,7 @@ public final class StudioScreen extends Screen {
     private int tab, page, x, y, w, h, top, role;
     private String agent = "marlow", status = "Подключаю пульт…";
     private String openTask;
+    private Screen taskReturn;
     private int restIndex;
     private boolean busy;
     private int pollTicks;
@@ -48,6 +49,7 @@ public final class StudioScreen extends Screen {
     }
     public static StudioScreen planningDesk() { return new StudioScreen(true); }
     public StudioScreen(String taskId) { this(); openTask = taskId; tab = 3; }
+    public StudioScreen(String taskId, Screen parent) { this(taskId); taskReturn = parent; }
     public static boolean gathering() {
         var screen = Minecraft.getInstance().gui.screen();
         if (screen instanceof StudioScreen studio) return studio.tab == 2;
@@ -62,6 +64,7 @@ public final class StudioScreen extends Screen {
         dev.agentcraft.client.dev.DevBridge.registerScreen("planning", mc -> planningDesk());
     }
     @Override public boolean isPauseScreen() { return false; }
+    @Override public void onClose() { minecraft.gui.setScreen(taskReturn); }
     @Override public void tick() { super.tick(); if (++pollTicks >= 60) { pollTicks = 0; if (!busy && (tab == 2 || tab == 3) && Foreman.connected()) request("get", new JsonObject(), null); } }
     @Override public void extractBackground(GuiGraphicsExtractor g, int mx, int my, float dt) {}
     @Override protected void init() { layout(); if (!data.has("version") && !busy) request("get", new JsonObject(), null); }
@@ -205,7 +208,7 @@ public final class StudioScreen extends Screen {
         }));
     }
     private void taskDetails(JsonObject item) {
-        String content = stage(str(item, "stage")) + " · " + str(item, "project") + "\n\n" + str(item, "description") + "\n\nОжидается:\n" + str(item, "expected")
+        String content = str(item, "title") + "\n\n" + stage(str(item, "stage")) + " · " + str(item, "project") + "\n\n" + str(item, "description") + "\n\nОжидается:\n" + str(item, "expected")
             + "\n\nПроверки:\n" + str(item, "checks") + "\n\nРезультат:\n" + str(item, "summary") + "\n\nРевью Claude:\n" + str(item, "review") + "\n\n" + str(item, "blockedReason");
         minecraft.gui.setScreen(new TaskDetails(this, item, content));
     }
@@ -329,11 +332,12 @@ public final class StudioScreen extends Screen {
                 addRenderableWidget(Button.builder(Component.literal(TextUtil.ellipsize(font, labels.get(i), bw - 10)), b -> {
                     if (op.equals("edit")) parent.taskForm(item);
                     else if (op.equals("question")) { var d = Foreman.state().openDecisions().stream().filter(q -> str(item, "id").equals(q.taskId())).findFirst(); minecraft.gui.setScreen(new dev.agentcraft.client.decisions.DecisionScreen(d.map(q -> q.id()).orElse(null), this)); }
-                    else { minecraft.gui.setScreen(parent); if (!op.equals("back")) { JsonObject p = new JsonObject(); p.addProperty("id", str(item, "id")); parent.request(op, p, null); } }
+                    else if (op.equals("back")) onClose();
+                    else { minecraft.gui.setScreen(parent); JsonObject p = new JsonObject(); p.addProperty("id", str(item, "id")); parent.request(op, p, null); }
                 }).bounds(x + i * bw, height - 57, bw - 3, 20).build());
             }
         }
-        @Override public void onClose() { minecraft.gui.setScreen(parent); }
+        @Override public void onClose() { minecraft.gui.setScreen(parent.taskReturn == null ? parent : parent.taskReturn); }
         @Override public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float dt) { g.fill(0, 0, width, height, 0xEF292722); g.text(font, TextUtil.ellipsize(font, title.getString(), width - 24), 12, 15, 0xFFF2EAD8); super.extractRenderState(g, mx, my, dt); }
     }
 }
