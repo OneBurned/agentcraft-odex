@@ -21,7 +21,7 @@ async function fixture() {
   const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), exitCode: null, kill: vi.fn(() => true) });
   let prompt = ''; child.stdin.on('data', b => prompt += b.toString()); proc.spawn.mockReturnValue(child);
   const reviewer = new ClaudeReviewer(() => 'mock-claude.exe');
-  const respond = (value: unknown, code = 0) => { child.stdout.write(JSON.stringify(value)); child.emit('close', code); };
+  const respond = (value: Record<string, unknown>, code = 0) => { child.stdout.write(JSON.stringify({ type: 'result', ...value }) + '\n'); child.emit('close', code); };
   return { repo, input, child, reviewer, prompt: () => prompt, respond };
 }
 describe('read-only Claude review adapter', () => {
@@ -50,6 +50,7 @@ describe('read-only Claude review adapter', () => {
     const h = await fixture(); const result = h.reviewer.run(h.input, new AbortController().signal);
     await until(() => proc.spawn.mock.calls.length > 0);
     const [, args, options] = proc.spawn.mock.calls[0]!;
+    expect(args[args.indexOf('--output-format') + 1]).toBe('stream-json'); expect(args).toContain('--verbose');
     expect(args).toContain('--no-session-persistence'); expect(args).toContain('--strict-mcp-config');
     expect(args[args.indexOf('--tools') + 1]).toBe(''); expect(args[args.indexOf('--settings') + 1]).toBe('{"disableAllHooks":true}');
     expect(options).toMatchObject({ shell: false, windowsHide: true, cwd: os.tmpdir() });
@@ -92,6 +93,30 @@ describe('read-only Claude review adapter', () => {
   it('does not accept a malformed model verdict', async () => {
     const h = await fixture(); const result = h.reviewer.run(h.input, new AbortController().signal); const assertion = expect(result).rejects.toThrow();
     await until(() => proc.spawn.mock.calls.length > 0); h.respond({ structured_output: { verdict: 'maybe', summary: 'unknown' } }); await assertion;
+  });
+  it('streams only safe steps and suppresses late steps/result after abort', async () => {
+    const h = await fixture(); const steps: string[] = []; const abort = new AbortController();
+    const result = h.reviewer.run(h.input, abort.signal, s => steps.push(s));
+    const failed = expect(result).rejects.toThrow('остановлено');
+    await until(() => proc.spawn.mock.calls.length > 0);
+    h.child.stdout.write(JSON.stringify({ type: 'assistant', message: { content: [
+      { type: 'thinking', thinking: 'PRIVATE' }, { type: 'tool_use', name: 'mcp__klava__project_read', input: { file: 'review.txt' } },
+    ] } }) + '\n');
+    expect(steps).toEqual(['Читаю review.txt']);
+    abort.abort(); await failed;
+    h.child.stdout.write(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__klava__projects', input: {} }] } }) + '\n');
+    h.respond({ structured_output: { verdict: 'pass', summary: 'late' } });
+    expect(steps).toEqual(['Читаю review.txt']);
+  });
+  it('suppresses output as soon as stop is requested, before process exit', async () => {
+    const h = await fixture(); const steps: string[] = [];
+    const result = h.reviewer.run(h.input, new AbortController().signal, s => steps.push(s));
+    const failed = expect(result).rejects.toThrow('остановлено');
+    await until(() => proc.spawn.mock.calls.length > 0);
+    const stopped = h.reviewer.stop();
+    h.child.stdout.write(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__klava__projects' }] } }) + '\n');
+    h.respond({ structured_output: { verdict: 'pass', summary: 'late' } });
+    await stopped; await failed; expect(steps).toEqual([]);
   });
   it('discovers the newest desktop-bundled CLI when it is absent from PATH', () => {
     if (process.platform !== 'win32') return;

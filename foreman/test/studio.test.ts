@@ -334,6 +334,26 @@ describe('command desk queue', () => {
     await h.studio.action('report', { id: i.id, run: i.run, status: 'done', summary: 'implemented', checks: 'tests', ci: 'pass' });
     await h.studio.pump(); expect(h.run).not.toHaveBeenCalled(); await h.studio.action('review', { id: i.id }); await until(() => i.stage === 'done');
   });
+  it.each([
+    ['pass', 'Принято'], ['changes', 'Нужны исправления'], ['question', 'Нужен ответ'],
+  ] as const)('publishes safe review steps and the complete %s verdict in the shared feed', async (verdict, label) => {
+    const h = await setup('auto'); const i = await h.start(); const summary = 'Подробное замечание. '.repeat(220) + 'Конец сводки';
+    const feed = vi.spyOn(h.fm.bus, 'feed');
+    const log = vi.spyOn(h.fm, 'agentLog');
+    h.run.mockImplementation(async (_input, _signal, onStep) => {
+      onStep?.('Читаю foreman/src/studio.ts (agentcraft)'); return { verdict, summary };
+    });
+    await h.studio.action('report', { id: i.id, run: i.run, status: 'done', summary: 'ready', checks: 'tests', ci: 'pass' });
+    await h.studio.pump(); await until(() => i.rounds === 1);
+    const messages = feed.mock.calls.filter(c => c[0] === 'message' && c[2]?.agentId === 'wren').map(c => c[1]);
+    expect(messages[0]).toContain(`Ревью ${i.id}: начинаю проверку`);
+    expect(messages[1]).toContain('Читаю foreman/src/studio.ts');
+    expect(messages[2]).toContain(`Ревью ${i.id}: ${label}`);
+    expect(messages.at(-1)).toContain('Конец сводки');
+    expect(messages.slice(2).every(m => m.length <= 1900)).toBe(true);
+    expect(messages.slice(2).join(' ').split('Подробное замечание.').length - 1).toBe(220);
+    expect(log.mock.calls.filter(c => c[0] === 'wren').map(c => c[2])).toEqual(messages);
+  });
   it('returns changes to Codex and asks the user after two unsuccessful reviews', async () => {
     const h = await setup('auto'); h.run.mockResolvedValue({ verdict: 'changes', summary: 'Исправить обработку ошибок' }); const i = await h.start();
     for (let n = 0; n < 2; n++) {
@@ -344,11 +364,13 @@ describe('command desk queue', () => {
     expect(h.fm.decisions.open()).toHaveLength(1); expect(h.send).toHaveBeenCalledTimes(2);
   });
   it('aborts reviewer on pause and ignores its late verdict', async () => {
-    const h = await setup('auto'); let resolve!: (r: ReviewResult) => void;
-    h.run.mockImplementation(() => new Promise(r => { resolve = r; })); const i = await h.start();
+    const h = await setup('auto'); let resolve!: (r: ReviewResult) => void; let step: ((s: string) => void) | undefined;
+    const feed = vi.spyOn(h.fm.bus, 'feed');
+    h.run.mockImplementation((_input, _signal, onStep) => new Promise(r => { resolve = r; step = onStep; })); const i = await h.start();
     await h.studio.action('report', { id: i.id, run: i.run, status: 'done', summary: 'implemented', checks: 'tests', ci: 'pass' });
-    await h.studio.pump(); await h.studio.action('pause', {}); resolve({ verdict: 'pass', summary: 'late' });
+    await h.studio.pump(); await h.studio.action('pause', {}); step?.('late step'); resolve({ verdict: 'pass', summary: 'late' });
     await new Promise(r => setTimeout(r, 15)); expect(i.stage).toBe('review'); expect(h.studio.data.mode).toBe('paused');
+    expect(feed.mock.calls.filter(c => c[2]?.agentId === 'wren').some(c => c[1].includes('late'))).toBe(false);
   });
   it('restores queue paused without replaying a send or accepting old reports', async () => {
     const h = await setup(); const i = await h.start(); const run = i.run;

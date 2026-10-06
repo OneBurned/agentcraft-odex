@@ -576,12 +576,38 @@ port. Keep the JSON report outside the repository so the checkout stays clean. E
 drafts with title, description, expected, deps and priority; approving and starting remain user actions.
 
 Claude receives the committed changes for each attempt, requirements, claimed checks and shared
-notes through stdin. It runs with no tools, no MCP servers, hooks disabled, no persisted session,
-and outside the project directory. This is a diff review, not an independent test execution or a
+notes through stdin. Native tools and hooks are disabled, no review session is persisted, and the
+process runs outside the project directory. With a configured Klava workspace it receives only
+that workspace's scoped MCP tools; otherwise MCP is empty. This is a diff review, not an independent test execution or a
 whole-repository audit. Missing context should produce a question. HEAD and clean status are checked
 before and after review, so an obsolete verdict is rejected. Separate attempt ranges exclude commits
 made by independent tasks between attempts. First findings return to Codex; after two non-passing
-reviews the user decides. Findings go to shared Markdown memory and the Claude journal.
+reviews the user decides. Findings go to shared Markdown memory, the Claude journal and the
+shared game feed as messages from `wren`.
+
+Automatic review uses `--output-format stream-json --verbose` with the existing JSON schema,
+following the [Claude streaming protocol](https://code.claude.com/docs/en/headless).
+The feed announces the task, then displays only short labels derived from completed Klava tool
+calls: read/diff file, project, shared-rule path, or a generic tool action. Search queries, notes,
+file/tool contents, assistant prose, reasoning, stderr and raw parser errors are never projected.
+Paths must be short relative paths without control characters; project IDs follow the configured
+ID syntax. Steps appear at most once every 2.5 seconds, and identical labels are shown only once
+per review. Suppressed steps are dropped, not queued for later playback. If Claude uses no tools,
+the feed contains the start and final verdict only; it does not invent progress.
+
+After a valid result, process exit and unchanged clean HEAD, the feed shows «Принято», «Нужны
+исправления» or «Нужен ответ» and the complete summary in chunks of up to 1900 characters.
+Each feed chunk retains its full text for the console; start, steps and result also go to the
+agent journal used by the wall monitor.
+No more steps or results are accepted after stop/abort. The raw decoded stream, including discarded
+tool results, is capped at 2,000,000 characters; malformed/oversized streams fail with a generic
+message. Tool-step streaming applies to automatic review only; the shared Claude dialog keeps its
+existing final-response protocol and conversation history behavior.
+
+`tools/smoke-klava-review-stream.mjs` checks the installed Claude in an isolated temporary repo,
+requests a scoped file read and validates both the safe step and structured verdict. It never resumes
+the user's conversation. The 2026-10-06 check passed with a `math.ts` read and `pass` verdict;
+the actual game display still requires verification after bridge deployment.
 Review input is bounded by 2 MiB of Git output per attempt and 1,500,000 characters across
 attempts. Exceeding either limit raises the same question: «Изменения слишком велики для одного
 ревью. Раздели задачу.» UTF-8 byte overflow (including large Cyrillic diffs) is translated before

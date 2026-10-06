@@ -485,11 +485,23 @@ export class Studio {
     const t = this.fm.tasks.require(i.id); const controller = new AbortController(); this.reviewAbort = controller;
     this.data.active = i.id; this.save(); this.fm.setAgent('wren', { paused: false }); this.fm.act('wren', 'reading', 'mergestation', `Ревью: ${t.title}`);
     this.fm.setAgent('wren', { taskId: i.id });
-    void this.reviewer.run({ cwd: this.fm.repos.require(t.repoId!).path, base: i.ranges?.[0]?.base ?? i.base!, head: i.head!, ranges: i.ranges, task: `${t.title}\n${t.description}\nОжидается: ${i.expected}`, checks: i.checks ?? '', knowledge: this.knowledge() }, controller.signal)
+    const started = `Ревью ${i.id}: начинаю проверку «${t.title}».`;
+    this.fm.bus.feed('message', started, { agentId: 'wren', to: 'user' });
+    this.fm.agentLog('wren', 'text', started);
+    void this.reviewer.run({ cwd: this.fm.repos.require(t.repoId!).path, base: i.ranges?.[0]?.base ?? i.base!, head: i.head!, ranges: i.ranges, task: `${t.title}\n${t.description}\nОжидается: ${i.expected}`, checks: i.checks ?? '', knowledge: this.knowledge() }, controller.signal, step => {
+      if (controller.signal.aborted || this.closed || this.data.active !== i.id) return;
+      this.fm.bus.feed('message', `Ревью ${i.id}: ${step}`, { agentId: 'wren', to: 'user' });
+      this.fm.agentLog('wren', 'text', `Ревью ${i.id}: ${step}`);
+    })
       .then(result => this.lock(async () => {
         if (controller.signal.aborted || this.closed || this.data.active !== i.id) return;
         i.review = result.summary; i.rounds++; delete this.data.active;
-        for (const chunk of textChunks(result.summary, 1900)) this.fm.agentLog('wren', 'result', chunk);
+        const verdict = { pass: 'Принято', changes: 'Нужны исправления', question: 'Нужен ответ' }[result.verdict];
+        const report = `Ревью ${i.id}: ${verdict}\n\n${result.summary}`;
+        for (const chunk of textChunks(report, 1900)) {
+          this.fm.bus.feed('message', chunk, { agentId: 'wren', to: 'user' });
+          this.fm.agentLog('wren', 'result', chunk);
+        }
         this.fm.memory.write({ scope: 'shared', title: `Ревью ${i.id} · ${i.head!.slice(0, 8)}`, body: result.summary, author: 'wren' });
         if (result.verdict === 'pass') { i.stage = 'done'; this.fm.tasks.setStatus(i.id, 'done', { force: true }); this.fm.act('wren', 'done', 'lounge', 'Ревью завершено'); }
         else if (result.verdict === 'changes' && i.rounds < 2) { i.stage = 'queued'; this.fm.tasks.setStatus(i.id, 'todo', { force: true }); this.fm.act('wren', 'idle', 'lounge', 'Замечания переданы Codex'); }
