@@ -9,7 +9,7 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
-### 0.4.7 personal controls and direct dialogs (prepared)
+### 0.4.7 personal controls and direct dialogs (installed)
 
 The agent card's Message button now opens its inline field. Enter/Send addresses that agent's
 stable ID and keeps the draft until delivery is acknowledged. Sent text (`Вы:`) and replies are
@@ -43,8 +43,14 @@ Validation: bridge typecheck, full 574-test suite, then 52 focused tests for the
 guard; the mod build and 33 Java tests passed. A real installed Claude CLI answered the isolated
 dialog smoke request «Связь с Claude работает.» No actual user task was interrupted for testing.
 In-game card/input verification is pending. The package is `dist/AgentCraft-Codex-0.4.7-ready`
-with its matching Windows ZIP. Mod installation and bridge restart await separate approval;
-0.4.6 remains installed. Preserve the existing bridge profile, chat binding and Minecraft settings.
+with its matching Windows ZIP. Installed after separate approval on 2026-10-06 from `156649f`,
+with Minecraft closed. The bridge exited gracefully and restarted on port 7878; the live snapshot
+confirmed the existing chat binding, unchanged agent profiles, and per-agent controls. Claude is
+idle with messaging enabled, without the previous phantom pause. Minecraft was not launched.
+The installed mod SHA-256 is `1B6E35A3BF295AA429C64148CA3CCAB0A9709B439DBFAF0A21DCCAEBFDDC2A32`.
+Settings and binding hashes are unchanged. Backup: `artifacts/backups/install-0.4.7-20261006-145743-215`;
+replaced mods: `.minecraft/agentcraft-backups/20261006-145743-346`.
+Local verification record: `artifacts/install-0.4.7.json`. In-game verification remains pending.
 
 ### 0.4.6 separate planning desk (installed)
 
