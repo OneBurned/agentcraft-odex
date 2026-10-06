@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { z } from 'zod';
+import type { ClaudeWorkspace } from './claude-workspace.js';
 
 const exec = promisify(execFile);
 export async function gitText(cwd: string, args: string[]): Promise<string> {
@@ -40,11 +41,11 @@ export async function claudeLoggedIn(exe: string): Promise<boolean> {
     .then(r => r.stdout).catch((e: { stdout?: string }) => e.stdout ?? '');
   try { return JSON.parse(output).loggedIn === true; } catch { throw new Error('Не удалось проверить вход в Claude Code. Проверь путь к командной версии.'); }
 }
-/** Read-only review: source is a committed diff supplied through stdin; no tools, hooks or MCP. */
+/** Review a committed diff; optional workspace tools supply additional read-only context. */
 export class ClaudeReviewer implements Reviewer {
   private child?: ChildProcess;
   private exited?: Promise<void>;
-  constructor(private executable: () => string | undefined) {}
+  constructor(private executable: () => string | undefined, private workspace: () => ClaudeWorkspace | undefined = () => undefined) {}
   async stop(): Promise<void> {
     const child = this.child;
     if (!child || child.exitCode !== null) return;
@@ -59,6 +60,7 @@ export class ClaudeReviewer implements Reviewer {
   async run(input: ReviewInput, signal: AbortSignal): Promise<ReviewResult> {
     const exe = this.executable();
     if (!exe) throw new Error('Укажи путь к Claude Code в настройках пульта.');
+    const workspace = this.workspace();
     if (await cleanHead(input.cwd) !== input.head) throw new Error('Код изменился перед ревью.');
     const diffs: string[] = [];
     for (const range of input.ranges ?? [{ base: input.base, head: input.head }]) {
@@ -77,7 +79,7 @@ export class ClaudeReviewer implements Reviewer {
       const timer = setTimeout(() => { child?.kill(); finish(new Error('Claude не завершил ревью за 10 минут.')); }, 600_000);
       if (signal.aborted) { abort(); return; }
       child = spawn(exe, ['-p', '--output-format', 'json', '--json-schema', schema, '--tools', '',
-        '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--setting-sources', '',
+        ...(workspace?.args ?? ['--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}']), '--setting-sources', '',
         '--settings', '{"disableAllHooks":true}', '--no-session-persistence'],
         { cwd: os.tmpdir(), windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
       this.child = child;
@@ -89,7 +91,7 @@ export class ClaudeReviewer implements Reviewer {
       child.stderr!.resume();
       child.stdin!.on('error', () => {});
       child.on('close', code => finish(code === 0 ? undefined : new Error(`Claude завершился с кодом ${code}; проверь вход в Claude Code.`)));
-      child.stdin!.end(prompt);
+      child.stdin!.end(workspace ? `Постоянный контекст рабочего пространства:\n${workspace.instructions}\n\nТекущее ревью:\n${prompt}` : prompt);
     });
     const envelope = JSON.parse(output);
     if (envelope.is_error) throw new Error('Claude сообщил об ошибке ревью.');

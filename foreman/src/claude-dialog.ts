@@ -1,16 +1,17 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import os from 'node:os';
+import type { ClaudeWorkspace } from './claude-workspace.js';
 
 export interface DialogRunner {
   run(prompt: string, signal: AbortSignal): Promise<string>;
   stop(): Promise<void>;
 }
 
-/** A conversational Claude process, separate from review; it cannot edit files or invoke tools. */
+/** A conversational Claude process; optional tools expose only the configured review workspace. */
 export class ClaudeDialog implements DialogRunner {
   private child?: ChildProcess;
   private exited?: Promise<void>;
-  constructor(private executable: () => string | undefined) {}
+  constructor(private executable: () => string | undefined, private workspace: () => ClaudeWorkspace | undefined = () => undefined) {}
 
   async stop(): Promise<void> {
     const child = this.child;
@@ -29,10 +30,11 @@ export class ClaudeDialog implements DialogRunner {
     const exe = this.executable();
     if (!exe) throw new Error('Claude Code не найден. Проверь настройки пульта.');
     if (signal.aborted) throw new Error('Ответ Claude остановлен.');
+    const workspace = this.workspace();
     const output = await new Promise<string>((resolve, reject) => {
       let result = '', settled = false;
       const child = spawn(exe, ['-p', '--output-format', 'json', '--tools', '',
-        '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--setting-sources', '',
+        ...(workspace?.args ?? ['--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}']), '--setting-sources', '',
         '--settings', '{"disableAllHooks":true}', '--no-session-persistence'],
       { cwd: os.tmpdir(), windowsHide: true, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
       this.child = child;
@@ -56,7 +58,7 @@ export class ClaudeDialog implements DialogRunner {
       child.stderr!.resume();
       child.stdin!.on('error', () => {});
       child.once('close', code => finish(code === 0 ? undefined : new Error(`Claude завершился с кодом ${code}; проверь вход в пульте.`)));
-      child.stdin!.end(prompt);
+      child.stdin!.end(workspace ? `Постоянный контекст рабочего пространства:\n${workspace.instructions}\n\nТекущий запрос:\n${prompt}` : prompt);
     });
     let envelope: { is_error?: boolean; result?: string };
     try { envelope = JSON.parse(output); } catch { throw new Error('Не удалось прочитать ответ Claude.'); }

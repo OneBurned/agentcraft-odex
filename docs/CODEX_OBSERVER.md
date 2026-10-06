@@ -9,6 +9,54 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### Klava review workspace and GitHub (prepared, bridge restart pending)
+
+Dialogs and automated reviews can now share an explicitly configured personal workspace.
+The Minecraft mod remains 0.4.7; only the bridge needs updating. The local workspace is
+`C:\Users\GB\Documents\Klava-reviewer`. Its `CLAUDE.md` defines personality/review rules,
+`PROJECTS.md` explains both existing products, and `MEMORY.md` stores durable notes. These files
+are reloaded before each conversation or review and sent through stdin, avoiding Windows
+command-line limits. They are independent of the bounded chat history and common studio notes.
+The `remember` tool appends only to personal `MEMORY.md`; instructions require an explicit user
+request to remember. It cannot edit the role, access configuration, project files or queue.
+
+`<profile>/claude-workspace.json` contains `{ "directory": "<absolute workspace path>" }`.
+Without this pointer, the existing tools-disabled behavior remains. A malformed configured
+workspace fails visibly rather than silently using broader access. The workspace's `access.json`
+lists approved local paths and GitHub repository names. Setup (preserves existing instructions
+and refuses conflicting access settings):
+
+```powershell
+node tools/setup-klava.mjs --workspace 'C:\Users\GB\Documents\Klava-reviewer' --traderecord 'C:\Users\GB\Documents\New project' --profile-dir 'C:\Users\GB\Documents\agentcraft-odex\.agentcraft-home\traderecord'
+```
+
+The configured projects are `traderecord` → `OneBurned/TITracker` and `agentcraft` →
+`OneBurned/agentcraft-odex`. A dedicated stdio MCP server offers source listing/reading/search,
+local Git status/log/per-file diff, and fixed GitHub GET operations for code, commits, PRs and
+issues. Local reads include uncommitted changes to files already tracked/staged in Git; ignored
+and untracked files, typical credentials/runtime data, binary/oversized files, traversal and
+symlink escapes are rejected. Large results are explicitly bounded/paged. GitHub uses the
+existing `gh` keyring login on this machine. No token is copied into the prompt or workspace,
+and no GitHub collaborator, repository permission, comment, merge or push is created. The two
+repository restriction is enforced by the tool server, not by reducing the user's OAuth scope.
+
+Built-in Claude tools, hooks and skills remain disabled; strict MCP configuration allows only
+this server. The model has no shell, generic filesystem or arbitrary HTTP tool. The operator
+controls workspace files; model tools cannot change `access.json` or the profile pointer.
+Local context and GitHub can differ; review instructions require identifying the actual source
+and commit. Existing before/after checks still reject automatic verdicts when the reviewed
+repository changes. This is a local Claude Code workspace, not a synchronized claude.ai Project
+or a shared transcript with the Codex app.
+
+Validation: 584 bridge tests passed, followed by 21 focused tests including review-context loading; typecheck,
+stdio MCP integration, path/access rejection and persistent memory tests passed. A real Claude
+dialog read both local READMEs, correctly reported both local HEADs, and confirmed access to
+the private TradeRecord and public AgentCraft repositories. Direct GitHub README and PR-list
+reads also passed for both projects. Package: `dist/AgentCraft-Codex-0.4.7-klava-release` and
+`dist/AgentCraft-Codex-0.4.7-Klava-Windows.zip`; isolated packaged studio restart and memory
+checks passed. The running bridge has not yet been restarted for this extension.
+No new Minecraft mod installation is needed.
+
 ### 0.4.7 personal controls and direct dialogs (installed)
 
 The agent card's Message button now opens its inline field. Enter/Send addresses that agent's
@@ -17,8 +65,8 @@ saved in that agent's journal. Console mentions accept current character names p
 and `@Claude`; plain text and `@all` retain the existing Codex destination. The hint shows the
 actual recipient. `/pause`, `/resume`, `/stop` accept one optional agent mention.
 
-Claude conversation uses a separate `ClaudeDialog` CLI process with tools, MCP, hooks and CLI
-session persistence disabled. It receives the last bounded conversation history, recent pool
+Without the optional review workspace above, Claude conversation uses a separate `ClaudeDialog`
+CLI process with tools, MCP, hooks and CLI session persistence disabled. It receives the last bounded conversation history, recent pool
 cards, review summaries and shared notes, and cannot read/edit project files or create tasks.
 Its prompt is passed over stdin; only public reply text is logged, never raw account diagnostics.
 History (last 30 entries) and a pending reply are persisted in the existing studio profile.

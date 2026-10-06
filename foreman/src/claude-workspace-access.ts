@@ -1,0 +1,135 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { z } from 'zod';
+import { WorkspaceConfig, type WorkspaceAccess } from './claude-workspace.js';
+
+const exec = promisify(execFile);
+const repoArg = z.object({ project: z.string() });
+const fileArg = repoArg.extend({ file: z.string().min(1).max(500), start: z.number().int().min(1).default(1), lines: z.number().int().min(1).max(250).default(120) });
+const revision = z.string().regex(/^(HEAD|[a-fA-F0-9]{7,40})$/);
+const githubArg = repoArg.extend({ action: z.enum(['repository', 'files', 'file', 'commits', 'commit', 'pulls', 'pull', 'pull_files', 'issues', 'issue']),
+  file: z.string().max(500).optional(), ref: z.string().regex(/^[A-Za-z0-9_./-]{1,150}$/).optional(), number: z.number().int().positive().optional(), sha: revision.optional(), page: z.number().int().min(1).max(100).default(1) });
+export type Execute = (command: string, args: string[], cwd?: string) => Promise<string>;
+const execute: Execute = async (command, args, cwd) => {
+  try { return (await exec(command, args, { cwd, windowsHide: true, shell: false, timeout: 20000, maxBuffer: 4 * 1024 * 1024,
+    env: { ...process.env, GH_PROMPT_DISABLED: '1', GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' } })).stdout; }
+  catch { throw new Error(command === 'gh' ? 'GitHub недоступен: проверь вход gh и доступ к выбранному репозиторию.' : 'Не удалось прочитать Git выбранного проекта.'); }
+};
+/** These files are outside a source review even when accidentally tracked. */
+export function sourceFile(file: string): boolean {
+  return !!file && !file.includes('\\') && !file.includes(':') && !file.startsWith('/') && !file.split('/').some(p => !p || p === '.' || p === '..'
+    || /^(\.git|\.env.*|\.agentcraft-home|\.claude|node_modules|artifacts|backups?|data|secrets?|credentials?|logs?|bin|obj|dist|build|\.runtime)$/i.test(p))
+    && !/(^|\/)(appsettings\.(?!example\.)[^/]+|[^/]*(?:credentials|private[-_.]?key|token[-_.]?cache|secrets?)[^/]*)$/i.test(file)
+    && !/\.(pem|key|pfx|p12|db|sqlite3?|log|zip|jar|exe|dll|png|jpe?g|gif|webp|pdf|mp[34]|woff2?|ttf)$/i.test(file);
+}
+export const clip = (text: string, limit = 28000) => text.length > limit ? text.slice(0, limit) + '\n[Обрезано; сузь запрос или выбери следующую страницу.]' : text;
+
+export class WorkspaceReader {
+  private memorySerial: Promise<unknown> = Promise.resolve();
+  constructor(readonly directory: string, readonly config: WorkspaceAccess, private run: Execute = execute) {}
+  static async open(directory: string) {
+    return new WorkspaceReader(directory, WorkspaceConfig.parse(JSON.parse(await fs.readFile(path.join(directory, 'access.json'), 'utf8'))));
+  }
+  private repo(id: string) {
+    const repo = this.config.repositories.find(r => r.id === id);
+    if (!repo) throw new Error('Проект не разрешён. Вызови projects.');
+    return repo;
+  }
+  private git(id: string, args: string[]) { return this.run('git', ['--no-pager', '--literal-pathspecs', '-c', 'core.fsmonitor=false', ...args], this.repo(id).path); }
+  private async files(id: string) { return (await this.git(id, ['ls-files', '-z', '--cached'])).split('\0').filter(sourceFile); }
+  private async localFile(id: string, file: string, knownFiles?: string[]) {
+    if (!sourceFile(file) || !(knownFiles ?? await this.files(id)).includes(file)) throw new Error('Доступны только разрешённые файлы, добавленные в Git.');
+    const root = await fs.realpath(this.repo(id).path);
+    const target = path.resolve(root, file);
+    const actual = await fs.realpath(target);
+    const rel = path.relative(root, actual).split(path.sep).join('/');
+    if (!sourceFile(rel) || actual.toLowerCase() !== target.toLowerCase() || (await fs.lstat(target)).isSymbolicLink()) throw new Error('Ссылки за пределы разрешённого файла не читаются.');
+    const info = await fs.stat(actual);
+    if (!info.isFile() || info.size > 1024 * 1024) throw new Error('Нужен текстовый файл до 1 МБ.');
+    const text = await fs.readFile(actual, 'utf8');
+    if (text.includes('\0')) throw new Error('Двоичный файл не читается.');
+    return text;
+  }
+  async call(name: string, args: unknown): Promise<unknown> {
+    if (name === 'projects') return this.config.repositories.map(r => ({ id: r.id, name: r.name, github: r.github, access: 'read-only local source and GitHub' }));
+    if (name === 'project_files') {
+      const p = repoArg.extend({ contains: z.string().max(150).default(''), offset: z.number().int().min(0).default(0) }).parse(args);
+      const files = (await this.files(p.project)).filter(f => f.toLowerCase().includes(p.contains.toLowerCase()));
+      return { total: files.length, offset: p.offset, files: files.slice(p.offset, p.offset + 250) };
+    }
+    if (name === 'project_read') {
+      const p = fileArg.parse(args); const all = (await this.localFile(p.project, p.file)).split(/\r?\n/);
+      return { file: p.file, totalLines: all.length, text: clip(all.slice(p.start - 1, p.start - 1 + p.lines).map((line, i) => `${p.start + i}: ${line}`).join('\n')) };
+    }
+    if (name === 'project_search') {
+      const p = repoArg.extend({ text: z.string().min(2).max(150), contains: z.string().max(150).default(''), offset: z.number().int().min(0).default(0) }).parse(args);
+      const all = (await this.files(p.project)).filter(f => f.toLowerCase().includes(p.contains.toLowerCase()));
+      const files = all.slice(p.offset, p.offset + 200); const matches: { file: string; line: number; text: string }[] = []; let scanned = 0;
+      for (const file of files) {
+        scanned++;
+        let text; try { text = await this.localFile(p.project, file, files); } catch { continue; }
+        text.split(/\r?\n/).forEach((line, i) => { if (matches.length < 80 && line.toLowerCase().includes(p.text.toLowerCase())) matches.push({ file, line: i + 1, text: line.slice(0, 400) }); });
+        if (matches.length >= 80) break;
+      }
+      return { totalFiles: all.length, scannedPage: { offset: p.offset, count: scanned }, matches, limited: matches.length >= 80 || p.offset + scanned < all.length };
+    }
+    if (name === 'project_git') {
+      const p = repoArg.extend({ action: z.enum(['status', 'log', 'diff']), base: revision.optional(), head: revision.optional(), file: z.string().optional() }).parse(args);
+      if (p.action === 'status') return clip(await this.git(p.project, ['status', '--short', '--branch']));
+      if (p.action === 'log') return clip(await this.git(p.project, ['log', '-15', '--format=%h %ad %s', '--date=iso-strict']));
+      if (!p.file || !sourceFile(p.file) || !(await this.files(p.project)).includes(p.file)) throw new Error('Для diff укажи разрешённый файл из project_files.');
+      return clip(await this.git(p.project, ['diff', '--no-ext-diff', '--no-textconv', '--unified=12', ...(p.base ? [p.base, ...(p.head ? [p.head] : [])] : ['HEAD']), '--', p.file]));
+    }
+    if (name === 'github_read') return this.github(githubArg.parse(args));
+    if (name === 'memory_read') return clip(await fs.readFile(path.join(this.directory, 'MEMORY.md'), 'utf8'), 40000);
+    if (name === 'remember') {
+      const p = z.object({ note: z.string().trim().min(1).max(1500) }).parse(args);
+      const work = this.memorySerial.then(async () => {
+        const file = path.join(this.directory, 'MEMORY.md');
+        if ((await fs.lstat(file)).isSymbolicLink()) throw new Error('Файл памяти не должен быть ссылкой.');
+        const old = await fs.readFile(file, 'utf8');
+        if (old.includes(p.note)) return 'Уже запомнила.';
+        const entry = `\n- ${new Date().toISOString().slice(0, 10)}: ${p.note}\n`;
+        if (Buffer.byteLength(old + entry, 'utf8') > 60000) throw new Error('Память заполнена. Пользователю нужно сократить MEMORY.md.');
+        await fs.appendFile(file, entry, 'utf8');
+        return 'Сохранено в личную память Клавы.';
+      }); this.memorySerial = work.catch(() => {}); return work;
+    }
+    throw new Error('Неизвестный инструмент.');
+  }
+  private async github(p: z.infer<typeof githubArg>) {
+    const root = `repos/${this.repo(p.project).github}`;
+    let endpoint: string = root;
+    if (['pull', 'pull_files', 'issue'].includes(p.action) && !p.number) throw new Error('Укажи номер PR или issue.');
+    const page = `per_page=20&page=${p.page}`;
+    if (p.action === 'pulls') endpoint += `/pulls?state=all&${page}`;
+    if (p.action === 'pull') endpoint += `/pulls/${p.number}`;
+    if (p.action === 'pull_files') endpoint += `/pulls/${p.number}/files?${page}`;
+    if (p.action === 'issues') endpoint += `/issues?state=all&${page}`;
+    if (p.action === 'issue') endpoint += `/issues/${p.number}`;
+    if (p.action === 'commits') endpoint += `/commits?${page}`;
+    if (p.action === 'commit') { if (!p.sha) throw new Error('Укажи SHA коммита.'); endpoint += `/commits/${p.sha}`; }
+    if (p.action === 'files' || p.action === 'file') {
+      const file = p.file ?? '';
+      if ((file && !sourceFile(file)) || (p.action === 'file' && !file)) throw new Error('Недопустимый путь файла.');
+      endpoint += `/contents/${file.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(p.ref ?? 'HEAD')}`;
+    }
+    const data = JSON.parse(await this.run('gh', ['api', '--hostname', 'github.com', '--method', 'GET', endpoint]));
+    if (p.action === 'file') {
+      if (data.type !== 'file' || data.encoding !== 'base64' || data.size > 1024 * 1024 || !sourceFile(data.path)) throw new Error('GitHub вернул не текстовый файл до 1 МБ.');
+      const content = Buffer.from(data.content, 'base64').toString('utf8');
+      if (content.includes('\0')) throw new Error('Двоичный файл не читается.');
+      return { path: data.path, sha: data.sha, text: clip(content) };
+    }
+    if (p.action === 'files') {
+      if (!Array.isArray(data)) throw new Error('Укажи каталог для списка файлов.');
+      return data.filter(d => sourceFile(d.path)).slice(0, 250).map(d => ({ path: d.path, type: d.type, sha: d.sha }));
+    }
+    if (p.action === 'repository') return { full_name: data.full_name, private: data.private, default_branch: data.default_branch, description: data.description, html_url: data.html_url };
+    if (p.action === 'pull_files') return data.filter((d: { filename: string }) => sourceFile(d.filename));
+    if (p.action === 'commit' && Array.isArray(data.files)) data.files = data.files.filter((d: { filename: string }) => sourceFile(d.filename));
+    return data;
+  }
+}

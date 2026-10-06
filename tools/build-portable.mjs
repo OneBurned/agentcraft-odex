@@ -17,6 +17,7 @@ async function copy(from,to) {
 const opts={bundle:true,platform:'node',format:'esm',target:'node24',legalComments:'external',
   banner:{js:"import { createRequire as _createRequire } from 'node:module'; const require = _createRequire(import.meta.url);"}};
 await build({...opts,entryPoints:[path.join(root,'foreman/src/observer-main.ts')],outfile:path.join(out,'foreman/src/observer-main.mjs')});
+await build({...opts,entryPoints:[path.join(root,'foreman/src/claude-workspace-server.ts')],outfile:path.join(out,'foreman/src/claude-workspace-server.mjs')});
 await build({...opts,entryPoints:[path.join(root,'tools/portable-control.mjs')],outfile:path.join(out,'control.mjs')});
 await build({...opts,entryPoints:[path.join(root,'tools/codex-progress.mjs')],outfile:path.join(out,'codex-progress.mjs')});
 await build({...opts,entryPoints:[path.join(root,'tools/studio.mjs')],outfile:path.join(out,'studio.mjs')});
@@ -33,6 +34,9 @@ await copy(process.execPath,path.join(out,'runtime/node.exe'));
 await copy(path.join(root,'LICENSE'),path.join(out,'licenses/AgentCraft-MIT.txt'));
 await copy(path.join(root,'foreman/node_modules/ws/LICENSE'),path.join(out,'licenses/ws-MIT.txt'));
 await copy(path.join(root,'foreman/node_modules/zod/LICENSE'),path.join(out,'licenses/zod-MIT.txt'));
+await copy(path.join(root,'foreman/node_modules/@modelcontextprotocol/sdk/LICENSE'),path.join(out,'licenses/MCP-SDK-MIT.txt'));
+for (const name of ['CLAUDE.md', 'PROJECTS.md', 'MEMORY.md'])
+  await copy(path.join(root,'tools/klava',name),path.join(out,'klava-template',name));
 const nodeVersion=process.version;
 const license=await fetch(`https://raw.githubusercontent.com/nodejs/node/${nodeVersion}/LICENSE`);
 if(!license.ok) throw new Error(`Cannot retrieve the license for bundled Node ${nodeVersion}: ${license.status}`);

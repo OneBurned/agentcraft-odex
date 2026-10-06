@@ -40,6 +40,19 @@ describe('read-only Claude review adapter', () => {
     await expect(h.reviewer.run({ ...h.input, head: h.input.base }, new AbortController().signal)).rejects.toThrow('изменился');
     expect(proc.spawn).not.toHaveBeenCalled();
   });
+  it('loads the same personal instructions and scoped tools for automated review', async () => {
+    const h = await fixture();
+    const reviewer = new ClaudeReviewer(() => 'mock-claude.exe', () => ({ directory: 'workspace', instructions: 'Проверь правила TradeRecord.', args: ['--strict-mcp-config', '--mcp-config', '{"mcpServers":{"klava":{}}}', '--allowedTools', 'mcp__klava__project_read'] }));
+    const result = reviewer.run(h.input, new AbortController().signal);
+    await until(() => proc.spawn.mock.calls.length > 0);
+    expect(h.prompt()).toContain('Проверь правила TradeRecord.');
+    expect(h.prompt()).toContain(h.input.head);
+    const args = proc.spawn.mock.calls[0]![1];
+    expect(args).toContain('mcp__klava__project_read');
+    expect(args[args.indexOf('--tools') + 1]).toBe('');
+    h.respond({ structured_output: { verdict: 'pass', summary: 'Проверено с контекстом' } });
+    await expect(result).resolves.toMatchObject({ verdict: 'pass' });
+  });
   it('rejects a verdict when files changed during review', async () => {
     const h = await fixture(); const result = h.reviewer.run(h.input, new AbortController().signal);
     const assertion = expect(result).rejects.toThrow('Git'); await until(() => proc.spawn.mock.calls.length > 0);

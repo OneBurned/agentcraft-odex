@@ -32,6 +32,18 @@ describe('Claude conversational process', () => {
     await Promise.resolve(); expect(confirmed).toBe(false); expect(h.child.kill).toHaveBeenCalledOnce();
     h.respond({}, 1); await failed; await stopped; expect(confirmed).toBe(true);
   });
+  it('passes explicit workspace tools and fresh instructions without enabling shell tools', async () => {
+    const h = fixture();
+    const workspace = vi.fn(() => ({ directory: 'workspace', instructions: 'Клава знает оба проекта.', args: ['--strict-mcp-config', '--mcp-config', '{"mcpServers":{"klava":{}}}', '--allowedTools', 'mcp__klava__projects'] }));
+    const runner = new ClaudeDialog(() => 'mock-claude.exe', workspace);
+    const result = runner.run('Изучи проекты', new AbortController().signal);
+    expect(workspace).toHaveBeenCalledOnce();
+    const args = proc.spawn.mock.calls[0]![1];
+    expect(args[args.indexOf('--tools') + 1]).toBe('');
+    expect(args).toContain('mcp__klava__projects');
+    expect(h.prompt()).toContain('Клава знает оба проекта.');
+    h.respond({ result: 'Изучила' }); await expect(result).resolves.toBe('Изучила');
+  });
   it('rejects concurrent starts and ignores output after cancellation', async () => {
     const h = fixture(); const controller = new AbortController();
     const result = h.runner.run('Вопрос', controller.signal); const failed = expect(result).rejects.toThrow('остановлен');
