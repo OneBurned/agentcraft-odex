@@ -23,9 +23,15 @@ The source files stay in `artifacts/building-import/buildings` for local packagi
 1. Aim at a block up to 64 blocks away and run `/agentcraft preview modern-base` (or another ID).
 2. The chosen block is the centre block of the **lowest layer**. Even widths use the higher of
    the two central local coordinates. The outline lasts 15 seconds and reports width/depth/height.
-3. Run `/agentcraft place modern-base` while aiming at the same block, from the same side.
-   Move outside the preview volume first if the player intersects it. Rotation follows the
-   player's side of the target in quarter turns relative to the original schematic.
+3. Move outside the preview volume and run `/agentcraft place modern-base`. Aiming is not needed:
+   `place` uses the centre and quarter-turn rotation saved by the successful `preview`.
+   Walking around the building or looking elsewhere does not change either value.
+
+The selection outlives the 15-second outline. A successful new `preview` replaces it; failed
+previews/placements preserve it. It clears after successful construction or world close.
+`place` without a preview, for another building or in another world asks for a new preview,
+and never falls back to the current crosshair. If the schematic dimensions change, repeat preview.
+This selection flow also applies to built-in studio/cabin.
 
 For the floating island, make a temporary block at the desired height: the entire island starts
 at that height and extends upward 75 blocks. It is not placed with its inhabited floor at ground level.

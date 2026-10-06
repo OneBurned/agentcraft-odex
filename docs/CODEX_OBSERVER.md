@@ -9,6 +9,22 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### 0.4.13 remembered placement (prepared, not installed)
+
+`preview` now captures a player's building ID, world, centre, rotation and bounds after validation.
+`place` requires that selection and never raycasts or derives rotation from the player's current
+position. Outline expiry is independent of selection lifetime. Failed placement/preview keeps
+the selection; successful placement, a successful replacement preview or world close clears or
+replaces it. Other players/worlds/buildings cannot reuse the selection. Changed dimensions
+require a new preview. Studio/cabin and imported schemes share the same selection flow.
+
+This fixes large schemes following the crosshair as the player steps outside the outline.
+The player-inside error now says to move outside and repeat place without aiming.
+All 51 Java tests pass, including real scheme imports and selection regression tests;
+the isolated portable studio smoke check also passes.
+Package: `dist/AgentCraft-Codex-0.4.13-preview-selection`, including the three private schemes.
+Minecraft remains on 0.4.12 until separately approved installation. In-game verification is pending.
+
 ### 0.4.12 Minecraft commands and imported buildings (installed 2026-10-06)
 
 Vanilla chat exposes `/agentcraft` (help), `/agentcraft help`, `/agentcraft preview <building>`
@@ -817,16 +833,17 @@ review station, meeting seat and lounge. Its house is 21×17 blocks; the cleared
 `studio` is the original large studio with landscaped grounds, with a 93×91 site.
 
 Preview shows the site's outline with particles for 15 seconds, without changing blocks or the
-active HQ. Each command uses the current block under the crosshair, so aim at the same block
-when placing. The block is the horizontal centre of the building's foundation, with floor blocks
-one block above it. The entrance faces the player's side (one of four cardinal directions).
+active HQ. Preview captures the selected block and rotation; place uses that saved selection
+without aiming, even after the outline disappears. The block is the horizontal centre of the
+building's foundation, with floor blocks one block above it. The entrance faces the player's
+side at preview time (one of four cardinal directions).
 The studio's local centre is `(0, 64, 7)`; the cabin's is `(0, 64, 0)`.
 
 Placing clears/fills the entire outlined site, activates the new work stations and moves the
 player to its entrance. Old buildings remain in the world; new sites overlapping a recorded
 old site are rejected. `agentcraft-sites.json` records protected site boxes. Only one HQ is active.
 The saved transform rotates block states, station bindings, anchors and navigation together.
-To revisit placement, aim at the same foundation block and use the matching `place` command.
+To revisit placement, run a new preview on the desired foundation block, then the matching place command.
 There is no separate rebuild or force command in the player interface.
 
 Commands require Minecraft command permissions and a single-player overworld, regardless of its name. An empty sky target,
