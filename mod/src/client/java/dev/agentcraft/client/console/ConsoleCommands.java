@@ -112,6 +112,19 @@ public final class ConsoleCommands {
 		new Command("help", "/help", "this list"));
 
 	private static final List<String> AGENT_ACTIONS = List.of("pause", "resume", "stop", "spawn");
+	public static boolean observer(ForemanState s) {
+		return s.status() != null && s.status().backend() == Protocol.BackendName.OBSERVER;
+	}
+	public static List<Command> commands(ForemanState s) {
+		if (!observer(s)) return COMMANDS;
+		return List.of(new Command("help", "/help", "команды; /help blocks — назначение блоков"),
+			new Command("blocks", "/blocks", "справка по оборудованию и мебели"),
+			new Command("chat", "/chat", "подключённый чат и состояние связи"),
+			new Command("status", "/status", "задачи и состояние Codex"),
+			new Command("sound", "/sound on|off", "звуки уведомлений"),
+			new Command("clear", "/clear", "очистить локальные строки консоли"),
+			new Command("repos", "/repos", "показать подключённые проекты"));
+	}
 	private static final List<String> TASK_ACTIONS = List.of("cancel", "retry", "prioritize", "reassign");
 
 	// ------------------------------------------------------------------ parse
@@ -132,6 +145,7 @@ public final class ConsoleCommands {
 	}
 
 	private static Intent goal(String text, ForemanState s) {
+		if (observer(s)) return new Goal(text, null, List.of());
 		List<Repo> repos = new ArrayList<>(s.repos().values());
 		if (repos.size() <= 1) {
 			return new Goal(text, repos.isEmpty() ? null : repos.get(0).id(), List.of());
@@ -174,7 +188,12 @@ public final class ConsoleCommands {
 		String cmd = (sp < 0 ? trimmed.substring(1) : trimmed.substring(1, sp)).toLowerCase(Locale.ROOT);
 		String rest = sp < 0 ? "" : trimmed.substring(sp + 1).strip();
 		List<String> args = splitArgs(rest);
+		if (observer(s) && List.of("pause", "resume", "stop", "spawn", "task", "t", "answer", "a", "repo").contains(cmd)) {
+			return new Invalid("Управление агентами недоступно. Напиши задачу или ответ обычным текстом; /help — справка.");
+		}
 		return switch (cmd) {
+			case "blocks" -> new Help("blocks");
+			case "chat" -> new Status();
 			case "answer", "a" -> parseAnswer(rest, s);
 			case "repo" -> parseRepo(rest, args);
 			case "repos" -> new Repos();
@@ -477,6 +496,7 @@ public final class ConsoleCommands {
 
 	/** One short line for the right side of the input: what Enter will do. Null = nothing to say. */
 	public static @Nullable String describe(Intent in, ForemanState s) {
+		if (observer(s) && (in instanceof Goal || in instanceof Message)) return "отправить в чат Codex";
 		return switch (in) {
 			case Goal g -> g.repoId() == null ? "new goal" : "new goal → " + repoName(g.repoId(), s);
 			case Message m -> m.to().equals("all") ? "message everyone" : "message " + displayName(m.to(), s);
@@ -533,7 +553,7 @@ public final class ConsoleCommands {
 				agentCompletions(out, ts, cursor, lower.substring(1), s, true, " ");
 			} else if (token.startsWith("/")) {
 				String p = lower.substring(1);
-				for (Command c : COMMANDS) {
+				for (Command c : commands(s)) {
 					if (c.name().startsWith(p) && !(c.name().equals(p) && cursor < input.length())) {
 						out.add(new Completion(ts, cursor, "/" + c.name() + " ", "/" + c.name(), c.help(), null, null));
 					}

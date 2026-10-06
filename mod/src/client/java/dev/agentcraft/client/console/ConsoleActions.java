@@ -181,6 +181,7 @@ public final class ConsoleActions {
 		lastSent = raw.strip();
 		switch (in) {
 			case Goal g -> track(Foreman.submitGoal(g.text(), g.repoId()), raw, restore, ack -> {
+				if (ack.result() != null && ack.result().has("chatDelivered")) return "Доставлено в чат Codex " + UiBits.CHECK;
 				String gid = ack.result() != null && ack.result().has("goalId") ? ack.result().get("goalId").getAsString() : null;
 				return "goal " + (gid != null ? gid + " " : "") + "sent to Marlow" + (g.repoId() != null && s.repos().size() > 1 ? " \u2192 "
 					+ ConsoleCommands.repoName(g.repoId(), s) : "") + " " + UiBits.CHECK;
@@ -279,6 +280,17 @@ public final class ConsoleActions {
 	// ------------------------------------------------------------------ local commands
 
 	private static void help(@Nullable String topic) {
+		if ("blocks".equals(topic)) { blocks(); return; }
+		if (ConsoleCommands.observer(Foreman.state())) {
+			ConsoleLog.add(Tone.HEADER, "Консоль Codex");
+			ConsoleLog.add(Tone.INFO, "Обычный текст или @Codex текст — сообщение в подключённый чат. Туда же пиши ответы на уточнения.");
+			for (Command c : ConsoleCommands.commands(Foreman.state())) {
+				if (topic == null || c.name().startsWith(topic)) ConsoleLog.add(Tone.HELP, c.usage() + "\t" + c.help());
+			}
+			ConsoleLog.add(Tone.INFO, "Enter — отправить; Shift+Enter — новая строка; Tab — дополнить; стрелки — история; Esc — закрыть с сохранением черновика.");
+			ConsoleLog.add(Tone.INFO, "Команды /agentcraft и /gamemode вводи в обычном чате Minecraft (T). Разрешения на инструменты подтверждай в приложении Codex.");
+			return;
+		}
 		ConsoleLog.add(Tone.HEADER, "Console");
 		ConsoleLog.add(Tone.HELP, "plain text\ta new goal for Marlow (several repos: you pick one)");
 		ConsoleLog.add(Tone.HELP, "@juniper text\tmessage an agent (Tab completes, @all = everyone)");
@@ -293,6 +305,7 @@ public final class ConsoleActions {
 
 	private static void status(ForemanState s) {
 		ConsoleLog.add(Tone.HEADER, "Status");
+		if (ConsoleCommands.observer(s) && s.status().message() != null) ConsoleLog.add(Tone.INFO, s.status().message());
 		if (!s.hasData()) {
 			ConsoleLog.add(Tone.ERROR, "no data from the Foreman yet");
 			return;
@@ -322,6 +335,7 @@ public final class ConsoleActions {
 			ConsoleLog.add(Tone.INFO, "Claude spend so far: " + spend + " (estimated, this profile)");
 		}
 		for (Agent a : s.agents().values()) {
+			if (ConsoleCommands.observer(s) && !a.isActive()) continue;
 			String st = !a.isActive() ? "off shift" : a.isPaused() ? "paused" : a.state().wire().replace('_', ' ');
 			ConsoleLog.add(Tone.INFO, a.name() + " \u00b7 " + st + (a.activity().isEmpty() ? "" : " \u00b7 " + a.activity()) + (a.taskId() != null ? " ("
 				+ a.taskId() + ")" : ""), a.id());
@@ -334,6 +348,27 @@ public final class ConsoleActions {
 				ConsoleLog.add(Tone.INFO, d.id() + " " + DecisionQueue.kindLabel(d.kind()) + ": " + ConsoleCommands.oneLine(d.question(), 80), d.agentId());
 			}
 		}
+	}
+
+	private static void blocks() {
+		ConsoleLog.add(Tone.HEADER, "Блоки AgentCraft");
+		String[][] guide = {
+			{"Настройщик / Configurator", "Предмет выбора мест Codex: ПКМ по полу/ступеньке; Shift+ПКМ — следующая зона. Сначала рабочее место."},
+			{"Монитор / Monitor", "Журнал и последние переданные ответы Codex. В ручном рабочем месте подключается автоматически."},
+			{"Доска задач / Task Board", "Показывает задачи по состояниям. ПКМ — карточка задачи. Соседние панели одного направления объединяются."},
+			{"Консоль / Console Terminal", "ПКМ или клавиша ` открывает ввод задач и журнал сообщений. /chat показывает подключение."},
+			{"Индикатор / Status Lamp", "Цвет отражает состояние Codex; привязка возле ручного рабочего места автоматическая."},
+			{"Кафедра / Decision Podium", "Очередь решений исходного AgentCraft (ПКМ или J). Разрешения текущего чата сюда не переносятся."},
+			{"Архив / Memory Archive", "ПКМ открывает записи памяти AgentCraft. Это не память и не история этого чата Codex."},
+			{"Каталог / Memory Catalog", "Открывает общий список той же памяти. В наблюдателе список может быть пустым."},
+			{"Стол ревью / Merge Station", "Экран изменений рабочих копий AgentCraft. В наблюдателе таких копий нет, коммиты из игры не объединяются."},
+			{"Glow Panel / Glow Strip", "Освещение: панель — свет 15, полоска — свет 12. Для оформления помещения."},
+			{"Plaster Panel / Frame", "Декоративные светлые блоки стен и рамок."},
+			{"Walnut Panel / Trim", "Декоративные ореховые панели и отделка; годятся для мебели."},
+			{"Terracotta Tile / Oak Parquet", "Декоративная плитка и дубовый паркет."}
+		};
+		for (String[] row : guide) ConsoleLog.add(Tone.HELP, row[0] + "\t" + row[1]);
+		ConsoleLog.add(Tone.INFO, "Для начала достаточно места Codex, монитора и консоли. Стол и кресло строй из обычных блоков; остальные станции необязательны.");
 	}
 
 	/** "$2.46" for the claude backend once something was spent, else null. */

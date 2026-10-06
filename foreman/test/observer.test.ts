@@ -9,7 +9,7 @@ async function setup(home = tempDir('ac-observer-')) {
   if (!homes.includes(home)) homes.push(home);
   const h = makeForeman(home, ['--backend', 'observer']);
   harnesses.push(h);
-  const backend = new ObserverBackend(h.fm);
+  const backend = new ObserverBackend(h.fm, `${home}/no-chat-binding.json`);
   await h.fm.start(backend);
   return { ...h, backend };
 }

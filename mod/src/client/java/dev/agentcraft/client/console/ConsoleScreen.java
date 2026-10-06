@@ -571,7 +571,7 @@ public class ConsoleScreen extends Screen {
 				hint = ConsoleCommands.describe(intent, s);
 			}
 		}
-		String placeholder = "Type a goal, @agent to message, or /help";
+		String placeholder = ConsoleCommands.observer(Foreman.state()) ? "Задача для Codex или /help" : "Type a goal, @agent to message, or /help";
 		return new TextFieldView.Style(">", UiStyle.BRASS, placeholder, ghostText(), hint, hintColor, 6);
 	}
 

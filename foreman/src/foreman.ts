@@ -35,6 +35,7 @@ import { truncate } from './util/text.js';
 export interface Backend {
   readonly name: 'sim' | 'claude' | 'observer';
   onObserverUpdate?(update: ObserverUpdate): Record<string, unknown>;
+  onChatMessage?(text: string): Promise<Record<string, unknown>>;
   /** Called once after the core is ready (and after restart: resume work). */
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -501,6 +502,13 @@ export class Foreman {
   }
 
   private async dispatch(msg: ClientMessage, reply: Reply): Promise<Record<string, unknown> | undefined> {
+    if (this.config.backend === 'observer' && (msg.type === 'goal.submit' || msg.type === 'user.message')) {
+      if (!this.backend?.onChatMessage) throw new ClientError('Чат Codex не подключён.');
+      if (msg.type === 'user.message' && !['all', 'marlow', 'codex'].includes(msg.to.toLowerCase())) {
+        throw new ClientError('В этом режиме сообщения отправляются только Codex.');
+      }
+      return this.backend.onChatMessage(msg.text);
+    }
     if (this.config.backend === 'observer' && !['hello', 'observer.update', 'repo.add', 'diff.request'].includes(msg.type)) {
       throw new ClientError('Режим наблюдения: задачи, сообщения и согласования — в чате Codex. Игра только показывает ход работы.');
     }

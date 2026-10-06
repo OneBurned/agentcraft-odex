@@ -1,5 +1,24 @@
 # Console, decisions, permissions and HUD
 
+## Codex observer variant (0.3.0)
+
+With the optional desktop chat binding, plain text, `/goal text` and `@Codex text` go to the
+bound existing Codex desktop chat. Enter sends; Shift+Enter inserts a newline. The acknowledgement
+confirms delivery only. Public assistant commentary and completed final answers return to the
+console feed and monitor, polled every five seconds. The app must remain open. The binding is
+local to this Windows user; after a Codex app restart it may need reconnecting from that chat.
+See `CODEX_OBSERVER.md` and the package `README.txt` for setup and limitations.
+
+Observer `/help` lists supported commands: `/help blocks` (also `/blocks`), `/chat`, `/status`,
+`/sound on|off`, `/clear`, `/repos`. `/chat` includes the connection message and task status.
+`/clear` clears local console lines, not shared server history. Normal answers to Codex questions
+are plain text. Tool approvals remain in the desktop app. Legacy agent/task control commands
+are refused; `/diff` and the decision/library interfaces do not represent this external chat.
+Minecraft commands such as `/agentcraft workspace desk` belong in vanilla chat (`T`).
+
+The sections below describe the upstream autonomous-agent mode; they are not a list of enabled
+Codex observer controls.
+
 The practical core of AgentCraft: how you talk to the team and answer them without leaving the
 game. Code: `mod/src/client/java/dev/agentcraft/client/{console,decisions,permissions,hud}`.
 Shots: `tools/scenes/console.json` (showcase busy state).

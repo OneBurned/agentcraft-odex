@@ -1,6 +1,8 @@
-// One-way, explicit progress reports from an existing Codex chat. No model or execution loop.
+// Explicit progress reports plus an opt-in desktop chat relay. No model or execution loop.
 import { ClientError, type Backend, type Foreman } from '../foreman.js';
 import type { AgentState, ObserverUpdate, Station, TaskStatus } from '../protocol.js';
+import { DesktopChat, chatConfigPath, textChunks } from '../codex-desktop.js';
+import path from 'node:path';
 
 const stations: Record<ObserverUpdate['state'], Station> = {
   thinking: 'meeting', reading: 'library', editing: 'desk', running: 'terminal',
@@ -12,7 +14,9 @@ const guidance = 'Codex: работа идёт в чате; здесь — по�
 export class ObserverBackend implements Backend {
   readonly name = 'observer' as const;
   private timer?: NodeJS.Timeout;
-  constructor(private fm: Foreman) {}
+  private chat?: DesktopChat;
+  private chatGuidance = guidance;
+  constructor(private fm: Foreman, private chatFile = chatConfigPath()) {}
 
   async start(): Promise<void> {
     const lead = this.fm.requireAgent('marlow');
@@ -28,6 +32,14 @@ export class ObserverBackend implements Backend {
     this.fm.setStatus({ auth: 'ok', message: guidance });
     this.timer = setInterval(() => this.expireActivity(), 30_000);
     this.timer.unref();
+    this.chat = new DesktopChat({ configFile: this.chatFile, stateFile: path.join(this.fm.config.dataDir, 'codex-chat-state.json'),
+      onStatus: message => { this.chatGuidance = message; this.fm.setStatus({ auth: 'ok', message }); },
+      onText: (text, final) => {
+        for (const chunk of textChunks(text)) this.fm.bus.feed('message', chunk, { agentId: 'marlow', to: 'user' });
+        for (const chunk of textChunks(text, 1900)) this.fm.agentLog('marlow', final ? 'result' : 'text', chunk);
+      },
+    });
+    this.chat.start();
   }
 
   expireActivity(): void {
@@ -65,11 +77,19 @@ export class ObserverBackend implements Backend {
     if (update.log) this.fm.agentLog('marlow', update.state === 'error' ? 'error' : 'text', update.log);
     if (update.summary) this.fm.agentLog('marlow', 'result', update.summary);
     this.fm.bus.feed('task', update.activity, { agentId: 'marlow' });
-    this.fm.setStatus({ auth: 'ok', message: guidance });
+    this.fm.setStatus({ auth: 'ok', message: this.chatGuidance });
     return { taskId: task.id, goalId: task.goalId, state: update.state };
   }
 
-  async stop(): Promise<void> { clearInterval(this.timer); }
+  async onChatMessage(text: string): Promise<Record<string, unknown>> {
+    try {
+      if (!this.chat) throw new Error('Чат не подключён.');
+      const result = await this.chat.send(text);
+      this.fm.bus.send('user', 'marlow', text);
+      return result;
+    } catch (e) { throw new ClientError((e as Error).message); }
+  }
+  async stop(): Promise<void> { clearInterval(this.timer); this.chat?.stop(); }
   async submitGoal(): Promise<void> { throw new ClientError(guidance); }
   onUserMessage(): void {}
   onDecisionSettled(): void {}

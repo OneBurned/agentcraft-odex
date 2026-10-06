@@ -3,8 +3,9 @@
 The `observer` backend displays work performed in an existing Codex chat. It does not start
 Claude or another Codex session, call model APIs, execute task commands, create worktrees,
 merge, push or deploy. Marlow's existing character is labelled **Codex**; the other characters
-remain off shift and are not spawned in the observer game. Game task submission, messages, approvals and agent controls are rejected
-with instructions to return to the Codex chat.
+remain off shift and are not spawned in the observer game. Version 0.3.0 can forward game text to
+an explicitly bound existing desktop chat and return its public replies. Without the binding,
+sending is refused. Game approval and autonomous-agent control commands remain disabled.
 
 ## Start and stop on this Windows machine
 
@@ -55,7 +56,7 @@ that location and the saved block plan, retaining player edits. Only the studio 
 Use vanilla chat (`T` or `/`) for `/gamemode creative`, `/gamemode survival`,
 `/gamemode spectator`, `/difficulty normal`, `/time set day` or `/weather clear`.
 Chosen player modes now survive rejoining. The separate AgentCraft console (backtick key, usually
-the physical `Ё` key on a Russian keyboard) does **not** forward answers into the Codex chat.
+the physical `Ё` key on a Russian keyboard) forwards text when the desktop chat binding is configured.
 Work states are explicitly published by Codex using the bridge below; they are unrelated to
 Minecraft game modes.
 
@@ -118,7 +119,7 @@ placing a generated HQ deactivates the manual layout. `/agentcraft hq` only rebu
 layouts, so use workspace commands for manual layouts.
 
 Build the mod with JDK 25 and Gradle, then run `node tools/build-portable.mjs <fresh-output-dir>`.
-The Windows package contains AgentCraft 0.2.0, Fabric API 0.161.0+26.3, a bundled Node runtime,
+The Windows package contains AgentCraft 0.3.0, Fabric API 0.161.0+26.3, a bundled Node runtime,
 an observer-only bridge, status CLI, licenses and Russian instructions. Minecraft Java 26.3,
 Fabric Loader 0.19.5+ and Java 25 must already be installed for the chosen launcher profile.
 `Install-Mod.cmd` copies the two mods to the selected game directory, backing up replaced
@@ -133,7 +134,51 @@ off, and audio and pause preferences are retained. `config/agentcraft-client.jso
 variables and system properties override that file. The development launcher keeps its earlier
 defaults. Generic worlds keep their own game rules and spawn; the configured legacy HQ world
 still uses its existing HQ rules. Furniture placement does not import structures or enable
-two-way chat. Third-party `.schem`/`.nbt` builds are separate imports and are not bundled.
+chat by itself. Third-party `.schem`/`.nbt` builds are separate imports and are not bundled.
+
+## Text from Minecraft to this desktop chat (0.3.0)
+
+After the user explicitly authorizes game messages to the selected chat, run from that chat:
+
+```powershell
+# Source checkout, run inside foreman/:
+node --import tsx ../tools/connect-codex-chat.ts
+# Portable package:
+runtime/node.exe connect-codex-chat.mjs
+```
+
+The connector reads `CODEX_THREAD_ID` and `CODEX_APP_TOOLS_PIPE_PATH`, confirms the thread with
+the installed app's `read_thread` tool and saves `%USERPROFILE%/.agentcraft/codex-chat.json`.
+`AGENTCRAFT_CHAT_CONFIG` overrides the path for isolated tests. No thread ids or machine pipe
+addresses are committed or included in packages. Only one explicitly selected local chat is
+bound; never silently change this selection to another chat. Re-run the connector from the
+same chat if restarting/updating Codex changes its pipe. Renaming/removing the binding disables
+delivery. The observer notices binding changes without restarting.
+
+`codex-desktop.ts` implements only `read_thread` and `send_message_to_thread` over the installed
+app-tools pipe, using its length-prefixed JSON transport. This private, version-sensitive adapter
+is distinct from the public [Codex app-server protocol](https://learn.chatgpt.com/docs/app-server).
+The local CLI's `queue` transport required a separate daemon on this machine, so it was not used
+to resume the same desktop chat in a second execution process. The adapter does not spawn
+models, change permissions, change model settings, or touch thread databases.
+
+Plain text, `/goal text` and `@Codex text` are forwarded as user messages. `goal.submit` in
+observer mode forwards without creating a local autonomous goal; actual progress reports still
+create/update display tasks. A successful app acknowledgement means delivered, not executed.
+Only public `agentMessage` commentary and completed final answers are copied back; commands,
+tool outputs, reasoning and user-message history are excluded. The first read baselines old
+messages instead of copying the entire history. A per-profile seen-id file prevents duplicates
+on restart. Responses are read every five seconds; long answers are split into bounded feed/log
+chunks. Delivery timeout is reported as uncertain with no automatic retry. Confirm in the chat
+before resending. Native tool permission requests must be handled in the Codex application.
+
+The transport inherits the loopback observer's trust of local processes. Do not expose port 7878
+to other computers. Stop all but one observer instance for the selected game. App or protocol
+errors fail closed and appear in `/chat`; reconnect/update the adapter if the app changes.
+
+The console now has Russian observer-specific help and `/help blocks` (`/blocks`) explaining
+every equipment/decorative block. The installer also detects source=target when extracted into
+the game directory, avoiding moving its own source JARs into backup; copied JAR hashes are checked.
 
 ## Publish a real status from a chat
 
@@ -174,14 +219,23 @@ Origins by default; it trusts local processes, not an authenticated remote audie
 - After five minutes without an active-work update, the character becomes idle with a stale-status
   message. The task remains at its last reported status; no completion is inferred.
 - Restart restores tasks/logs and puts the character idle until the next real report.
-- The existing Minecraft studio and controls remain visible. Commands that could imply control
-  over the external chat are refused; write the instruction in Codex instead.
+- The existing Minecraft studio remains visible. Autonomous agent/task controls and tool
+  approvals remain disabled; text messages can reach the explicitly bound desktop chat.
 - Separate chats share one displayed character; the most recent report determines its activity.
   Their tasks remain separate when they use different keys.
 - No managed AgentCraft worktree is created, so the game's Merge/diff workflow does not represent
   these changes. Review code using Codex/Git.
 
 ## Validation
+
+0.3.0: Gradle build/eight model tests, all 501 Foreman checks and the protocol-doc check passed.
+Desktop relay tests cover transcript filtering, initial baseline, final-answer completion,
+restart deduplication, destination checks, overlapping sends, offline/uncertain delivery,
+shutdown, fragmented pipe frames and timeout. A live `goal.submit` through the packaged bridge
+delivered a marked QA message to the existing desktop chat; its public response appeared in the
+bridge feed. Windows PowerShell 5.1 verified in-place installation leaves both JARs intact and
+normal installation verifies hashes. Minecraft was not launched automatically for 0.3.0;
+the new console help's rendering still needs checking in the user's next game session.
 
 Run `npm run check` in `foreman/`, `npm test` in `tools/`, and the Gradle build in `mod/` using JDK 25.
 Gradle tests additionally cover manual role cycling, required desk, bounds, relocation and
