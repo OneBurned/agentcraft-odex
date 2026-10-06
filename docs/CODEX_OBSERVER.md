@@ -293,6 +293,25 @@ Origins by default; it trusts local processes, not an authenticated remote audie
 
 ## Validation
 
+### 0.3.2: lamp holograms and monitor messages
+
+Right-click a status lamp to toggle its hologram. The optional `hologram` block-entity boolean
+is saved in the world and synchronized from the server; changing it does not change the binding.
+Existing atrium lamps default to on, other lamps to off. Sneaking, using the Configurator and
+spectator interaction do not toggle it. Agent-bound lamps show a compact panel (about 1.9 blocks
+wide, centred 1.65 blocks above the lamp origin): live agent state, assigned task and activity.
+Paused and disconnected states are explicit; the large atrium retains its goal summary.
+
+Agent monitors separate log entries with an 8-pixel gap, a type/time heading and indented body
+text with 12-pixel line spacing. Empty paragraphs keep a 6-pixel gap. Prose and results wrap
+without the former 4/2-line truncation; the wall still displays the newest tail, with older text
+available in the agent card opened by right-clicking the character. Feed-only screens are unchanged.
+The JAR update requires a Minecraft restart. No bridge restart is needed for these UI changes.
+
+Validation: Gradle build and existing model tests on Oracle Java 25.0.2. In-game rendering,
+click/toggle and world-reload verification remain pending; Minecraft was not launched or
+restarted automatically. The 0.3.2 package is prepared, not installed in the user's game yet.
+
 0.3.1: Gradle build/model tests and the full Foreman check passed (527 tests, TypeScript,
 protocol documentation). Control tests cover native IPC framing/owner targeting, bound queue
 clearing, Goal-pause failures, persisted pause/resume, real-state confirmation, concurrent

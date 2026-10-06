@@ -37,6 +37,8 @@ import net.minecraft.core.Direction;
  *   <li>the lamp bound to {@code goal:atrium} is the Goal Atrium's projector: it draws the
  *       hologram above itself (goal text, progress ring, task and agent counts) with a soft light
  *       beam from the lens up to the card.</li>
+ *   <li>agent-bound lamps can opt into a compact, low projector via right-click. It shows the
+ *       bound agent's state, current task and activity; the setting is saved on the block.</li>
  * </ul>
  */
 public class StatusLampRenderer extends StationRenderer<StatusLampBlockEntity, StatusLampRenderer.State> {
@@ -55,6 +57,12 @@ public class StatusLampRenderer extends StationRenderer<StatusLampBlockEntity, S
 	public static class State extends StationRenderState {
 		public LampStatus status = LampStatus.OFF;
 		public boolean hologram;
+		public boolean compact;
+		public float hologramY = HOLO_Y;
+		public float hologramScale = K;
+		public int hologramHeight = CARD_H;
+		public String agentName = "";
+		public List<String> activityLines = List.of();
 		public boolean stale;
 		public boolean hasGoal;
 		public double progress;
@@ -89,7 +97,11 @@ public class StatusLampRenderer extends StationRenderer<StatusLampBlockEntity, S
 	@Override
 	protected void extractStation(StatusLampBlockEntity be, State s, float partialTicks) {
 		s.status = be.getBlockState().getValue(StatusLampBlock.STATUS);
-		s.hologram = ATRIUM_BINDING.equals(s.binding);
+		s.hologram = be.hologramEnabled();
+		s.compact = s.binding.isEmpty() || s.binding.startsWith("agent:");
+		s.hologramY = s.compact ? 1.65f : HOLO_Y;
+		s.hologramScale = s.compact ? 0.36f : K;
+		s.hologramHeight = s.compact ? 78 : CARD_H;
 		ForemanState fs = Foreman.state();
 		// offline: the lamps hold their last state, but nothing pretends you are needed right now
 		s.stale = fs == null || fs.isStale();
@@ -114,12 +126,46 @@ public class StatusLampRenderer extends StationRenderer<StatusLampBlockEntity, S
 			s.frameHalf = DECISIONS_BINDING.equals(s.binding) ? 2.5f : 1.5f;
 		}
 		if (s.hologram) {
-			extractHologram(s);
+			if (s.compact) extractAgentHologram(s);
+			else extractHologram(s);
 			// nameplates near the plinth lift clear of the goal panel instead of hiding behind it
 			net.minecraft.core.BlockPos p = be.getBlockPos();
-			dev.agentcraft.client.agents.PlateLayout.reserve(p.getX() + 0.5, p.getY() + HOLO_Y - CARD_H / 2f * WorldUi.PX * K, p.getZ() + 0.5,
-				s.cardW + 8, CARD_H + 8, WorldUi.PX * K);
+			dev.agentcraft.client.agents.PlateLayout.reserve(p.getX() + 0.5, p.getY() + s.hologramY - s.hologramHeight / 2f * WorldUi.PX * s.hologramScale, p.getZ() + 0.5,
+				s.cardW + 8, s.hologramHeight + 8, WorldUi.PX * s.hologramScale);
 		}
+	}
+
+	private static void extractAgentHologram(State s) {
+		ForemanState st = Foreman.state();
+		Font font = Minecraft.getInstance().font;
+		String id = s.binding.startsWith("agent:") ? s.binding.substring(6) : "marlow";
+		Agent a = st == null ? null : st.agent(id);
+		Task task = a == null || a.taskId() == null ? null : st.task(a.taskId());
+		s.cardW = 208;
+		s.agentName = TextUtil.ellipsize(font, a == null ? "Codex" : a.name(), 66);
+		s.statusWord = s.stale ? "Нет связи" : a == null ? "Ожидание" : a.isPaused() ? "Пауза" : switch (a.state()) {
+			case THINKING -> "Обдумывает";
+			case READING -> "Читает";
+			case EDITING -> "Редактирует";
+			case RUNNING -> "Выполняет";
+			case TESTING -> "Проверяет";
+			case WAITING_USER -> "Ждёт тебя";
+			case BLOCKED -> "Заблокирован";
+			case DONE -> "Ответ готов";
+			case ERROR -> "Ошибка";
+			default -> "Ожидание";
+		};
+		s.statusColor = UiStyle.status(s.stale || a == null ? "idle" : a.isPaused() ? "waiting" : a.state().family());
+		s.hasGoal = a != null;
+		s.goalLines = compactLines(font, task == null ? "Нет текущей задачи" : task.title(), 184);
+		String activity = a == null || a.activity().isBlank() ? "Нет новых действий" : a.activity();
+		s.activityLines = compactLines(font, s.stale ? "Нет связи · последнее состояние" : activity, 184);
+	}
+
+	private static List<String> compactLines(Font font, String text, int width) {
+		List<String> lines = TextUtil.wrapPlain(font, text.replace("`", ""), width);
+		if (lines.size() <= 2) return List.copyOf(lines);
+		return List.of(lines.get(0), TextUtil.ellipsize(font, String.join(" ", lines.subList(1, lines.size())), width));
 	}
 
 	private static void extractHologram(State s) {
@@ -222,7 +268,8 @@ public class StatusLampRenderer extends StationRenderer<StatusLampBlockEntity, S
 		}
 		if (s.hologram) {
 			beam(s, poseStack, collector);
-			card(s, poseStack, collector, camera);
+			if (s.compact) agentCard(s, poseStack, collector, camera);
+			else card(s, poseStack, collector, camera);
 		}
 	}
 
@@ -369,14 +416,14 @@ public class StatusLampRenderer extends StationRenderer<StatusLampBlockEntity, S
 	/** Two crossed, upward-fading additive planes from the lens to the card. */
 	private static void beam(State s, PoseStack poseStack, SubmitNodeCollector collector) {
 		float bottom = 1.02f;
-		float top = HOLO_Y - CARD_H / 2f * WorldUi.PX * K + 0.05f;
+		float top = s.hologramY - s.hologramHeight / 2f * WorldUi.PX * s.hologramScale + 0.05f;
 		float pulse = 0.85f + 0.15f * (float) Math.sin(s.timeSeconds * 1.3);
 		int base = s.hasGoal ? s.statusColor : UiStyle.CREAM;
 		int lo = ((int) (115 * pulse * (s.stale ? 0.4f : 1f)) << 24) | (base & 0xFFFFFF);
 		int hi = base & 0xFFFFFF; // alpha 0
 		collector.submitCustomGeometry(poseStack, RenderTypes.lightning(), (pose, vc) -> {
 			float rb = 0.16f;
-			float rt = 0.95f;
+			float rt = s.compact ? 0.55f : 0.95f;
 			// x plane and z plane, both windings so they show from either side
 			for (int side = 0; side < 2; side++) {
 				vc.addVertex(pose, 0.5f - rb, bottom, 0.5f).setColor(lo);
@@ -401,6 +448,28 @@ public class StatusLampRenderer extends StationRenderer<StatusLampBlockEntity, S
 				}
 			}
 		});
+	}
+
+	private static void agentCard(State s, PoseStack ps, SubmitNodeCollector c, CameraRenderState camera) {
+		int light = WorldUi.uiLight();
+		float x = -s.cardW / 2f;
+		float y = -s.hologramHeight / 2f;
+		int muted = UiStyle.color("paper.muted", 0xFF655E55);
+		ps.pushPose();
+		WorldUi.billboard(ps, camera, 0.5, s.hologramY, 0.5);
+		ps.scale(s.hologramScale, s.hologramScale, s.hologramScale);
+		frameStrip(ps, c, x - 2, y - 2, -x + 2, -y + 2, 2, UiStyle.BRASS, light);
+		WorldUi.submitNineSlice(ps, c, WorldUi.Layer.SOLID, Kit.PANEL_PAPER, x, y, s.cardW, s.hologramHeight, 0xFFFFFFFF, light);
+		WorldUi.submitText(ps, c, s.agentName, x + 10, y + 8, UiStyle.INK, light);
+		WorldUi.submitText(ps, c, s.statusWord, x + 84, y + 8, s.statusColor, light);
+		WorldUi.submitFill(ps, c, x + 10, y + 21, -x - 10, y + 22, UiStyle.BRASS, light);
+		for (int i = 0; i < s.goalLines.size(); i++) {
+			WorldUi.submitText(ps, c, s.goalLines.get(i), x + 12, y + 27 + 10 * i, UiStyle.INK, light);
+		}
+		for (int i = 0; i < s.activityLines.size(); i++) {
+			WorldUi.submitText(ps, c, s.activityLines.get(i), x + 12, y + 53 + 10 * i, muted, light);
+		}
+		ps.popPose();
 	}
 
 	private static void card(State s, PoseStack poseStack, SubmitNodeCollector collector, CameraRenderState camera) {
