@@ -119,7 +119,7 @@ placing a generated HQ deactivates the manual layout. `/agentcraft hq` only rebu
 layouts, so use workspace commands for manual layouts.
 
 Build the mod with JDK 25 and Gradle, then run `node tools/build-portable.mjs <fresh-output-dir>`.
-The Windows package contains AgentCraft 0.3.0, Fabric API 0.161.0+26.3, a bundled Node runtime,
+The Windows package contains AgentCraft 0.3.1, Fabric API 0.161.0+26.3, a bundled Node runtime,
 an observer-only bridge, status CLI, licenses and Russian instructions. Minecraft Java 26.3,
 Fabric Loader 0.19.5+ and Java 25 must already be installed for the chosen launcher profile.
 `Install-Mod.cmd` copies the two mods to the selected game directory, backing up replaced
@@ -206,6 +206,39 @@ mining, building or fighting was added; the existing movement and posture system
 The mod JAR remains 0.3.0: only the bridge needs updating and restarting, without restarting
 Minecraft. The prepared package is `dist/AgentCraft-Codex-0.3.0-chat-behavior-Windows.zip`.
 
+## Real task controls and readable messages (0.3.1)
+
+The card's Message button opens the normal console directly, without the QA screen registry
+or synthetic keystrokes, preserving a draft. Card and console messages use 75% text scale.
+The card wraps full log entries instead of truncating the first line and supports wheel scrolling
+through the retained history. Buttons and input fields retain their normal size.
+
+`agent.action` with `marlow`/`codex` and `pause`, `resume`, `stop` is now allowed in observer mode.
+The card buttons and `/pause`, `/resume`, `/stop` control the bound real chat. Pause uses the
+desktop's user-stop interrupt path, including pausing an active persistent Goal. Resume sends
+an explicit continuation to the same chat using the existing approved relay; it starts a new
+turn from saved context, not a suspended process image. Stop first clears queued messages of
+that bound chat, then interrupts it. Already completed edits are not rolled back.
+
+Windows `codex-control.ts` uses the installed app's private `\\.\pipe\codex-ipc` router: initialize,
+discover the owner of the bound local thread, target only that owner, and send the versioned
+`thread-follower-interrupt-turn` (`user-stop`, v3) / `thread-follower-clear-queued-messages` (v1)
+requests. This was inspected against Codex 26.930.4958; it is separate from app-tools and is
+version-sensitive. It never launches another app-server, kills Codex processes, moves a thread,
+or changes permissions. This maps to the [documented interruption lifecycle](https://learn.chatgpt.com/docs/app-server).
+
+An IPC acknowledgement alone does not produce success: the relay reads back the exact bound
+thread and confirms it is no longer active. Offline, unknown, mismatched and timed-out responses
+return an error without claiming a pause. Native Goal-pause errors also propagate. Pause/stop
+presentation is persisted by thread/turn in the local relay state file; a new real turn clears it.
+Overlapping sends/controls are rejected, delayed old polls cannot overwrite a pending control,
+and uncertain operations are never automatically retried. Other autonomous agent controls
+remain refused. Permissions still require the Codex application.
+
+The combined 0.3.1 archive includes the previously prepared movement fix. Updating this release
+requires both the new bridge and JAR, and a Minecraft restart to load the changed screens.
+Package: `dist/AgentCraft-Codex-0.3.1-Windows.zip`.
+
 ## Publish a real status from a chat
 
 ```powershell
@@ -245,14 +278,23 @@ Origins by default; it trusts local processes, not an authenticated remote audie
 - After five minutes without an active-work update, the character follows live chat activity or
   becomes idle with a stale-status message. The task remains at its last reported status.
 - Restart restores tasks/logs and waits for a fresh report or current chat lifecycle snapshot.
-- The existing Minecraft studio remains visible. Autonomous agent/task controls and tool
-  approvals remain disabled; text messages can reach the explicitly bound desktop chat.
+- The existing Minecraft studio remains visible. Pause/resume/stop and text messages reach the
+  explicitly bound chat; other autonomous task controls and native approvals remain disabled.
 - Separate chats share one displayed character; the most recent report determines its activity.
   Their tasks remain separate when they use different keys.
 - No managed AgentCraft worktree is created, so the game's Merge/diff workflow does not represent
   these changes. Review code using Codex/Git.
 
 ## Validation
+
+0.3.1: Gradle build/model tests and the full Foreman check passed (527 tests, TypeScript,
+protocol documentation). Control tests cover native IPC framing/owner targeting, bound queue
+clearing, Goal-pause failures, persisted pause/resume, real-state confirmation, concurrent
+controls, late polls and unavailable desktop transport. Live owner discovery succeeded; a
+guarded interrupt request with a deliberately nonexistent expected turn id returned
+`ok: true, interruptedTurnId: null`, confirming the actual route without interrupting this
+development chat. A live destructive pause/resume/stop cycle and the new screen appearance
+remain to be checked after the user restarts Minecraft with 0.3.1; no game was auto-launched.
 
 Chat-behavior bridge update: the full Foreman check passed (516 tests, TypeScript and protocol
 docs); after an additional rapid-follow-up/poll-order fix, TypeScript and all 31 focused relay /

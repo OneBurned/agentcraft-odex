@@ -3,6 +3,8 @@ package dev.agentcraft.client.agents;
 import com.mojang.blaze3d.platform.InputConstants;
 import dev.agentcraft.AgentCraft;
 import dev.agentcraft.client.dev.DevBridge;
+import dev.agentcraft.client.console.ConsoleScreen;
+import dev.agentcraft.client.console.ConsoleCommands;
 import dev.agentcraft.client.foreman.Foreman;
 import dev.agentcraft.client.foreman.ForemanState;
 import dev.agentcraft.client.foreman.Protocol;
@@ -95,6 +97,11 @@ public final class AgentCardScreen extends Screen {
 	private long revision = -1;
 	private int logCount = -1;
 	private final List<LogEntry> logs = new ArrayList<>();
+	private record LogLine(String text, int color) { }
+	private final List<LogLine> logLines = new ArrayList<>();
+	private final TextUtil.Scroll logScroll = new TextUtil.Scroll();
+	private int logX, logY, logW, logH;
+	private boolean sending;
 
 	// content of this frame (rebuilt in refresh)
 	private @Nullable Decision owned;
@@ -201,7 +208,16 @@ public final class AgentCardScreen extends Screen {
 			ownedId = want;
 			logs.clear();
 			List<LogEntry> all = st.logs(agentId);
-			logs.addAll(all.subList(Math.max(0, all.size() - 6), all.size()));
+			logs.addAll(all);
+			logLines.clear();
+			Kit.Padding pad = Kit.padding("panel_paper");
+			int wrapWidth = (int) ((W - pad.left() - pad.right() - 22) / TextUtil.MESSAGE_SCALE);
+			for (LogEntry entry : logs) {
+				for (String line : TextUtil.wrapPlain(this.font, entry.text(), wrapWidth)) {
+					logLines.add(new LogLine(line, logColor(entry.kind())));
+				}
+				logLines.add(new LogLine("", 0));
+			}
 			owned = want != null ? st.decision(want) : null;
 			if (owned != null && !owned.isOpen()) {
 				owned = null;
@@ -383,27 +399,24 @@ public final class AgentCardScreen extends Screen {
 		}
 
 		// log tail
-		int logH = logRows * ROW + 8;
+		logX = ix; logY = y; logW = iw;
+		logH = logRows * ROW + 8;
 		Panels.inset(g, ix, y, iw, logH);
 		Kit.Padding ip = Kit.padding("panel_inset");
-		int ly = y + ip.top();
-		int start = Math.max(0, logs.size() - logRows);
-		if (logs.isEmpty()) {
-			Panels.text(g, font, "No log yet", ix + ip.left() + 1, ly, muted);
+		int viewRows = Math.max(1, (int) ((logH - 8) / (ROW * TextUtil.MESSAGE_SCALE)));
+		logScroll.update(logLines.size(), viewRows);
+		g.enableScissor(ix + 3, y + 3, ix + iw - 10, y + logH - 3);
+		g.pose().pushMatrix();
+		g.pose().translate(ix + ip.left() + 1, y + ip.top());
+		g.pose().scale(TextUtil.MESSAGE_SCALE, TextUtil.MESSAGE_SCALE);
+		if (logLines.isEmpty()) Panels.text(g, font, "Сообщений пока нет", 0, 0, muted);
+		for (int i = logScroll.offset(); i < Math.min(logLines.size(), logScroll.offset() + viewRows); i++) {
+			LogLine line = logLines.get(i);
+			Panels.text(g, font, line.text(), 0, (i - logScroll.offset()) * ROW, line.color());
 		}
-		for (int i = start; i < logs.size(); i++) {
-			LogEntry le = logs.get(i);
-			int lx = ix + ip.left() + 1;
-			int avail = iw - ip.left() - ip.right() - 2;
-			String text = TextUtil.firstLine(le.text());
-			if (le.kind() == Protocol.LogKind.TOOL) {
-				Panels.sprite(g, Kit.icon(toolIcon(text)), lx, ly - 2, 12, 12);
-				lx += 14;
-				avail -= 14;
-			}
-			Panels.text(g, font, TextUtil.ellipsize(font, text, avail), lx, ly, logColor(le.kind()));
-			ly += ROW;
-		}
+		g.pose().popMatrix();
+		g.disableScissor();
+		Panels.scrollbar(g, ix + iw - 8, y + 3, logH - 6, logScroll, false);
 		y += logH + 6;
 
 		// message / feedback line (a vanilla EditBox in the kit's text field)
@@ -444,7 +457,7 @@ public final class AgentCardScreen extends Screen {
 			int right = ix + iw;
 			int hx = hint(g, font, ix, y, right, "M", "message");
 			if (ag.isActive()) {
-				hx = hint(g, font, hx, y, right, "P", ag.isPaused() ? "resume" : "pause");
+			hx = hint(g, font, hx, y, right, "P", ag.isPaused() ? "продолжить" : "пауза");
 			}
 			if (!optionRows.isEmpty()) {
 				hx = hint(g, font, hx, y, right, optionRows.size() == 1 ? "1" : "1-" + optionRows.size(), "answer");
@@ -572,15 +585,16 @@ public final class AgentCardScreen extends Screen {
 		Btn msg = buttons[0];
 		Btn pause = buttons[1];
 		Btn stop = buttons[2];
-		boolean on = live();
-		msg.label = field != null ? "Send" : "Message";
+		boolean observer = ConsoleCommands.observer(Foreman.state());
+		boolean on = live() && !sending;
+		msg.label = field != null ? "Отправить" : "Сообщение";
 		// one call to action at a time: the decision block's when there is one
 		msg.primary = field != null || owned == null;
 		msg.disabled = !on;
-		pause.label = ag.isPaused() ? "Resume" : "Pause";
+		pause.label = ag.isPaused() ? "Продолжить" : "Пауза";
 		pause.primary = false;
 		pause.disabled = !on || !ag.isActive();
-		stop.label = ag.isActive() ? "Stop" : "Spawn";
+		stop.label = observer || ag.isActive() ? "Стоп" : "Spawn";
 		stop.primary = false;
 		stop.disabled = !on;
 		int gap = 6;
@@ -758,6 +772,14 @@ public final class AgentCardScreen extends Screen {
 	}
 
 	// ---------------------------------------------------------------- input
+	@Override
+	public boolean mouseScrolled(double x, double y, double sx, double sy) {
+		if (x >= logX && x < logX + logW && y >= logY && y < logY + logH && sy != 0) {
+			logScroll.scrollBy(sy > 0 ? -3 : 3);
+			return true;
+		}
+		return super.mouseScrolled(x, y, sx, sy);
+	}
 
 	@Override
 	public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
@@ -901,6 +923,7 @@ public final class AgentCardScreen extends Screen {
 	}
 
 	private void press(String id) {
+		if (sending) return;
 		Agent ag = agent();
 		if (ag == null) {
 			return;
@@ -925,7 +948,7 @@ public final class AgentCardScreen extends Screen {
 						closeField();
 						send(Foreman.message(agentId, text), "Sent to " + ag.name());
 					}
-				} else if (!openConsole(this.minecraft, "@" + agentId + " ")) {
+				} else if (!openConsole(this.minecraft, ConsoleCommands.observer(Foreman.state()) ? "" : "@" + agentId + " ")) {
 					openField(Mode.MESSAGE, null);
 				}
 			}
@@ -934,11 +957,11 @@ public final class AgentCardScreen extends Screen {
 					return;
 				}
 				boolean resume = ag.isPaused();
-				send(Foreman.agentAction(agentId, resume ? "resume" : "pause", null), ag.name() + (resume ? " resumed" : " paused"));
+				send(Foreman.agentAction(agentId, resume ? "resume" : "pause", null), resume ? "Продолжение отправлено в Codex" : "Задача приостановлена");
 			}
 			case "stop" -> {
-				boolean spawn = !ag.isActive();
-				send(Foreman.agentAction(agentId, spawn ? "spawn" : "stop", null), ag.name() + (spawn ? " is back on shift" : " is off shift"));
+				boolean spawn = !ConsoleCommands.observer(Foreman.state()) && !ag.isActive();
+				send(Foreman.agentAction(agentId, spawn ? "spawn" : "stop", null), spawn ? "Агент возвращён" : "Выполнение остановлено");
 			}
 			case "review" -> {
 				if (owned != null) {
@@ -957,10 +980,12 @@ public final class AgentCardScreen extends Screen {
 	}
 
 	private void send(CompletableFuture<Protocol.Ack> f, String ok) {
-		status = "...";
+		sending = true;
+		status = "Ожидаю подтверждение Codex…";
 		statusError = false;
 		statusUntil = System.currentTimeMillis() + 20_000;
 		f.whenComplete((ack, err) -> Minecraft.getInstance().execute(() -> {
+			sending = false;
 			if (err != null || ack == null || !ack.ok()) {
 				setStatus(err != null ? "Could not reach the Foreman" : ack == null ? "No answer" : "Foreman: " + (ack.error() != null ? ack.error() : "refused"),
 					true);
@@ -976,26 +1001,7 @@ public final class AgentCardScreen extends Screen {
 	 * console screen.
 	 */
 	public static boolean openConsole(Minecraft mc, String prefill) {
-		Function<Minecraft, Screen> f = DevBridge.screens().get("console");
-		if (f == null) {
-			return false;
-		}
-		Screen s;
-		try {
-			s = f.apply(mc);
-		} catch (RuntimeException ex) {
-			AgentCraft.LOGGER.warn("console screen failed to open", ex);
-			return false;
-		}
-		if (s == null) {
-			return false;
-		}
-		mc.gui.setScreen(s);
-		for (int i = 0; i < prefill.length();) {
-			int cp = prefill.codePointAt(i);
-			i += Character.charCount(cp);
-			s.charTyped(new CharacterEvent(cp));
-		}
+		mc.gui.setScreen(new ConsoleScreen(prefill.isEmpty() ? null : prefill));
 		return true;
 	}
 }

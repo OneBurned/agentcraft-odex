@@ -15,11 +15,67 @@ function fixture() {
   const onText = vi.fn(), onStatus = vi.fn(), onActivity = vi.fn();
   const response = { thread: { id: binding.threadId }, turns: [{ id: 't1', status: 'completed', items: [] as any[] }] };
   const call = vi.fn(async (_b: ChatBinding, tool: string, _args: any) => tool === 'read_thread' ? response : { threadId: binding.threadId });
-  const options = { configFile, stateFile, call, onText, onStatus, onActivity };
+  const interrupt = vi.fn(async (_threadId: string, _stop: boolean) => { response.turns[0]!.status = 'interrupted'; });
+  const options = { configFile, stateFile, call, onText, onStatus, onActivity, interrupt };
   return { ...options, dir, response, options, chat: new DesktopChat(options) };
 }
 
 describe('desktop chat relay', () => {
+  it('confirms a real interruption, persists pause across restart, and resumes only on request', async () => {
+    const f = fixture(); f.response.turns[0]!.status = 'inProgress'; await f.chat.poll();
+    expect(await f.chat.control('pause')).toMatchObject({ chatControl: 'paused' });
+    expect(f.interrupt).toHaveBeenCalledWith(binding.threadId, false);
+    expect(f.onActivity).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'paused' }));
+    const resumed = new DesktopChat(f.options); await resumed.poll();
+    expect(f.onActivity).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'paused' }));
+    expect(f.call.mock.calls.filter(c => c[1] === 'send_message_to_thread')).toHaveLength(0);
+    expect(await resumed.control('resume')).toMatchObject({ chatDelivered: true });
+    expect(f.call.mock.calls.filter(c => c[1] === 'send_message_to_thread')).toHaveLength(1);
+    await expect(resumed.control('resume')).rejects.toThrow('не поставлен на паузу');
+    f.response.turns.unshift({ id: 'next', status: 'inProgress', items: [] }); await resumed.poll();
+    expect(f.onActivity).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'working' }));
+  });
+  it('stops through the desktop and does not offer to resume a cancelled task', async () => {
+    const f = fixture(); await f.chat.poll();
+    expect(await f.chat.control('stop')).toMatchObject({ chatControl: 'stopped' });
+    expect(f.interrupt).toHaveBeenCalledWith(binding.threadId, true);
+    await f.chat.poll(); expect(f.onActivity).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'stopped' }));
+    await expect(f.chat.control('resume')).rejects.toThrow('не поставлен на паузу');
+  });
+  it('never claims a pause on IPC failure, offline read or wrong-thread confirmation', async () => {
+    const f = fixture(); await f.chat.poll();
+    f.interrupt.mockRejectedValueOnce(new Error('not supported'));
+    await expect(f.chat.control('pause')).rejects.toThrow('not supported');
+    f.call.mockRejectedValueOnce(new Error('offline'));
+    await expect(f.chat.control('pause')).rejects.toThrow('offline');
+    f.response.thread.id = 'wrong';
+    await expect(f.chat.control('pause')).rejects.toThrow('проверить остановку');
+    expect(f.onActivity.mock.calls.some(([a]) => a.phase === 'paused')).toBe(false);
+  });
+  it('rejects overlapping controls/messages and ignores a poll that finishes during interruption', async () => {
+    const f = fixture(); await f.chat.poll();
+    let read!: (value: any) => void, stop!: () => void;
+    f.call.mockImplementationOnce(() => new Promise(resolve => { read = resolve; }));
+    const polling = f.chat.poll();
+    f.interrupt.mockImplementationOnce(() => new Promise(resolve => { stop = resolve; }));
+    const stopping = f.chat.control('pause');
+    await expect(f.chat.control('stop')).rejects.toThrow('ещё обрабатывается');
+    await expect(f.chat.send('new')).rejects.toThrow('ещё обрабатывается');
+    read(f.response); await polling;
+    expect(f.onActivity).toHaveBeenCalledTimes(1);
+    stop(); await stopping;
+    expect(f.onActivity).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'paused' }));
+  });
+  it('does not claim interruption just because IPC accepted the request', async () => {
+    const f = fixture(); f.response.turns[0]!.status = 'inProgress'; await f.chat.poll();
+    f.interrupt.mockImplementationOnce(async () => {});
+    vi.useFakeTimers();
+    try {
+      const pending = expect(f.chat.control('pause')).rejects.toThrow('не подтверждена');
+      await vi.runAllTimersAsync(); await pending;
+      expect(f.onActivity.mock.calls.some(([a]) => a.phase === 'paused')).toBe(false);
+    } finally { vi.useRealTimers(); }
+  });
   it('reports live activity on the first read, despite baselining the transcript', async () => {
     const f = fixture(); f.response.turns[0]!.status = 'inProgress';
     await f.chat.poll();

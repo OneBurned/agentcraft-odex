@@ -9,6 +9,7 @@ import net.minecraft.util.FormattedCharSequence;
 /** Text helpers shared by screens and in-world renderers: ellipsis, wrapping, scrolling. */
 public final class TextUtil {
 	public static final String ELLIPSIS = "…";
+	public static final float MESSAGE_SCALE = 0.75f;
 
 	private TextUtil() {
 	}

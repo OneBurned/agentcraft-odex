@@ -36,6 +36,7 @@ export interface Backend {
   readonly name: 'sim' | 'claude' | 'observer';
   onObserverUpdate?(update: ObserverUpdate): Record<string, unknown>;
   onChatMessage?(text: string): Promise<Record<string, unknown>>;
+  onChatControl?(action: 'pause' | 'resume' | 'stop'): Promise<Record<string, unknown>>;
   /** Called once after the core is ready (and after restart: resume work). */
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -502,6 +503,13 @@ export class Foreman {
   }
 
   private async dispatch(msg: ClientMessage, reply: Reply): Promise<Record<string, unknown> | undefined> {
+    if (this.config.backend === 'observer' && msg.type === 'agent.action') {
+      if (!['marlow', 'codex'].includes(msg.agentId.toLowerCase()) ||
+        !['pause', 'resume', 'stop'].includes(msg.action) || !this.backend?.onChatControl) {
+        throw new ClientError('Для Codex доступны только пауза, продолжение и остановка подключённой задачи.');
+      }
+      return this.backend.onChatControl(msg.action as 'pause' | 'resume' | 'stop');
+    }
     if (this.config.backend === 'observer' && (msg.type === 'goal.submit' || msg.type === 'user.message')) {
       if (!this.backend?.onChatMessage) throw new ClientError('Чат Codex не подключён.');
       if (msg.type === 'user.message' && !['all', 'marlow', 'codex'].includes(msg.to.toLowerCase())) {

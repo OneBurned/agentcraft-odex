@@ -491,7 +491,7 @@ export const CLIENT_MESSAGES = {
   'user.message': { schema: UserMessageMsg, doc: 'Message an agent (console: `@name text`) or everyone.' },
   'decision.answer': { schema: DecisionAnswerMsg, doc: 'Answer an open decision. Merge decisions: option "Merge" merges, "Request changes" sends `text` back to the worker, "Reject" abandons the branch.' },
   'task.action': { schema: TaskActionMsg, doc: 'Steer a task from the Task Wall.' },
-  'agent.action': { schema: AgentActionMsg, doc: 'Pause/resume/stop an agent, or spawn (activate) an off-shift worker.' },
+  'agent.action': { schema: AgentActionMsg, doc: 'Pause/resume/stop an agent, or spawn an off-shift worker. In observer mode only marlow/codex pause/resume/stop is accepted: controls the bound desktop chat, not NPC visibility; acknowledgement follows real interruption confirmation.' },
   'diff.request': { schema: DiffRequestMsg, doc: 'Ask for the structured diff of a worktree. Answered with `diff` (same requestId).' },
   'repo.add': { schema: RepoAddMsg, doc: 'Register a local git repo (console: `/repo add <path>`).' },
 } as const;

@@ -118,6 +118,9 @@ public final class ConsoleCommands {
 	public static List<Command> commands(ForemanState s) {
 		if (!observer(s)) return COMMANDS;
 		return List.of(new Command("help", "/help", "команды; /help blocks — назначение блоков"),
+			new Command("pause", "/pause", "приостановить реальную задачу Codex"),
+			new Command("resume", "/resume", "продолжить приостановленную задачу"),
+			new Command("stop", "/stop", "остановить задачу Codex и очистить очередь сообщений"),
 			new Command("blocks", "/blocks", "справка по оборудованию и мебели"),
 			new Command("chat", "/chat", "подключённый чат и состояние связи"),
 			new Command("status", "/status", "задачи и состояние Codex"),
@@ -188,7 +191,12 @@ public final class ConsoleCommands {
 		String cmd = (sp < 0 ? trimmed.substring(1) : trimmed.substring(1, sp)).toLowerCase(Locale.ROOT);
 		String rest = sp < 0 ? "" : trimmed.substring(sp + 1).strip();
 		List<String> args = splitArgs(rest);
-		if (observer(s) && List.of("pause", "resume", "stop", "spawn", "task", "t", "answer", "a", "repo").contains(cmd)) {
+		if (observer(s) && List.of("pause", "resume", "stop").contains(cmd)) {
+			if (!args.isEmpty() && !(args.size() == 1 && List.of("@codex", "@marlow").contains(args.get(0).toLowerCase(Locale.ROOT))))
+				return new Invalid("Команда управляет только подключённым чатом Codex: /" + cmd);
+			return new AgentAction(List.of("marlow"), cmd, null);
+		}
+		if (observer(s) && List.of("spawn", "task", "t", "answer", "a", "repo").contains(cmd)) {
 			return new Invalid("Управление агентами недоступно. Напиши задачу или ответ обычным текстом; /help — справка.");
 		}
 		return switch (cmd) {

@@ -449,11 +449,11 @@ public class ConsoleScreen extends Screen {
 			return true;
 		}
 		if (k == InputConstants.KEY_PAGEUP) {
-			scroll.scrollBy(-Math.max(1, listH / ROW - 1));
+			scroll.scrollBy(-Math.max(1, (int) (listH / (ROW * TextUtil.MESSAGE_SCALE)) - 1));
 			return true;
 		}
 		if (k == InputConstants.KEY_PAGEDOWN) {
-			scroll.scrollBy(Math.max(1, listH / ROW - 1));
+			scroll.scrollBy(Math.max(1, (int) (listH / (ROW * TextUtil.MESSAGE_SCALE)) - 1));
 			return true;
 		}
 		if (k == InputConstants.KEY_END && e.hasControlDown() && input.isEmpty()) {
@@ -513,7 +513,7 @@ public class ConsoleScreen extends Screen {
 		}
 		// a "needs you" line in the feed opens the decision queue (Esc comes back here)
 		if (!overlayOpen() && mx >= listX && mx < listX + listW - 10 && my >= listY + 4 && my < listY + listH - 2) {
-			int i = scroll.offset() + (int) ((my - listY - 4) / ROW);
+			int i = scroll.offset() + (int) ((my - listY - 4) / (ROW * TextUtil.MESSAGE_SCALE));
 			if (i >= 0 && i < rows.size() && rows.get(i).opensDecisions() && DecisionsFeature.waitingCount() > 0) {
 				DecisionsFeature.openQueue(null, this);
 				return true;
@@ -645,35 +645,39 @@ public class ConsoleScreen extends Screen {
 		listW = w;
 		listH = panelY + panelH - p.bottom() - footerH - 3 - y;
 		Panels.inset(g, listX, listY, listW, listH);
-		List<Row> rs = rows(listW - 14);
-		int view = Math.max(1, (listH - 6) / ROW);
+		int messageWidth = (int) (listW / TextUtil.MESSAGE_SCALE);
+		List<Row> rs = rows((int) ((listW - 14) / TextUtil.MESSAGE_SCALE));
+		int view = Math.max(1, (int) ((listH - 6) / (ROW * TextUtil.MESSAGE_SCALE)));
 		scroll.update(rs.size(), view);
-		int ly = listY + 4;
+		int ly = 0;
 		g.enableScissor(listX + 2, listY + 2, listX + listW - 2, listY + listH - 2);
+		g.pose().pushMatrix();
+		g.pose().translate(listX, listY + 4);
+		g.pose().scale(TextUtil.MESSAGE_SCALE, TextUtil.MESSAGE_SCALE);
 		if (rs.isEmpty()) {
 			String msg = s == null || !s.hasData() ? "Waiting for the Foreman…" : "Nothing yet. Type a goal below and press Enter.";
-			g.text(font, msg, listX + 8, ly + 2, UiBits.muted(), false);
+			g.text(font, msg, 8, ly + 2, UiBits.muted(), false);
 		}
-		int textX0 = listX + 6;
+		int textX0 = 8;
 		for (int i = scroll.offset(); i < Math.min(rs.size(), scroll.offset() + view); i++) {
 			Row r = rs.get(i);
 			// (a view that starts on the tail of a wrapped line just shows that tail, under its
 			// stripe, like any chat log: no blank first row)
 			if (r.sep()) {
 				int tw = font.width(r.time());
-				int mid = listX + (listW - 8) / 2;
+				int mid = (messageWidth - 8) / 2;
 				int rule = UiStyle.color("palette.ui.edge", 0xFFC9BBA3);
 				g.fill(textX0 + 2, ly + 4, mid - tw / 2 - 5, ly + 5, rule);
-				g.fill(mid + tw / 2 + 5, ly + 4, listX + listW - 12, ly + 5, rule);
+				g.fill(mid + tw / 2 + 5, ly + 4, messageWidth - 16, ly + 5, rule);
 				g.text(font, r.time(), mid - tw / 2, ly, UiStyle.color("paper.disabled", 0xFFA39B8E), false);
 				ly += ROW;
 				continue;
 			}
 			if (r.stripe() != 0) {
-				g.fill(listX + 3, ly - 1, listX + 5, ly + 9, r.stripe());
+				g.fill(4, ly - 1, 6, ly + 9, r.stripe());
 			}
 			if (r.header()) {
-				g.fill(textX0, ly + 9, listX + listW - 10, ly + 10, UiStyle.color("palette.ui.edge", 0xFFC9BBA3));
+				g.fill(textX0, ly + 9, messageWidth - 14, ly + 10, UiStyle.color("palette.ui.edge", 0xFFC9BBA3));
 			}
 			int tx = textX0 + 2;
 			if (r.faceAgent() != null) {
@@ -690,6 +694,7 @@ public class ConsoleScreen extends Screen {
 			}
 			ly += ROW;
 		}
+		g.pose().popMatrix();
 		g.disableScissor();
 		Panels.scrollbar(g, listX + listW - 8, listY + 2, listH - 4, scroll, false);
 		if (!scroll.following() && scroll.scrollable()) {

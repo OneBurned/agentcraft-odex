@@ -1,7 +1,7 @@
 // Explicit progress reports plus an opt-in desktop chat relay. No model or execution loop.
 import { ClientError, type Backend, type Foreman } from '../foreman.js';
 import type { AgentState, ObserverUpdate, Station, TaskStatus } from '../protocol.js';
-import { DesktopChat, chatConfigPath, textChunks, type ChatActivity } from '../codex-desktop.js';
+import { DesktopChat, chatConfigPath, textChunks, type ChatActivity, type ChatControl } from '../codex-desktop.js';
 import path from 'node:path';
 
 const stations: Record<ObserverUpdate['state'], Station> = {
@@ -76,6 +76,13 @@ export class ObserverBackend implements Backend {
   onChatActivity(activity: ChatActivity): void {
     const previous = this.lastChat;
     const a = this.fm.requireAgent('marlow');
+    if (activity.phase === 'paused' || activity.phase === 'stopped') {
+      this.cancelRest(); this.detail = undefined;
+      this.lastChat = activity; this.chatAvailable = true;
+      this.fm.setAgent(a.id, { state: 'idle', paused: activity.phase === 'paused', station: 'desk',
+        activity: activity.phase === 'paused' ? 'Задача в Codex приостановлена' : 'Выполнение в Codex остановлено' });
+      return;
+    }
     if (activity.phase === 'unavailable') {
       this.chatAvailable = false;
       this.cancelRest();
@@ -85,6 +92,7 @@ export class ObserverBackend implements Backend {
       return;
     }
     const wasAvailable = this.chatAvailable;
+    if (['working', 'waiting'].includes(activity.phase)) this.fm.setAgent(a.id, { paused: false });
     this.chatAvailable = true;
     this.lastChat = activity;
     this.chatSeenAt = this.fm.ctx.now();
@@ -175,6 +183,12 @@ export class ObserverBackend implements Backend {
       const result = await this.chat.send(text);
       this.fm.bus.send('user', 'marlow', text);
       return result;
+    } catch (e) { throw new ClientError((e as Error).message); }
+  }
+  async onChatControl(action: ChatControl): Promise<Record<string, unknown>> {
+    try {
+      if (!this.chat) throw new Error('Чат не подключён.');
+      return await this.chat.control(action);
     } catch (e) { throw new ClientError((e as Error).message); }
   }
   async stop(): Promise<void> { clearInterval(this.timer); this.cancelRest(); this.chat?.stop(); }

@@ -995,7 +995,7 @@ Steer a task from the Task Wall.
 
 ### `agent.action`
 
-Pause/resume/stop an agent, or spawn (activate) an off-shift worker.
+Pause/resume/stop an agent, or spawn an off-shift worker. In observer mode only marlow/codex pause/resume/stop is accepted: controls the bound desktop chat, not NPC visibility; acknowledgement follows real interruption confirmation.
 
 | field | type | required | notes |
 | --- | --- | --- | --- |

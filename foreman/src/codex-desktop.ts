@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { readJson, writeJsonAtomic } from './util/fsx.js';
+import { interruptDesktop } from './codex-control.js';
 
 export interface ChatBinding { threadId: string; pipePath: string; title: string; hostId: 'local'; }
 export const chatConfigPath = () => process.env.AGENTCRAFT_CHAT_CONFIG || path.join(os.homedir(), '.agentcraft', 'codex-chat.json');
@@ -76,10 +77,11 @@ export function textChunks(text: string, size = 380): string[] {
   return result;
 }
 
-interface ChatState { threadId: string; seen: string[]; }
+interface ChatState { threadId: string; seen: string[]; control?: { mode: 'paused' | 'stopped'; turnKey: string }; }
+export type ChatControl = 'pause' | 'resume' | 'stop';
 export interface ChatActivity {
   key: string;
-  phase: 'working' | 'waiting' | 'completed' | 'interrupted' | 'error' | 'idle' | 'unavailable';
+  phase: 'working' | 'waiting' | 'completed' | 'interrupted' | 'error' | 'idle' | 'unavailable' | 'paused' | 'stopped';
   startedAt?: number;
 }
 
@@ -111,11 +113,13 @@ export class DesktopChat {
   private lastStatus = '';
   private state: ChatState;
   private sending = false;
+  private controlling = false;
   constructor(private options: {
     configFile: string; stateFile: string; call?: AppCall;
     onText: (text: string, final: boolean) => void;
     onStatus: (message: string) => void;
     onActivity?: (activity: ChatActivity) => void;
+    interrupt?: typeof interruptDesktop;
   }) {
     try { this.state = readJson<ChatState>(options.stateFile) ?? { threadId: '', seen: [] }; }
     catch { this.state = { threadId: '', seen: [] }; }
@@ -130,7 +134,7 @@ export class DesktopChat {
   }
   stop() { this.stopped = true; clearInterval(this.timer); }
   async poll() {
-    if (this.polling || this.stopped) return;
+    if (this.polling || this.stopped || this.controlling) return;
     this.polling = true;
     try {
       const binding = readBinding(this.options.configFile);
@@ -142,11 +146,16 @@ export class DesktopChat {
       const data = await (this.options.call ?? appCall)(binding, 'read_thread', {
         turnLimit: 3, includeOutputs: false, maxOutputCharsPerItem: 20000,
       });
-      if (this.stopped) return;
+      if (this.stopped || this.controlling) return;
       if (data.thread?.id !== binding.threadId || !Array.isArray(data.turns)) throw new Error('Codex вернул другой чат или неизвестный формат.');
-      this.options.onActivity?.(chatActivity(data));
       const baseline = this.state.threadId !== binding.threadId;
       if (baseline) this.state = { threadId: binding.threadId, seen: [] };
+      const activity = chatActivity(data);
+      if (this.state.control) {
+        if (activity.key !== this.state.control.turnKey || activity.phase === 'working' || activity.phase === 'waiting') delete this.state.control;
+        else if (activity.phase !== 'unavailable') activity.phase = this.state.control.mode;
+      }
+      this.options.onActivity?.(activity);
       for (const turn of [...data.turns].reverse()) {
         for (const item of turn.items ?? []) {
           // Never export commands, tool results, reasoning, user messages or permission prompts.
@@ -176,6 +185,7 @@ export class DesktopChat {
     if (!this.online) throw new Error('Связь с чатом ещё не готова. Открой Codex и дождись подключения.');
     if (this.state.threadId !== binding.threadId) throw new Error('Чат переключается; дождись подключения.');
     if (this.sending) throw new Error('Предыдущее сообщение ещё отправляется.');
+    if (this.controlling) throw new Error('Предыдущая команда ещё обрабатывается.');
     if (!text.trim() || text.length > 12000) throw new Error('Сообщение должно содержать от 1 до 12000 символов.');
     this.sending = true;
     try {
@@ -185,5 +195,39 @@ export class DesktopChat {
       if (result.threadId !== binding.threadId) throw new Error('Доставка не подтверждена. Проверь чат перед повторной отправкой.');
       return { chatDelivered: true, threadId: binding.threadId, chatTitle: binding.title };
     } finally { this.sending = false; }
+  }
+
+  async control(action: ChatControl): Promise<Record<string, unknown>> {
+    if (this.stopped || this.controlling || this.sending) throw new Error('Мост остановлен или предыдущая команда ещё обрабатывается.');
+    const binding = readBinding(this.options.configFile);
+    if (!binding || !this.online || binding.threadId !== this.state.threadId) throw new Error('Нет подтверждённой связи с выбранным чатом Codex.');
+    if (action === 'resume') {
+      if (this.state.control?.mode !== 'paused') throw new Error('Этот чат не поставлен на паузу из игры.');
+      const result = await this.send('Продолжи выполнение задачи с места, где она была поставлена на паузу кнопкой в игре.');
+      delete this.state.control;
+      writeJsonAtomic(this.options.stateFile, this.state);
+      return result;
+    }
+    this.controlling = true;
+    try {
+      await (this.options.interrupt ?? interruptDesktop)(binding.threadId, action === 'stop');
+      // An IPC acknowledgement is only acceptance. Confirm that the real chat stopped.
+      let activity: ChatActivity | undefined;
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const data = await (this.options.call ?? appCall)(binding, 'read_thread', { turnLimit: 1, includeOutputs: false, maxOutputCharsPerItem: 100 });
+        if (data.thread?.id !== binding.threadId || !Array.isArray(data.turns)) throw new Error('Не удалось проверить остановку выбранного чата.');
+        if (data.thread.status?.type === 'systemError') throw new Error('Codex сообщает об ошибке; остановка задачи не подтверждена.');
+        activity = chatActivity(data);
+        if (!['working', 'waiting', 'unavailable'].includes(activity.phase)) break;
+        activity = undefined;
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+      if (!activity) throw new Error('Codex ещё выполняет задачу или недоступен. Остановка не подтверждена.');
+      if (this.stopped) throw new Error('Мост остановлен во время команды; проверь Codex.');
+      this.state.control = { mode: action === 'pause' ? 'paused' : 'stopped', turnKey: activity.key };
+      writeJsonAtomic(this.options.stateFile, this.state);
+      this.options.onActivity?.({ ...activity, phase: this.state.control.mode });
+      return { chatControl: this.state.control.mode, threadId: binding.threadId };
+    } finally { this.controlling = false; }
   }
 }

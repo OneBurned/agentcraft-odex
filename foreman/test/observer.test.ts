@@ -186,4 +186,19 @@ describe('Codex observer', () => {
     expect(parseClientMessage(update({ title: ' ' })).ok).toBe(false);
     expect(parseClientMessage(update({ log: 'x'.repeat(2001) })).ok).toBe(false);
   });
+
+  it('routes pause/resume/stop only to the real bound chat controller', async () => {
+    const h = await setup();
+    const control = vi.spyOn(h.backend, 'onChatControl').mockResolvedValue({ chatControl: 'paused' });
+    for (const action of ['pause', 'resume', 'stop']) {
+      const ack = await send(h, { v: 1, id: action, type: 'agent.action', agentId: 'marlow', action } as ClientMessage);
+      expect(ack?.ok).toBe(true); expect(control).toHaveBeenLastCalledWith(action);
+    }
+    const rejected = await send(h, { v: 1, id: 'bad', type: 'agent.action', agentId: 'kit', action: 'stop' });
+    expect(rejected?.ok).toBe(false); expect(control).toHaveBeenCalledTimes(3);
+    h.backend.onChatActivity({ key: 'chat/1', phase: 'paused' });
+    expect(h.fm.requireAgent('marlow')).toMatchObject({ paused: true, active: true, state: 'idle' });
+    h.backend.onChatActivity({ key: 'chat/2', phase: 'working' });
+    expect(h.fm.requireAgent('marlow')).toMatchObject({ paused: false, state: 'thinking', station: 'desk' });
+  });
 });
