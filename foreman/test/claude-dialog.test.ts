@@ -1,12 +1,19 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import os from 'node:os';
+import fs from 'node:fs';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 const proc = vi.hoisted(() => ({ spawn: vi.fn() }));
 vi.mock('node:child_process', () => ({ spawn: proc.spawn }));
+const sdk = vi.hoisted(() => ({ getSessionInfo: vi.fn(), getSessionMessages: vi.fn() }));
+vi.mock('@anthropic-ai/claude-agent-sdk', () => sdk);
 import { ClaudeDialog } from '../src/claude-dialog.js';
+import { conversationLease } from '../src/claude-conversation.js';
+const dirs: string[] = [];
 
-afterEach(() => vi.clearAllMocks());
+afterEach(() => { vi.clearAllMocks(); for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
 function fixture() {
   const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), kill: vi.fn(() => true) });
   let prompt = ''; child.stdin.on('data', b => prompt += b.toString()); proc.spawn.mockReturnValue(child);
@@ -15,6 +22,29 @@ function fixture() {
   return { runner, child, respond, prompt: () => prompt };
 }
 describe('Claude conversational process', () => {
+  it('resumes the bound native session with only the new message and retains the lock until exit on abort', async () => {
+    const h = fixture(); const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-dialog-shared-')); dirs.push(directory);
+    const sessionId = randomUUID(); fs.writeFileSync(path.join(directory, 'conversation.json'), JSON.stringify({ version: 1, sessionId, importedHistory: 'old game context' }));
+    sdk.getSessionInfo.mockResolvedValue({ sessionId, cwd: directory });
+    const runner = new ClaudeDialog(() => 'mock-claude.exe', () => ({ directory, instructions: 'role', args: [] }));
+    const abort = new AbortController(); const response = runner.run('legacy prompt', abort.signal, { text: 'new message', context: 'game state', retry: false });
+    await vi.waitFor(() => expect(proc.spawn).toHaveBeenCalledOnce());
+    const [, args, opts] = proc.spawn.mock.calls[0]!;
+    expect(args).toContain('--resume'); expect(args).toContain(sessionId); expect(args).not.toContain('--no-session-persistence');
+    expect(opts.cwd).toBe(directory); expect(h.prompt()).toBe('new message');
+    expect(fs.readFileSync(args[args.indexOf('--append-system-prompt-file') + 1], 'utf8')).toContain('old game context');
+    const failed = expect(response).rejects.toThrow('остановлен'); abort.abort(); await failed;
+    expect(conversationLease(directory)?.owner).toBe('game');
+    h.respond({}, 1); expect(conversationLease(directory)).toBeUndefined();
+  });
+  it('refuses a missing native session without creating a new conversation or leaking a lease', async () => {
+    fixture(); const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-dialog-shared-')); dirs.push(directory);
+    fs.writeFileSync(path.join(directory, 'conversation.json'), JSON.stringify({ version: 1, sessionId: randomUUID() }));
+    sdk.getSessionInfo.mockResolvedValue(undefined);
+    const runner = new ClaudeDialog(() => 'mock-claude.exe', () => ({ directory, instructions: '', args: [] }));
+    await expect(runner.run('new', new AbortController().signal)).rejects.toThrow('не найдена');
+    expect(proc.spawn).not.toHaveBeenCalled(); expect(conversationLease(directory)).toBeUndefined();
+  });
   it('uses the real CLI text response without tools, MCP, hooks or project write access', async () => {
     const h = fixture(); const result = h.runner.run('Привет', new AbortController().signal);
     const [, args, options] = proc.spawn.mock.calls[0]!;

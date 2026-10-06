@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Studio } from '../src/studio.js';
 import { cleanHead, gitText, type ReviewResult, type Reviewer } from '../src/studio-review.js';
 import { demoRepo, makeForeman, rmrf, tempDir, until } from './helpers.js';
+import type { DialogRunner } from '../src/claude-dialog.js';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -15,7 +16,8 @@ async function setup(reviewMode: 'auto' | 'manual' | 'off' = 'off') {
   const stop = vi.fn(async () => {});
   const dialogRun = vi.fn(async (_prompt: string, _signal: AbortSignal) => 'Ответ Клавы');
   const dialogStop = vi.fn(async () => {});
-  const studio = new Studio(h.fm, { send, control }, { run, stop }, { run: dialogRun, stop: dialogStop });
+  const dialog: DialogRunner = { run: dialogRun, stop: dialogStop };
+  const studio = new Studio(h.fm, { send, control }, { run, stop }, dialog);
   studio.data.reviewMode = reviewMode; studio.data.profiles[1]!.enabled = true;
   // Executable discovery is independent of the injected fake reviewer; no model runs in tests.
   studio.data.claudePath = process.execPath;
@@ -26,10 +28,45 @@ async function setup(reviewMode: 'auto' | 'manual' | 'off' = 'off') {
     return studio.data.items.at(-1)!;
   };
   const start = async () => { const i = await create(); await studio.action('approve', { id: i.id }); await studio.action('start', {}); return i; };
-  return { ...h, repo, studio, send, control, run, stop, dialogRun, dialogStop, create, start };
+  return { ...h, repo, studio, send, control, run, stop, dialog, dialogRun, dialogStop, create, start };
 }
 
 describe('personal agent controls and dialog', () => {
+  it('does not mistake an old partial reply for completion when a paused conversation returns from the terminal', async () => {
+    const h = await setup(); let external: string | undefined;
+    const history = [{ id: '1', role: 'user' as const, text: 'Вопрос' }, { id: '2', role: 'assistant' as const, text: 'Незаконченный ответ' }];
+    h.dialog.shared = () => 'session'; h.dialog.history = async () => history; h.dialog.externalStatus = () => external;
+    await h.studio.pump(); h.studio.data.dialog!.pending = 'Вопрос'; h.studio.data.personalPaused = ['wren'];
+    external = 'Клава в терминале'; await h.studio.pump(); external = undefined;
+    (h.studio as unknown as { historyChecked: number }).historyChecked = 0; await h.studio.pump();
+    expect(h.studio.data.dialog!.pending).toBe('Вопрос'); expect(h.studio.data.personalPaused).toContain('wren');
+    external = 'Клава в терминале'; await h.studio.pump(); history.push({ id: '3', role: 'assistant', text: 'Завершено в терминале' }); external = undefined;
+    (h.studio as unknown as { historyChecked: number }).historyChecked = 0; await h.studio.pump();
+    expect(h.studio.data.dialog!.pending).toBeUndefined(); expect(h.studio.data.personalPaused).not.toContain('wren');
+  });
+  it('blocks game messages and real controls while the shared conversation belongs to the terminal', async () => {
+    const h = await setup(); h.dialog.externalStatus = () => 'Клава в терминале';
+    h.studio.publishControls(); expect(h.fm.requireAgent('wren').controls).toMatchObject({ message: false, pause: false, resume: false, stop: false, hint: 'Клава в терминале' });
+    await expect(h.studio.messageClaude('Привет')).rejects.toThrow('терминале');
+    await expect(h.studio.controlAgent('wren', 'stop')).rejects.toThrow('терминале');
+    expect(h.dialogRun).not.toHaveBeenCalled(); expect(h.dialogStop).not.toHaveBeenCalled();
+    expect(h.studio.data.dialog!.pending).toBeUndefined();
+  });
+  it('projects terminal history once and resumes the same session after a bridge restart', async () => {
+    const h = await setup(); const history = [{ id: '1', role: 'user' as const, text: 'Старое' }, { id: '2', role: 'assistant' as const, text: 'Старый ответ' }];
+    h.dialog.shared = () => 'session'; h.dialog.history = async () => history;
+    await h.studio.pump(); expect(h.studio.data.dialog!.sessionCursor).toBe('2');
+    const feed = vi.spyOn(h.fm.bus, 'feed');
+    history.push({ id: '3', role: 'user', text: 'В терминале' }, { id: '4', role: 'assistant', text: 'Из терминала' });
+    // Force the regular projection interval without a wall-clock delay.
+    (h.studio as unknown as { historyChecked: number }).historyChecked = 0;
+    await h.studio.pump();
+    expect(feed.mock.calls.filter(c => c[1] === 'Из терминала')).toHaveLength(1);
+    expect(h.studio.data.dialog!.sessionCursor).toBe('4');
+    const next = new Studio(h.fm, { send: h.send, control: h.control }, { run: h.run }, h.dialog);
+    await next.pump(); next.stop();
+    expect(feed.mock.calls.filter(c => c[1] === 'Из терминала')).toHaveLength(1);
+  });
   it('clears an idle legacy pause without sending work or starting the queue', async () => {
     const h = await setup(); const draft = await h.create();
     h.fm.setAgent('wren', { paused: true }); h.fm.setAgent('marlow', { paused: true });

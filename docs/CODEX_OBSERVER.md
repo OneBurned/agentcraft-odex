@@ -9,6 +9,63 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### Shared Klava conversation (prepared; activation pending)
+
+One explicitly bound native Claude Code session can serve Minecraft, the interactive terminal
+and the Desktop **Code** surface. This is not a Claude Chat/Cowork Project conversation.
+The source change is prepared; the live workspace is not yet bound or restarted for this feature.
+The existing terminal session `114d2184-b1c1-438d-962e-5323a187d364` was found and a migration
+was prepared under `artifacts/klava-shared-conversation-prepared`. Its transcript is not rewritten.
+The two retained game messages become labelled historical context, not synthetic native turns.
+
+Preparation and activation from this checkout (close any existing Klava CLI/Code session first):
+
+```powershell
+node --import ./foreman/node_modules/tsx/dist/loader.mjs tools/configure-klava-conversation.mjs --workspace 'C:\Users\GB\Documents\Klava-reviewer' --session 114d2184-b1c1-438d-962e-5323a187d364 --profile-dir .agentcraft-home/traderecord --prepare artifacts/klava-shared-conversation-prepared
+```
+
+After separate deployment approval, stop the bridge and replace `--prepare <directory>` with
+`--apply`, then restart the bridge. Apply backs up existing files and game state under the workspace's
+`backups/conversation-*`, refuses a different binding or conflicting custom Desktop configuration,
+and writes `conversation.json` last. Personal CLAUDE.md, PROJECTS.md, MEMORY.md and access.json stay
+unchanged. Without conversation.json the previous independent-history mode remains available.
+
+- `Start-Klava.cmd` and `Continue-Klava.cmd` resume the exact bound UUID, never the most recent
+  unrelated session. Close the terminal session before continuing in Minecraft.
+- `Open-Klava-Code.cmd` uses the official `claude --desktop --resume <UUID>` handoff.
+  After closing the session in Code, run `Return-Klava-To-Game.cmd` and confirm it is closed.
+  The app owns its process independently, so game access stays blocked until that explicit return.
+  A direct `/desktop`, `/resume` or manually launched CLI bypasses our handoff coordination; use
+  these launchers to keep one writer. Do not change sessions inside a shared terminal.
+- The game shows where Klava's conversation is open and disables its message/control buttons
+  while the terminal/Code owns it. Existing reviews also hold the same exclusive lease, but
+  automated structured reviews remain separate requests with results in studio notes.
+- New terminal/Code conversation text is projected into the game after return, with a persisted
+  UUID cursor to avoid replay after a bridge restart. Old terminal reviews are not flooded into
+  the game feed. Tools, reasoning, subagent messages and local command output are not projected.
+- A cancelled game process retains the lease until actual process exit. Missing native session
+  data is an error, never permission to create a replacement conversation. Leases do not expire
+  on a timer. After a crashed wrapper, the return launcher refuses recovery while its recorded
+  process or child is still alive; Desktop recovery requires an explicit closed-session confirmation.
+
+Desktop receives a project-local `.mcp.json`, `CLAUDE.local.md` imports and `.claude/settings.json`
+that disables hooks, configures the Klava tools and denies native source read/edit/shell tools.
+Desktop applies its own permission/trust UI and user configuration; CLI-only `--tools ''` and
+`--strict-mcp-config` flags do not transfer through `--desktop`. Do not claim identical enforcement
+between the Desktop UI and the restricted game/terminal launcher. Existing custom files are never
+silently overwritten. A Desktop MCP trust prompt may need the user's response.
+
+The real isolated smoke check `tools/smoke-klava-conversation.mjs` created a disposable native
+conversation, continued it through ClaudeDialog, added a CLI turn, and verified the game still knew
+both prior code words. All four turns used the same session UUID; overlapping access was refused.
+Desktop UI opening still requires manual verification after activation. No Minecraft JAR change
+is required; this is a local development-tool feature.
+Validation: typecheck and 611 bridge tests passed, followed by two migration subprocess tests
+and a 35-test studio rerun with one additional interrupted-handoff regression (614 distinct tests).
+The portable package passed protocol, state persistence/restart and native-session
+projection checks with an isolated Claude configuration and no messages sent to real chats.
+Package: `dist/AgentCraft-Codex-0.4.7-shared-conversation-release`.
+
 ### Klava review workspace and GitHub (active)
 
 Dialogs and automated reviews can now share an explicitly configured personal workspace.
@@ -120,9 +177,9 @@ The same local workspace can be opened independently using `Start-Klava.cmd` in
 `tools/setup-klava.mjs` creates both launchers while preserving existing Markdown instructions
 and memory. They invoke `tools/open-klava.ps1` / `tools/klava-terminal.mjs`, locate the installed
 Claude CLI, and use the same strictly configured MCP tools with built-in tools/hooks/skills disabled.
-The session is named «Клава — TradeRecord и AgentCraft». Unlike game requests, terminal chats
-use normal Claude session persistence. Terminal and Minecraft transcripts are separate; workspace
-instructions and `MEMORY.md` are shared. Restarting the game bridge is not required to open this terminal.
+The session is named «Клава — TradeRecord и AgentCraft». With conversation.json it resumes the
+shared native session described above; without it, terminal and game histories remain separate.
+Workspace instructions and `MEMORY.md` are shared. Restarting the game bridge is not required to open this terminal.
 This creates a local Claude Code workspace, not an ordinary cloud Project in the Claude chat UI.
 
 The launcher reloads personal Markdown files and optional managed WORKSPACE.md on every launch, passes them via a temporary

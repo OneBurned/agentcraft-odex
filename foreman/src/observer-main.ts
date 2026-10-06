@@ -1,4 +1,4 @@
-// Portable observer entry point: no model SDK or code-executing backend is imported.
+// Portable observer entry point. The SDK's local session readers do not start model runs.
 import { loadConfig, FOREMAN_VERSION } from './config.js';
 import { consoleLogger } from './context.js';
 import { Foreman } from './foreman.js';
