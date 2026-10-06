@@ -9,7 +9,7 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
-### 0.4.4 rest places, music and planning (prepared)
+### 0.4.4 rest places, music and planning (installed)
 
 Opening the Plan tab (including its task forms/details) gathers visible active characters at
 their personal `meeting` anchors, with shared meeting positions as fallback. Leaving the tab
@@ -39,17 +39,21 @@ Pole/ring removal or music ending falls back to another rest point or the shared
 The new DANCE posture alternates reaching arms and rhythmic steps while collision-aware motion
 circles the pole. Work/questions interrupt it using existing smooth pose transitions.
 
-Version 0.4.4 includes the prepared 0.4.3 Configurator selection. Installation is pending separate
-approval; installed version remains 0.4.2. This is a mod-only update and does not require a bridge
-restart. In-game animation, music response and UI appearance must be checked after installation;
-the user's running game was not modified or restarted during preparation.
+Version 0.4.4 (`2209e22`) includes the 0.4.3 Configurator selection and was installed with user
+approval on 2026-10-06 while Minecraft was closed. The installed JAR matches the verified package
+(SHA-256 `1D7E15289B3FF83646A26EB3C59BCCDA5490956145761872EC3AD6CC16096292`). Existing
+AgentCraft settings were preserved byte-for-byte and copied to
+`artifacts/backups/install-0.4.4-20261006-135008-489`; previous mods are under
+`.minecraft/agentcraft-backups/20261006-135008-588`. The bridge is unchanged and was not restarted.
+Minecraft was not auto-launched. In-game animation, music response and UI appearance still
+require an in-game check.
 Validation: mod build and all 25 Java tests passed. Ten new checks cover music availability
 changes, physical reservations across different agent IDs, interruption/release, stable choice
 and rotation, eligibility, preserving/moving/deduplicating rest points and JSON round-trip.
 `dist/AgentCraft-Codex-0.4.4-ready` and its Windows ZIP contain the verified 0.4.4 JAR, new classes
 and all six added skins. These checks do not replace an in-game animation/UI test.
 
-### 0.4.3 configurator agent selection (prepared)
+### 0.4.3 configurator agent selection (included in installed 0.4.4)
 
 Right-click a visible agent with the Configurator to select that agent by stable ID, including
 renamed characters such as Клава. The tool's tooltip and action messages identify the selected
@@ -65,14 +69,13 @@ already exist; assigning personal spots requires creative mode in the overworld.
 workspace commands still edit the shared layout. Client item/block callbacks consume personal
 clicks before packet transmission so they cannot also move the shared Codex workspace.
 
-The 0.4.3 mod is prepared; installation needs separate approval. Only the JAR needs replacing
-when upgrading from 0.4.2. Installed version remains 0.4.2; Minecraft is not auto-launched.
+The 0.4.3 changes were installed as part of 0.4.4; no separate 0.4.3 installation was needed.
 Validation: build and 15 Java tests passed, including seven personal-assignment checks for
 agent/role isolation, moving a place, JSON round-trip, boundaries and invalid inputs. The
 installed Fabric callback implementation was inspected to confirm that `FAIL` suppresses
 item/block packets. Package: `dist/AgentCraft-Codex-0.4.3-ready` (matching Windows ZIP), with
 JAR hash verified against the build. Clicks and tooltips still need an in-game check after
-installation; the running Minecraft instance has not been changed.
+installation; Minecraft was not auto-launched for verification.
 
 ### 0.4.2 additional appearances (installed)
 
