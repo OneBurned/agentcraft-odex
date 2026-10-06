@@ -196,7 +196,7 @@ export class RepoManager {
   }
 
   /** Register a local git repo (idempotent by path). */
-  async add(p: string): Promise<Repo> {
+  async add(p: string, makeDefault = true): Promise<Repo> {
     const abs = path.resolve(p.replace(/^~(?=$|[\\/])/, os.homedir()));
     if (!fs.existsSync(abs)) throw new RepoError(`path does not exist: ${abs}`, 'not_found');
     const top = await git(abs, ['rev-parse', '--show-toplevel'], { allowFail: true });
@@ -226,7 +226,7 @@ export class RepoManager {
     let id = slugify(path.basename(root), 24);
     for (let i = 2; this.get(id); i++) id = `${slugify(path.basename(root), 20)}-${i}`;
     const repo: Repo = { id, name: path.basename(root), path: root, branch, dirty: false, worktrees: [], ci: 'unknown' };
-    this.repos.push(repo);
+    if (makeDefault) this.repos.push(repo); else this.repos.unshift(repo);
     await this.refresh(id);
     return repo;
   }

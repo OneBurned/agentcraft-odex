@@ -7,6 +7,8 @@ import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
 import { ForemanClient } from '../lib/foremanclient.mjs';
 import { randomUUID } from 'node:crypto';
+import { Client } from '../../foreman/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js';
+import { StdioClientTransport } from '../../foreman/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js';
 
 const pkg = path.resolve(process.argv[2]);
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'agentcraft-package-check-'));
@@ -72,7 +74,25 @@ try {
   assert.equal(path.normalize(restored.helper), path.join(pkg, 'studio.mjs'));
   const helperResult = execFileSync(path.join(pkg, 'runtime/node.exe'), [path.join(pkg, 'studio.mjs'), 'get', '--port', String(port)], { windowsHide: true, encoding: 'utf8' });
   assert.equal(JSON.parse(helperResult).items[0].id, id);
-  await stop(); console.log('Portable studio: protocol, draft approval, shared memory, restart, native session projection and helper passed. No chat messages sent.');
+  const binding = { version: 1, workspace, profile: path.join(home, 'smoke'), port, token: randomUUID() };
+  for (const directory of [workspace, binding.profile]) await fs.writeFile(path.join(directory, 'planning.json'), JSON.stringify(binding));
+  await client.send('studio.action', { action: 'agent', payload: { ...(await get()).profiles.find(p => p.id === 'wren'), enabled: true } });
+  await client.send('studio.action', { action: 'plan' });
+  const mcp = new Client({ name: 'package-planning-test', version: '1' });
+  const transport = new StdioClientTransport({ command: path.join(pkg, 'runtime/node.exe'), args: [path.join(pkg, 'foreman/src/claude-workspace-server.mjs'), '--workspace', workspace], stderr: 'pipe' });
+  try {
+    await mcp.connect(transport);
+    const tools = (await mcp.listTools()).tools;
+    assert.equal(tools.find(t => t.name === 'planning_create').annotations.readOnlyHint, false);
+    const args = { requestId: 'package-draft', project: 'fixture', title: 'План Клавы', description: 'Не выполнять', expected: 'Только черновик', deps: [id] };
+    const call = async () => { const r = await mcp.callTool({ name: 'planning_create', arguments: args }); assert.ok(!r.isError); return JSON.parse(r.content[0].text); };
+    const draft = await call(); assert.equal(draft.item.stage, 'plan'); assert.equal((await call()).item.id, draft.item.id);
+    assert.equal((await get()).items.length, 2); assert.equal((await get()).active, undefined);
+    await stop(); await launch();
+    assert.equal((await call()).duplicate, true, 'Bundled planning deduplication must survive restart');
+    assert.equal((await get()).items[1].stage, 'plan');
+  } finally { await mcp.close(); }
+  await stop(); console.log('Portable studio: protocol, draft approval, memory, native session projection, helper and bundled MCP draft creation/restart passed. No chat messages sent.');
 } finally {
   client?.close(); if (child && child.exitCode === null) { const exited = new Promise(resolve => child.once('exit', resolve)); child.kill(); await exited; }
   assert.ok(path.resolve(temp).startsWith(path.resolve(os.tmpdir()) + path.sep));

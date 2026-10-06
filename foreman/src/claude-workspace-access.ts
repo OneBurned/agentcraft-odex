@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import { WorkspaceConfig, type WorkspaceAccess } from './claude-workspace.js';
 import { githubError } from './workspace-command-error.js';
+import { planningCall } from './claude-planning.js';
 
 const exec = promisify(execFile);
 const repoArg = z.object({ project: z.string() });
@@ -168,6 +169,7 @@ export class WorkspaceReader {
       if (!(await this.files(p.project)).includes(p.file) && !await this.treeFile(p.project, base, p.file)) throw new Error('Файл не отслеживается в выбранном проекте.');
       return clip(await this.git(p.project, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--unified=12', base, '--', p.file]));
     }
+    if (name === 'planning_list' || name === 'planning_create') return planningCall(this.directory, name, args);
     if (name === 'github_read') return this.github(githubArg.parse(args));
     if (name === 'skill_read') return this.skill(args);
     if (name === 'memory_read') return clip(await fs.readFile(path.join(this.directory, 'MEMORY.md'), 'utf8'), 40000);

@@ -177,7 +177,7 @@ public final class StudioScreen extends Screen {
         int left = x + 12, cy = top, bw = (w - 30) / 4;
         if (tab == 2) {
             button("Новая задача", left, cy, bw * 2, () -> taskForm(null));
-            button("Обсудить план", left + bw * 2 + 4, cy, w - bw * 2 - 28, () -> request("plan", new JsonObject(), () -> minecraft.gui.setScreen(new dev.agentcraft.client.console.ConsoleScreen("Режим планирования: обсудить пул задач, без изменения кода. После обсуждения создай список как черновики через node \"" + str(data, "helper") + "\" create --port " + str(data, "port") + " --file <JSON> (title, description, expected, deps, priority). Не согласовывай и не запускай карточки самостоятельно. Мой план: "))));
+            button("Обсудить план", left + bw * 2 + 4, cy, w - bw * 2 - 28, () -> request("plan", new JsonObject(), () -> minecraft.gui.setScreen(new dev.agentcraft.client.console.ConsoleScreen("@Claude Обсудим план. Помоги уточнить задачи и ожидаемый результат. Когда попрошу добавить их на доску, создай черновики; согласую и запущу их я. Моя идея: "))));
         } else {
             String[] names = {"Начать / продолжить", "Пауза", "Стоп", "Планирование"}; String[] ops = {"start", "pause", "stop", "plan"};
             for (int n = 0; n < 4; n++) { final String op = ops[n]; button(names[n], left + n * (bw + 2), cy, bw, () -> request(op, new JsonObject(), null)); }
@@ -205,7 +205,7 @@ public final class StudioScreen extends Screen {
         }));
     }
     private void taskDetails(JsonObject item) {
-        String content = stage(str(item, "stage")) + "\n\n" + str(item, "description") + "\n\nОжидается:\n" + str(item, "expected")
+        String content = stage(str(item, "stage")) + " · " + str(item, "project") + "\n\n" + str(item, "description") + "\n\nОжидается:\n" + str(item, "expected")
             + "\n\nПроверки:\n" + str(item, "checks") + "\n\nРезультат:\n" + str(item, "summary") + "\n\nРевью Claude:\n" + str(item, "review") + "\n\n" + str(item, "blockedReason");
         minecraft.gui.setScreen(new TaskDetails(this, item, content));
     }

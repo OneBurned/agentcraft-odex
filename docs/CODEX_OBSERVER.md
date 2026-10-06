@@ -9,6 +9,52 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### 0.4.8 planning with Klava (prepared, not activated)
+
+**Обсудить план** in both planning surfaces pauses the queue and opens a console message
+addressed to `@Claude`. The user adds their idea and presses Enter. Klava discusses scope,
+reads the configured projects/rules and, when asked to put the plan on the board, creates
+unapproved drafts with `planning_create`. `planning_list` reads the pool in bounded pages.
+The user reviews each draft, selects **В очередь**, then **Начать / продолжить** in the command
+desk. Codex implements; Klava reviews. Creating a draft does not dispatch work or grant approval.
+Ordinary console messages still go to Codex; `@Claude` remains available for direct conversation.
+
+Each draft selects a configured project by ID. The bridge records its repository, author Wren,
+expected result, dependencies and priority. Task details show the repository name. Registering
+a second configured repository leaves the previous default unchanged. Request IDs persist with
+the card: repeating an identical request returns the same card, including after restart; using
+the same key for different contents is rejected. Draft creation requires planning mode, enabled
+Klava and no active queue task. These tools cannot edit, approve, start or cancel existing cards.
+
+Connection is opt-in for one workspace/profile/port. The model cannot supply transport addresses,
+file paths, tokens or arbitrary studio actions. Matching operator-owned `planning.json` files
+on both sides authorize the draft channel; requests use loopback WebSocket. This is a scoped MCP
+capability, not a sandbox for arbitrary local programs or other Desktop tools. Keep these binding
+files private and outside Git. Existing source-reading restrictions remain unchanged.
+
+Prepare from the source checkout (does not activate the workspace):
+
+```powershell
+node --import ./foreman/node_modules/tsx/dist/loader.mjs tools/configure-klava-planning.mjs --workspace C:/Users/GB/Documents/Klava-reviewer --profile-dir .agentcraft-home/traderecord --port 7878 --prepare artifacts/klava-planning-prepared
+```
+
+After separate user approval, return/close the shared conversation, stop the bridge, install the
+0.4.8 JAR with Minecraft closed and run the same configuration command with `--apply` instead of
+`--prepare ...`. Restart the bridge and reopen the terminal/Code conversation when needed.
+The setup backs up changed files, refreshes managed WORKSPACE.md and adds just the two tool allows
+to Desktop settings, preserving other permissions and personal CLAUDE.md/PROJECTS.md/MEMORY.md.
+The managed instructions explicitly extend older reviewer-only instructions for draft creation.
+To disable, remove both planning bindings while the bridge is stopped; keep task state and native
+conversation history. To restore permissions/instructions, use the printed planning backup.
+
+Package: `dist/AgentCraft-Codex-0.4.8-klava-planning`. Runtime installation and visual Minecraft
+verification are pending; the live 0.4.7 setup described below remains installed.
+Validation: TypeScript, all 619 Foreman tests, protocol-doc consistency, 10 tools tests and
+the Gradle build with 33 Java tests passed. The packaged MCP server created a draft through
+an isolated bridge; approval stayed unset and retry/restart returned the same card. No live
+Claude message or user queue task was submitted. Activation files are prepared under
+`artifacts/klava-planning-prepared` without modifying the live workspace.
+
 ### Shared Klava conversation (active)
 
 One explicitly bound native Claude Code session can serve Minecraft, the interactive terminal
@@ -417,7 +463,7 @@ Place **Пульт AgentCraft / Command Desk** from the creative AgentCraft tab,
 - **Команда**: enable/disable Codex and Claude, rename them, hide their NPC independently of execution.
 - **Внешность**: bundled skins (including six extra 0.4.2 appearances), custom 64×64 PNG (up to 512 KiB), wide/slim arms, outer layer,
   name/role/activity labels and name colour. Mouse-following preview; Apply or restore defaults.
-- **План**: discuss the pool through the existing console, create/edit draft cards, expected result,
+- **План**: discuss the pool with Klava through the existing console (0.4.8), create/edit draft cards, expected result,
   dependencies and priority. Discussion pauses the queue first. Text is sent only after Enter.
 - **Очередь**: approve individual drafts, Start/Continue, Pause, Stop, Planning, review and decisions.
   The list refreshes every three seconds. Clicking a studio card on the wall opens the same details.
