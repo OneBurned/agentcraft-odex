@@ -116,13 +116,14 @@ describe('desktop chat relay', () => {
     const resumed = new DesktopChat(f.options); await resumed.poll();
     expect(f.onText).toHaveBeenCalledTimes(1);
   });
-  it('waits for a completed turn before forwarding a final answer', async () => {
+  it.each(['final', 'final_answer'])('waits for a completed turn before forwarding a %s answer', async phase => {
     const f = fixture(); await f.chat.poll();
     f.response.turns[0]!.status = 'inProgress';
-    f.response.turns[0]!.items.push({ type: 'agentMessage', id: 'final', phase: 'final', text: 'partial' });
+    f.response.turns[0]!.items.push({ type: 'agentMessage', id: 'final', phase, text: 'partial' });
     await f.chat.poll(); expect(f.onText).not.toHaveBeenCalled();
     f.response.turns[0]!.status = 'completed'; f.response.turns[0]!.items[0].text = 'complete answer';
     await f.chat.poll(); expect(f.onText).toHaveBeenCalledWith('complete answer', true);
+    await f.chat.poll(); expect(f.onText).toHaveBeenCalledTimes(1);
   });
   it('sends to the bound thread without changing model, permissions or starting a thread', async () => {
     const f = fixture(); await f.chat.poll();

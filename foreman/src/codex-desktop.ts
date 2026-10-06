@@ -159,12 +159,13 @@ export class DesktopChat {
       for (const turn of [...data.turns].reverse()) {
         for (const item of turn.items ?? []) {
           // Never export commands, tool results, reasoning, user messages or permission prompts.
-          if (item.type !== 'agentMessage' || !['commentary', 'final'].includes(item.phase) || typeof item.text !== 'string') continue;
-          if (item.phase === 'final' && turn.status === 'inProgress') continue;
+          if (item.type !== 'agentMessage' || !['commentary', 'final', 'final_answer'].includes(item.phase) || typeof item.text !== 'string') continue;
+          const final = item.phase === 'final' || item.phase === 'final_answer';
+          if (final && turn.status !== 'completed') continue;
           const key = `${turn.id}/${item.id}`;
           if (this.state.seen.includes(key)) continue;
           this.state.seen.push(key);
-          if (!baseline) this.options.onText(item.text, item.phase === 'final');
+          if (!baseline) this.options.onText(item.text, final);
         }
       }
       this.state.seen = this.state.seen.slice(-1500);

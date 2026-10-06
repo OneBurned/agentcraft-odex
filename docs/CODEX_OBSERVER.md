@@ -172,6 +172,12 @@ on restart. Responses are read every five seconds; long answers are split into b
 chunks. Delivery timeout is reported as uncertain with no automatic retry. Confirm in the chat
 before resending. Native tool permission requests must be handled in the Codex application.
 
+The desktop `read_thread` adapter currently labels final replies `final_answer`; both this
+label and app-server's `final` are accepted, only for completed turns. The 2026-10-06 bridge
+hotfix corrects the earlier filter which forwarded commentary but silently skipped final
+replies. Unseen replies still present in the recent-turn window are delivered after restart;
+existing seen ids continue to prevent duplicates. No Minecraft/JAR update is needed.
+
 The transport inherits the loopback observer's trust of local processes. Do not expose port 7878
 to other computers. Stop all but one observer instance for the selected game. App or protocol
 errors fail closed and appear in `/chat`; reconnect/update the adapter if the app changes.
