@@ -9,7 +9,7 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
-### 0.4.5 turn and dip dance sequence (prepared)
+### 0.4.5 turn and dip dance sequence (installed)
 
 Every agent's existing pole dance now pauses at opposite sides of the ring, turns its back to
 the pole, performs two slow dips, turns back upright and resumes the circle. No new settings or
@@ -28,9 +28,13 @@ Validation: mod build and all 33 Java tests passed, including eight choreography
 arrival/facing gates, fixed position during the sequence, exactly two backward-facing dips,
 continuous turns, displacement/reset, independent agents, ring progression and rigid-leg
 floor contact. These checks do not replace visual verification in Minecraft. Version 0.4.5
-is prepared for separate installation approval; 0.4.4 remains installed. The package is
-`dist/AgentCraft-Codex-0.4.5-ready` with its matching Windows ZIP. Updating from 0.4.4 requires
-only the mod, without restarting the bridge. Minecraft was not auto-launched.
+(`afffcc0`) was installed with user approval on 2026-10-06 after Minecraft closed. The installed
+JAR matches `dist/AgentCraft-Codex-0.4.5-ready` (SHA-256
+`28DC06B218AED6545577456EAE25F6E1D13141B84415A91482B5A020148A0956`); its matching Windows ZIP
+is also prepared. Existing AgentCraft settings were preserved byte-for-byte and backed up to
+`artifacts/backups/install-0.4.5-20261006-140558-683`. Previous mods are under
+`.minecraft/agentcraft-backups/20261006-140558-753`. The bridge was unchanged and not restarted.
+Minecraft was not auto-launched; visual verification of the new animation remains pending.
 
 ### 0.4.4 rest places, music and planning (installed)
 
