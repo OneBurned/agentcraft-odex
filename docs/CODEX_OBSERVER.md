@@ -9,7 +9,7 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
-### 0.4.12 Minecraft commands and imported buildings (prepared, not installed)
+### 0.4.12 Minecraft commands and imported buildings (installed 2026-10-06)
 
 Vanilla chat exposes `/agentcraft` (help), `/agentcraft help`, `/agentcraft preview <building>`
 and `/agentcraft place <building>`. Old `hq` (including `test`/`force`), `anchors` and `workspace`
@@ -30,9 +30,13 @@ agent assignments/world spawn and transfer block/entity decoration. See [BUILDIN
 Unknown palettes/malformed data are rejected before placement; bounds/overlap checks remain.
 
 Package: `dist/AgentCraft-Codex-0.4.12-buildings`. This includes the pending 0.4.11 command changes.
-Install only after separate approval with Minecraft closed. Validation covers the real schematics,
+Installed with the user's approval and Minecraft closed. Validation covers the real schematics,
 data migration, centred rotation and parser failures. Live construction and Tab completion still
-need in-game verification. Installed Minecraft remains on 0.4.10 until the user approves installation.
+need in-game verification. Installed behaviour commit: `94eb4ec`. The three scheme files are in
+`.minecraft/config/agentcraft/buildings`; JAR and scheme hashes match the tested package.
+Previous mods are in `.minecraft/agentcraft-backups/20261006-225841-008`.
+`options.txt`, client and studio settings are unchanged. The bridge was not restarted and Minecraft
+was not launched. Installation report: `artifacts/install-0.4.12-buildings.json`.
 
 Validation: 46 Java tests pass with the three real asset files (none skipped); portable studio
 smoke passes. An isolated installer run verifies all three schematic hashes, backup of a replaced
