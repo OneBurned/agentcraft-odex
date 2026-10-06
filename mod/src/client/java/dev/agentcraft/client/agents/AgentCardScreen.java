@@ -957,7 +957,7 @@ public final class AgentCardScreen extends Screen {
 					return;
 				}
 				boolean resume = ag.isPaused();
-				send(Foreman.agentAction(agentId, resume ? "resume" : "pause", null), resume ? "Продолжение отправлено в Codex" : "Задача приостановлена");
+				send(Foreman.agentAction(agentId, resume ? "resume" : "pause", null), resume ? "Продолжение запрошено" : "Задача приостановлена");
 			}
 			case "stop" -> {
 				boolean spawn = !ConsoleCommands.observer(Foreman.state()) && !ag.isActive();

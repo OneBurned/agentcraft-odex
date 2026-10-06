@@ -64,6 +64,8 @@ public class AgentRenderer extends AvatarRenderer<ClientAgentEntity> {
 	@Override
 	public void extractRenderState(ClientAgentEntity entity, AvatarRenderState state, float partialTicks) {
 		super.extractRenderState(entity, state, partialTicks);
+		var look = entity.previewLook != null ? entity.previewLook : dev.agentcraft.client.studio.StudioPreferences.get().look(entity.agentId());
+		state.showHat = state.showJacket = state.showLeftPants = state.showRightPants = state.showLeftSleeve = state.showRightSleeve = !look.hideLayer;
 		if (!(state instanceof AgentRenderState s)) {
 			return;
 		}

@@ -1,0 +1,164 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Studio } from '../src/studio.js';
+import { cleanHead, gitText, type ReviewResult, type Reviewer } from '../src/studio-review.js';
+import { demoRepo, makeForeman, rmrf, tempDir, until } from './helpers.js';
+
+const cleanups: Array<() => Promise<void>> = [];
+afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
+async function setup(reviewMode: 'auto' | 'manual' | 'off' = 'off') {
+  const home = tempDir('ac-studio-'); const repo = await demoRepo();
+  const h = makeForeman(home, ['--backend', 'observer']); await h.fm.repos.add(repo);
+  const send = vi.fn(async (_text: string) => ({})); const control = vi.fn(async () => ({}));
+  const run = vi.fn<Reviewer['run']>(async () => ({ verdict: 'pass', summary: 'Проверено' }));
+  const studio = new Studio(h.fm, { send, control }, { run });
+  studio.data.reviewMode = reviewMode; studio.data.profiles[1]!.enabled = true;
+  // Executable discovery is independent of the injected fake reviewer; no model runs in tests.
+  studio.data.claudePath = process.execPath;
+  studio.onActivity({ key: 'bound/turn-1', phase: 'completed' });
+  cleanups.push(async () => { studio.stop(); await h.fm.close(); rmrf(home); rmrf(path.dirname(repo)); });
+  const create = async (title = 'Задача', deps: string[] = []) => {
+    await studio.action('create', { title, description: 'Изменить поведение', expected: 'Проверенный результат', deps });
+    return studio.data.items.at(-1)!;
+  };
+  const start = async () => { const i = await create(); await studio.action('approve', { id: i.id }); await studio.action('start', {}); return i; };
+  return { ...h, repo, studio, send, control, run, create, start };
+}
+describe('command desk queue', () => {
+  it('keeps drafts on the board without sending work, then starts only approved tasks', async () => {
+    const h = await setup(); const i = await h.create();
+    expect(h.fm.tasks.require(i.id).queueStage).toBe('plan');
+    await h.studio.action('start', {}); expect(h.send).not.toHaveBeenCalled();
+    await h.studio.action('approve', { id: i.id }); await h.studio.pump();
+    expect(h.send).toHaveBeenCalledTimes(1); expect(h.send.mock.calls[0]![0]).toContain(i.run);
+    await h.studio.pump(); expect(h.send).toHaveBeenCalledTimes(1);
+  });
+  it('validates dependencies before creating and waits for them before starting', async () => {
+    const h = await setup(); const a = await h.create('A'); const b = await h.create('B', [a.id]);
+    await h.studio.action('approve', { id: b.id }); await h.studio.action('start', {});
+    expect(h.send).not.toHaveBeenCalled();
+    await expect(h.create('C', ['missing'])).rejects.toThrow();
+    expect(h.studio.data.items).toHaveLength(2);
+  });
+  it('does not start into a busy/unavailable chat or dirty repository', async () => {
+    const h = await setup(); const i = await h.create(); await h.studio.action('approve', { id: i.id });
+    h.studio.onActivity({ key: 'bound/turn', phase: 'working' }); await expect(h.studio.action('start', {})).rejects.toThrow();
+    h.studio.onActivity({ key: 'bound/turn', phase: 'completed' }); fs.writeFileSync(path.join(h.repo, 'uncommitted.txt'), 'dirty');
+    await expect(h.studio.action('start', {})).rejects.toThrow('Git'); expect(h.send).not.toHaveBeenCalled();
+  });
+  it('requires run correlation and successful checks, not merely a completed chat', async () => {
+    const h = await setup(); const i = await h.start();
+    h.studio.onActivity({ key: 'bound/new', phase: 'completed' }); await h.studio.pump(); expect(i.stage).toBe('coding');
+    await expect(h.studio.action('report', { id: i.id, run: 'old', status: 'done', summary: 'done', checks: 'tests', ci: 'pass' })).rejects.toThrow('активен');
+    await expect(h.studio.action('report', { id: i.id, run: i.run, status: 'done', summary: 'done', ci: 'fail' })).rejects.toThrow('проверки');
+    await h.studio.action('report', { id: i.id, run: i.run, status: 'done', summary: 'done', checks: 'unit tests', ci: 'pass' });
+    expect(i.stage).toBe('done');
+  });
+  it('asks a real question and lets independent approved work proceed', async () => {
+    const h = await setup(); const i = await h.start(); const b = await h.create('B'); await h.studio.action('approve', { id: b.id });
+    await h.studio.action('report', { id: i.id, run: i.run, status: 'question', summary: 'Какой цвет?' });
+    expect(h.fm.decisions.open()).toHaveLength(1); expect(h.fm.requireAgent('marlow').station).toBe('user');
+    await h.studio.pump(); expect(h.studio.data.active).toBe(b.id);
+    const d = h.fm.decisions.open()[0]!;
+    h.studio.onDecision({ ...d, status: 'answered', answer: { text: 'Синий', ts: Date.now() } });
+    await h.studio.action('get', {}); expect(i.stage).toBe('queued'); expect(h.studio.data.active).toBe(b.id);
+  });
+  it('pauses real work, rejects late completion, resumes without erasing edits', async () => {
+    const h = await setup(); const i = await h.start(); const oldRun = i.run;
+    h.studio.onActivity({ key: 'bound/new', phase: 'working' });
+    fs.writeFileSync(path.join(h.repo, 'ongoing.txt'), 'unfinished');
+    await h.studio.action('pause', {}); expect(h.control).toHaveBeenCalledWith('pause'); expect(i.stage).toBe('queued');
+    await expect(h.studio.action('report', { id: i.id, run: oldRun, status: 'done', summary: 'late', checks: 'tests', ci: 'pass' })).rejects.toThrow();
+    h.studio.onActivity({ key: 'bound/new', phase: 'paused' }); await h.studio.action('start', {});
+    expect(i.run).not.toBe(oldRun); expect(fs.readFileSync(path.join(h.repo, 'ongoing.txt'), 'utf8')).toBe('unfinished');
+  });
+  it('preserves active task on failed real interruption instead of claiming success', async () => {
+    const h = await setup(); const i = await h.start(); h.studio.onActivity({ key: 'bound/new', phase: 'working' });
+    h.control.mockRejectedValueOnce(new Error('Not stopped'));
+    await expect(h.studio.action('pause', {})).rejects.toThrow('Not stopped'); expect(h.studio.data.active).toBe(i.id);
+  });
+  it('interrupts even before polling has observed the newly dispatched turn', async () => {
+    const h = await setup(); const i = await h.start();
+    await h.studio.action('pause', {});
+    expect(h.control).toHaveBeenCalledWith('pause'); expect(i.stage).toBe('queued');
+  });
+  it('does not claim a stop when chat connectivity is lost', async () => {
+    const h = await setup(); const i = await h.start();
+    h.studio.onActivity({ key: '', phase: 'unavailable' });
+    await expect(h.studio.action('stop', {})).rejects.toThrow('не подтверждена');
+    expect(h.studio.data.active).toBe(i.id); expect(h.control).not.toHaveBeenCalled();
+  });
+  it('pauses on a binding change without sending or stopping the unrelated chat', async () => {
+    const h = await setup(); const i = await h.start(); const oldRun = i.run;
+    h.studio.onActivity({ key: 'different/turn', phase: 'working' }); await h.studio.action('get', {});
+    expect(i.stage).toBe('question'); expect(h.studio.data.mode).toBe('paused');
+    expect(h.send).toHaveBeenCalledTimes(1); expect(h.control).not.toHaveBeenCalled();
+    await expect(h.studio.action('report', { id: i.id, run: oldRun, status: 'done', summary: 'late', checks: 'tests', ci: 'pass' })).rejects.toThrow();
+  });
+  it('cancels obsolete questions before a retry', async () => {
+    const h = await setup(); const i = await h.start();
+    await h.studio.action('report', { id: i.id, run: i.run, status: 'question', summary: 'Вопрос' });
+    await h.studio.action('retry', { id: i.id }); expect(h.fm.decisions.open()).toHaveLength(0);
+  });
+  it('bounds task text before creating an undeliverable card', async () => {
+    const h = await setup();
+    await expect(h.studio.action('create', { title: 'Too long', description: 'x'.repeat(3001), expected: 'ok' })).rejects.toThrow();
+    expect(h.studio.data.items).toHaveLength(0);
+  });
+  it('does not retry unknown delivery automatically', async () => {
+    const h = await setup(); h.send.mockRejectedValueOnce(new Error('timeout')); const i = await h.start();
+    expect(i.stage).toBe('question'); expect(h.studio.data.mode).toBe('paused'); await h.studio.pump(); expect(h.send).toHaveBeenCalledTimes(1);
+  });
+  it('reviews the exact commit, saves findings as knowledge, and completes only after pass', async () => {
+    const h = await setup('auto'); const i = await h.start(); const head = await cleanHead(h.repo);
+    await h.studio.action('report', { id: i.id, run: i.run, status: 'done', summary: 'implemented', checks: 'tests passed', ci: 'pass' });
+    expect(i.stage).toBe('review'); await h.studio.pump(); await until(() => i.stage === 'done');
+    expect(h.run.mock.calls[0]?.[0]).toMatchObject({ head, base: head }); expect(h.fm.memory.list()).toHaveLength(1);
+  });
+  it('manual mode waits for the explicit review button', async () => {
+    const h = await setup('manual'); const i = await h.start();
+    await h.studio.action('report', { id: i.id, run: i.run, status: 'done', summary: 'implemented', checks: 'tests', ci: 'pass' });
+    await h.studio.pump(); expect(h.run).not.toHaveBeenCalled(); await h.studio.action('review', { id: i.id }); await until(() => i.stage === 'done');
+  });
+  it('returns changes to Codex and asks the user after two unsuccessful reviews', async () => {
+    const h = await setup('auto'); h.run.mockResolvedValue({ verdict: 'changes', summary: 'Исправить обработку ошибок' }); const i = await h.start();
+    for (let n = 0; n < 2; n++) {
+      await h.studio.action('report', { id: i.id, run: i.run, status: 'done', summary: 'implemented', checks: 'tests', ci: 'pass' });
+      await h.studio.pump(); await until(() => i.stage === (n === 0 ? 'queued' : 'question'));
+      if (n === 0) await h.studio.pump();
+    }
+    expect(h.fm.decisions.open()).toHaveLength(1); expect(h.send).toHaveBeenCalledTimes(2);
+  });
+  it('aborts reviewer on pause and ignores its late verdict', async () => {
+    const h = await setup('auto'); let resolve!: (r: ReviewResult) => void;
+    h.run.mockImplementation(() => new Promise(r => { resolve = r; })); const i = await h.start();
+    await h.studio.action('report', { id: i.id, run: i.run, status: 'done', summary: 'implemented', checks: 'tests', ci: 'pass' });
+    await h.studio.pump(); await h.studio.action('pause', {}); resolve({ verdict: 'pass', summary: 'late' });
+    await new Promise(r => setTimeout(r, 15)); expect(i.stage).toBe('review'); expect(h.studio.data.mode).toBe('paused');
+  });
+  it('restores queue paused without replaying a send or accepting old reports', async () => {
+    const h = await setup(); const i = await h.start(); const run = i.run;
+    const other = new Studio(h.fm, { send: h.send, control: h.control }); other.stop();
+    expect(other.data.mode).toBe('paused'); expect(other.data.items[0]!.stage).toBe('question');
+    await expect(other.action('report', { id: i.id, run, status: 'done', summary: 'late', checks: 'tests', ci: 'pass' })).rejects.toThrow();
+    expect(h.send).toHaveBeenCalledTimes(1);
+  });
+  it('separates visibility from executor enablement and persists selected appearance', async () => {
+    const h = await setup(); const i = await h.start();
+    await h.studio.action('agent', { ...h.studio.data.profiles[0], visible: false, name: 'Разработчик', skin: 'wren' });
+    expect(h.studio.data.active).toBe(i.id); expect(h.studio.data.profiles[0]!.enabled).toBe(true); expect(h.fm.requireAgent('marlow')).toMatchObject({ active: false, name: 'Разработчик', skin: 'wren' });
+  });
+  it('keeps separate review ranges when another task runs while awaiting an answer', async () => {
+    const h = await setup(); const i = await h.start(); const first = await cleanHead(h.repo);
+    await h.studio.action('report', { id: i.id, run: i.run, status: 'question', summary: 'Выбор?' });
+    fs.writeFileSync(path.join(h.repo, 'independent.txt'), 'Other task');
+    await gitText(h.repo, ['add', 'independent.txt']); await gitText(h.repo, ['-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '-m', 'Independent']);
+    const independent = await cleanHead(h.repo); expect(independent).not.toBe(first);
+    await h.studio.action('retry', { id: i.id }); await h.studio.pump();
+    fs.writeFileSync(path.join(h.repo, 'own.txt'), 'Own task'); await gitText(h.repo, ['add', 'own.txt']);
+    await gitText(h.repo, ['-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '-m', 'Own task']);
+    await h.studio.action('report', { id: i.id, run: i.run, status: 'done', summary: 'ready', checks: 'tests', ci: 'pass' });
+    expect(i.ranges).toEqual([{ base: independent, head: await cleanHead(h.repo) }]);
+  });
+});

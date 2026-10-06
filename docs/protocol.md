@@ -67,6 +67,7 @@ Exact option labels: merge decisions use `Merge`, `Request changes`, `Reject`; p
 | --- | --- | --- | --- |
 | `id` | string | yes | e.g. "t3" |
 | `observerKey` | string | no | Stable external task key for the Codex observer; survives restarts. |
+| `queueStage` | `plan` \| `queued` \| `coding` \| `review` \| `question` \| `done` \| `cancelled` | no |  |
 | `title` | string | yes |  |
 | `description` | string | no |  |
 | `status` | [TaskStatus](#taskstatus) | yes | Task Wall column. `cancelled` tasks are kept for history but should not be shown on the wall. |
@@ -859,6 +860,26 @@ A client message was invalid or failed (also sent as ack.ok=false when it had an
 ```
 
 ## Mod -> Foreman
+
+### `studio.action`
+
+Observer command desk: persistent plan/queue, review, roster and shared notes. get returns studio state in ack.result. Mutations are validated by the studio controller.
+
+| field | type | required | notes |
+| --- | --- | --- | --- |
+| `id` | string | no | client correlation id; the Foreman answers with `ack` {re: id} |
+| `action` | string | yes |  |
+| `payload` | map<string, any> | no |  |
+
+```json
+{
+  "v": 1,
+  "type": "studio.action",
+  "id": "studio-1",
+  "action": "get",
+  "payload": {}
+}
+```
 
 ### `observer.update`
 

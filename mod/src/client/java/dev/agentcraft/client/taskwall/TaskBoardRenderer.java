@@ -305,7 +305,8 @@ public class TaskBoardRenderer extends StationRenderer<TaskBoardBlockEntity, Tas
 
 	private static String family(TaskBoard.Col col) {
 		return switch (col) {
-			case TODO -> "idle";
+			case PLAN, TODO -> "idle";
+			case QUESTION -> "waiting";
 			case DOING -> "working";
 			case REVIEW -> "thinking";
 			case DONE -> "done";

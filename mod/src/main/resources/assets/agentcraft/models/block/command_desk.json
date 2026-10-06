@@ -1,0 +1,43 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "particle": "agentcraft:block/walnut_panel",
+    "top": "agentcraft:block/console_top",
+    "bottom": "agentcraft:block/walnut_panel",
+    "side": "agentcraft:block/walnut_panel"
+  },
+  "elements": [
+    {
+      "from": [
+        0,
+        0,
+        0
+      ],
+      "to": [
+        16,
+        16,
+        16
+      ],
+      "faces": {
+        "down": {
+          "texture": "#bottom"
+        },
+        "up": {
+          "texture": "#top"
+        },
+        "north": {
+          "texture": "#side"
+        },
+        "south": {
+          "texture": "#side"
+        },
+        "west": {
+          "texture": "#side"
+        },
+        "east": {
+          "texture": "#side"
+        }
+      }
+    }
+  ]
+}

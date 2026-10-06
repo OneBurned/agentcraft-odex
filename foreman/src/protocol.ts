@@ -106,6 +106,7 @@ export type LogEntry = z.infer<typeof LogEntry>;
 export const Task = z.object({
   id: Id.describe('e.g. "t3"'),
   observerKey: z.string().optional().describe('Stable external task key for the Codex observer; survives restarts.'),
+  queueStage: z.enum(['plan', 'queued', 'coding', 'review', 'question', 'done', 'cancelled']).optional(),
   title: z.string(),
   description: z.string().optional(),
   status: TaskStatus,
@@ -410,6 +411,10 @@ export const ObserverUpdateMsg = z.object({
 });
 export type ObserverUpdate = z.infer<typeof ObserverUpdateMsg>;
 
+export const StudioActionMsg = z.object({ ...envelope('studio.action'),
+  action: z.string().min(1).max(40), payload: z.record(z.string(), z.unknown()).default({}),
+});
+
 export const ClientMessage = z.discriminatedUnion('type', [
   HelloMsg,
   GoalSubmitMsg,
@@ -420,6 +425,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
   DiffRequestMsg,
   RepoAddMsg,
   ObserverUpdateMsg,
+  StudioActionMsg,
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -485,6 +491,7 @@ export const SERVER_MESSAGES = {
 } as const;
 
 export const CLIENT_MESSAGES = {
+  'studio.action': { schema: StudioActionMsg, doc: 'Observer command desk: persistent plan/queue, review, roster and shared notes. get returns studio state in ack.result. Mutations are validated by the studio controller.' },
   'observer.update': { schema: ObserverUpdateMsg, doc: 'Publish a real external Codex task status. Only accepted by the observer backend; never executes code or merges.' },
   hello: { schema: HelloMsg, doc: 'First message after connecting. The Foreman replies with `snapshot`, then streams upserts.' },
   'goal.submit': { schema: GoalSubmitMsg, doc: 'New goal for the lead (console: plain text).' },

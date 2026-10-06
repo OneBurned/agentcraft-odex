@@ -19,6 +19,7 @@ const opts={bundle:true,platform:'node',format:'esm',target:'node24',legalCommen
 await build({...opts,entryPoints:[path.join(root,'foreman/src/observer-main.ts')],outfile:path.join(out,'foreman/src/observer-main.mjs')});
 await build({...opts,entryPoints:[path.join(root,'tools/portable-control.mjs')],outfile:path.join(out,'control.mjs')});
 await build({...opts,entryPoints:[path.join(root,'tools/codex-progress.mjs')],outfile:path.join(out,'codex-progress.mjs')});
+await build({...opts,entryPoints:[path.join(root,'tools/studio.mjs')],outfile:path.join(out,'studio.mjs')});
 await build({...opts,entryPoints:[path.join(root,'tools/connect-codex-chat.ts')],outfile:path.join(out,'connect-codex-chat.mjs')});
 await copy(path.join(root,`mod/build/libs/agentcraft-${version}.jar`),path.join(out,`mods/agentcraft-${version}.jar`));
 const apiRoot=path.join(root,'.gradle-home/caches/modules-2/files-2.1/net.fabricmc.fabric-api/fabric-api/0.161.0+26.3');

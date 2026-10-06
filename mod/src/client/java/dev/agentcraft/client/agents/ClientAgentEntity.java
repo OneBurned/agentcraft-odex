@@ -23,6 +23,8 @@ public class ClientAgentEntity extends AgentEntity implements ClientAvatarEntity
 	private final AgentMotion motion = new AgentMotion();
 	private final AgentLife life;
 	private PlayerSkin skin;
+	/** Appearance draft for the command-desk preview only. */
+	public dev.agentcraft.client.studio.StudioPreferences.@Nullable Look previewLook;
 	private float headYaw;
 	private float headPitch;
 	private boolean headSet;

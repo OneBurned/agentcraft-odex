@@ -3,6 +3,7 @@ import { ClientError, type Backend, type Foreman } from '../foreman.js';
 import type { AgentState, ObserverUpdate, Station, TaskStatus } from '../protocol.js';
 import { DesktopChat, chatConfigPath, textChunks, type ChatActivity, type ChatControl } from '../codex-desktop.js';
 import path from 'node:path';
+import { Studio } from '../studio.js';
 
 const stations: Record<ObserverUpdate['state'], Station> = {
   thinking: 'meeting', reading: 'library', editing: 'desk', running: 'terminal',
@@ -17,6 +18,7 @@ export class ObserverBackend implements Backend {
   readonly name = 'observer' as const;
   private timer?: NodeJS.Timeout;
   private chat?: DesktopChat;
+  private studio?: Studio;
   private chatGuidance = guidance;
   private restTimer?: NodeJS.Timeout;
   private lastChat?: ChatActivity;
@@ -48,6 +50,8 @@ export class ObserverBackend implements Backend {
       },
     });
     this.chat.start();
+    this.studio = new Studio(this.fm, { send: text => this.chat!.send(text), control: action => this.chat!.control(action) });
+    this.studio.start();
   }
 
   expireActivity(): void {
@@ -74,6 +78,15 @@ export class ObserverBackend implements Backend {
   }
 
   onChatActivity(activity: ChatActivity): void {
+    this.studio?.onActivity(activity);
+    if (this.studio?.ownsActiveTask()) {
+      this.cancelRest();
+      if (activity.phase === 'waiting') this.fm.act('marlow', 'waiting_user', 'user', 'Нужно подтверждение в приложении Codex');
+      return;
+    }
+    if (this.fm.decisions.open().some(d => d.tool === 'studio' && d.agentId === 'marlow')) {
+      this.cancelRest(); this.fm.act('marlow', 'waiting_user', 'user', 'Нужно твоё решение по задаче'); return;
+    }
     const previous = this.lastChat;
     const a = this.fm.requireAgent('marlow');
     if (activity.phase === 'paused' || activity.phase === 'stopped') {
@@ -139,6 +152,10 @@ export class ObserverBackend implements Backend {
   }
 
   onObserverUpdate(update: ObserverUpdate): Record<string, unknown> {
+    if (this.studio?.ownsActiveTask()) {
+      if (update.state !== 'done') this.fm.act('marlow', update.state === 'review' ? 'reading' : update.state, stations[update.state], update.activity);
+      return { taskId: this.studio.data.active, state: update.state };
+    }
     const repo = update.repoId ? this.fm.repos.get(update.repoId) : this.fm.repos.defaultRepo();
     if (update.repoId && !repo) throw new ClientError(`no repo "${update.repoId}"`);
     let task = this.fm.tasks.list().find(t => t.observerKey === update.key);
@@ -185,16 +202,24 @@ export class ObserverBackend implements Backend {
       return result;
     } catch (e) { throw new ClientError((e as Error).message); }
   }
-  async onChatControl(action: ChatControl): Promise<Record<string, unknown>> {
+  async onChatControl(action: ChatControl, agentId = 'marlow'): Promise<Record<string, unknown>> {
+    if (this.studio?.ownsActiveTask() || (action === 'resume' && this.studio?.data.mode === 'paused' && this.studio.data.items.length)) {
+      return this.studio.action(action === 'resume' ? 'start' : action, {});
+    }
+    if (['wren', 'claude'].includes(agentId.toLowerCase())) throw new ClientError('Сейчас нет запущенного ревью Claude. Управление очередью находится в пульте.');
     try {
       if (!this.chat) throw new Error('Чат не подключён.');
       return await this.chat.control(action);
     } catch (e) { throw new ClientError((e as Error).message); }
   }
-  async stop(): Promise<void> { clearInterval(this.timer); this.cancelRest(); this.chat?.stop(); }
+  async onStudioAction(action: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (!this.studio) throw new ClientError('Пульт ещё запускается.');
+    return this.studio.action(action, payload);
+  }
+  async stop(): Promise<void> { clearInterval(this.timer); this.cancelRest(); this.studio?.stop(); this.chat?.stop(); }
   async submitGoal(): Promise<void> { throw new ClientError(guidance); }
   onUserMessage(): void {}
-  onDecisionSettled(): void {}
+  onDecisionSettled(d: import('../protocol.js').Decision): void { this.studio?.onDecision(d); }
   onTaskAction(): void {}
   onAgentAction(): void {}
 }

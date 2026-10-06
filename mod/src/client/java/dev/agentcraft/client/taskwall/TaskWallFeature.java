@@ -100,7 +100,8 @@ public final class TaskWallFeature {
 			Vec3 hit = hr instanceof BlockHitResult bh && hr.getType() == HitResult.Type.BLOCK ? bh.getLocation() : Vec3.atCenterOf(pos);
 			String id = taskAt(pos, state, hit);
 			if (id != null) {
-				mc.gui.setScreen(new TaskScreen(id));
+				var task = Foreman.state().task(id);
+				mc.gui.setScreen(task != null && task.queueStage() != null ? new dev.agentcraft.client.studio.StudioScreen(id) : new TaskScreen(id));
 			}
 		});
 		DevBridge.registerScreen("task", mc -> new TaskScreen(defaultTask()));

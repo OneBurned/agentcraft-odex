@@ -148,7 +148,7 @@ public final class AgentManager {
 		List<Agent> agents = new ArrayList<>(st.agents().values());
 		// Observer mode represents one real external coder. Off-shift cast members are not NPCs.
 		if (st.status() != null && st.status().backend() == Protocol.BackendName.OBSERVER) {
-			agents.removeIf(a -> !a.id().equals("marlow"));
+			agents.removeIf(a -> !a.isActive());
 			if (layout.isEmpty()) agents.clear();
 		}
 		Map<String, Anchor> targets = layout.isEmpty() ? fallbackTargets(agents, lvl) : assigner.assign(agents, layout);
@@ -169,6 +169,7 @@ public final class AgentManager {
 		Set<String> keep = new HashSet<>();
 		for (Agent a : agents) {
 			Anchor target = targets.get(a.id());
+			target = dev.agentcraft.client.studio.StudioPreferences.get().target(a.id(), StationAssigner.stationKey(a), target);
 			if (target == null) {
 				continue;
 			}

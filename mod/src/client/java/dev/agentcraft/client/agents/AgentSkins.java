@@ -23,7 +23,38 @@ public final class AgentSkins {
 	}
 
 	public static PlayerSkin get(String agentId, String skinId) {
-		return CACHE.computeIfAbsent(agentId + "|" + skinId, k -> create(agentId, skinId));
+		var look = dev.agentcraft.client.studio.StudioPreferences.get().look(agentId);
+		return preview(agentId, skinId, look);
+	}
+
+	public static PlayerSkin preview(String agentId, String skinId, dev.agentcraft.client.studio.StudioPreferences.Look look) {
+		return CACHE.computeIfAbsent(agentId + "|" + skinId + "|" + look.slim + "|" + look.png, k -> {
+			PlayerSkin base = create(agentId, skinId);
+			if (!look.png.isEmpty()) {
+				try {
+					java.nio.file.Path file = Minecraft.getInstance().gameDirectory.toPath().resolve("config/agentcraft-skins").resolve(look.png);
+					if (!look.png.matches("[a-f0-9]{64}\\.png")) throw new IllegalArgumentException("Invalid skin file");
+					var pixels = com.mojang.blaze3d.platform.NativeImage.read(java.nio.file.Files.readAllBytes(file));
+					Identifier id = AgentCraft.id("studio/" + look.png);
+					Minecraft.getInstance().getTextureManager().register(id, new net.minecraft.client.renderer.texture.DynamicTexture(() -> id.toString(), pixels));
+					base = PlayerSkin.insecure(new ClientAsset.ResourceTexture(id, id), null, null, PlayerModelType.WIDE);
+				} catch (Exception e) { AgentCraft.LOGGER.warn("Cannot load selected agent skin", e); }
+			}
+			return PlayerSkin.insecure(base.body(), base.cape(), base.elytra(), look.slim ? PlayerModelType.SLIM : PlayerModelType.WIDE);
+		});
+	}
+
+	public static String importPng(String filename) throws Exception {
+		var p = java.nio.file.Path.of(filename);
+		if (java.nio.file.Files.size(p) > 524288) throw new IllegalArgumentException("PNG должен быть меньше 512 КБ");
+		byte[] bytes = java.nio.file.Files.readAllBytes(p);
+		try (var image = com.mojang.blaze3d.platform.NativeImage.read(bytes)) {
+			if (image.getWidth() != 64 || image.getHeight() != 64) throw new IllegalArgumentException("Нужен скин PNG 64×64");
+		}
+		String name = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes)) + ".png";
+		var dir = Minecraft.getInstance().gameDirectory.toPath().resolve("config/agentcraft-skins");
+		java.nio.file.Files.createDirectories(dir); java.nio.file.Files.write(dir.resolve(name), bytes);
+		return name;
 	}
 
 	private static PlayerSkin create(String agentId, String skinId) {

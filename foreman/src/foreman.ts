@@ -36,7 +36,8 @@ export interface Backend {
   readonly name: 'sim' | 'claude' | 'observer';
   onObserverUpdate?(update: ObserverUpdate): Record<string, unknown>;
   onChatMessage?(text: string): Promise<Record<string, unknown>>;
-  onChatControl?(action: 'pause' | 'resume' | 'stop'): Promise<Record<string, unknown>>;
+  onChatControl?(action: 'pause' | 'resume' | 'stop', agentId?: string): Promise<Record<string, unknown>>;
+  onStudioAction?(action: string, payload: Record<string, unknown>): Promise<Record<string, unknown>>;
   /** Called once after the core is ready (and after restart: resume work). */
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -503,12 +504,16 @@ export class Foreman {
   }
 
   private async dispatch(msg: ClientMessage, reply: Reply): Promise<Record<string, unknown> | undefined> {
+    if (msg.type === 'studio.action') {
+      if (!this.backend?.onStudioAction) throw new ClientError('Пульт доступен в режиме Codex.');
+      return this.backend.onStudioAction(msg.action, msg.payload);
+    }
     if (this.config.backend === 'observer' && msg.type === 'agent.action') {
-      if (!['marlow', 'codex'].includes(msg.agentId.toLowerCase()) ||
+      if (!['marlow', 'codex', 'wren', 'claude'].includes(msg.agentId.toLowerCase()) ||
         !['pause', 'resume', 'stop'].includes(msg.action) || !this.backend?.onChatControl) {
         throw new ClientError('Для Codex доступны только пауза, продолжение и остановка подключённой задачи.');
       }
-      return this.backend.onChatControl(msg.action as 'pause' | 'resume' | 'stop');
+      return this.backend.onChatControl(msg.action as 'pause' | 'resume' | 'stop', msg.agentId);
     }
     if (this.config.backend === 'observer' && (msg.type === 'goal.submit' || msg.type === 'user.message')) {
       if (!this.backend?.onChatMessage) throw new ClientError('Чат Codex не подключён.');
@@ -516,6 +521,11 @@ export class Foreman {
         throw new ClientError('В этом режиме сообщения отправляются только Codex.');
       }
       return this.backend.onChatMessage(msg.text);
+    }
+    if (this.config.backend === 'observer' && msg.type === 'decision.answer' &&
+      this.decisions.get(msg.decisionId)?.tool === 'studio') {
+      await this.answerDecision(msg.decisionId, msg.option, msg.text);
+      return { decisionId: msg.decisionId };
     }
     if (this.config.backend === 'observer' && !['hello', 'observer.update', 'repo.add', 'diff.request'].includes(msg.type)) {
       throw new ClientError('Режим наблюдения: задачи, сообщения и согласования — в чате Codex. Игра только показывает ход работы.');

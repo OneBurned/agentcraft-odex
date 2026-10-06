@@ -192,7 +192,7 @@ describe('Codex observer', () => {
     const control = vi.spyOn(h.backend, 'onChatControl').mockResolvedValue({ chatControl: 'paused' });
     for (const action of ['pause', 'resume', 'stop']) {
       const ack = await send(h, { v: 1, id: action, type: 'agent.action', agentId: 'marlow', action } as ClientMessage);
-      expect(ack?.ok).toBe(true); expect(control).toHaveBeenLastCalledWith(action);
+      expect(ack?.ok).toBe(true); expect(control).toHaveBeenLastCalledWith(action, 'marlow');
     }
     const rejected = await send(h, { v: 1, id: 'bad', type: 'agent.action', agentId: 'kit', action: 'stop' });
     expect(rejected?.ok).toBe(false); expect(control).toHaveBeenCalledTimes(3);
@@ -200,5 +200,16 @@ describe('Codex observer', () => {
     expect(h.fm.requireAgent('marlow')).toMatchObject({ paused: true, active: true, state: 'idle' });
     h.backend.onChatActivity({ key: 'chat/2', phase: 'working' });
     expect(h.fm.requireAgent('marlow')).toMatchObject({ paused: false, state: 'thinking', station: 'desk' });
+  });
+  it('keeps a studio question at the player after the chat completes', async () => {
+    const h = await setup();
+    h.fm.createDecision({ agentId: 'marlow', kind: 'question', tool: 'studio', question: 'Уточни задачу', options: [] });
+    h.backend.onChatActivity({ key: 'chat/q', phase: 'completed' });
+    expect(h.fm.requireAgent('marlow')).toMatchObject({ state: 'waiting_user', station: 'user' });
+  });
+  it('does not stop Codex through an inactive Claude card', async () => {
+    const h = await setup();
+    const ack = await send(h, { v: 1, id: 'claude', type: 'agent.action', agentId: 'wren', action: 'stop' });
+    expect(ack?.ok).toBe(false);
   });
 });

@@ -30,9 +30,8 @@ import net.minecraft.util.FormattedCharSequence;
 import org.jspecify.annotations.Nullable;
 
 /**
- * The kanban model of one Task Wall panel: four columns (Todo, Doing, Review, Done), blocked tasks
- * shown as red cards at the top of the column where they stalled (Doing when they have a worktree,
- * else Todo), cancelled tasks hidden. Laid out in board pixels and cached until the tasks or the
+ * The kanban model of one Task Wall panel: Plan, Queued, Working, Review, Needs decision, Done.
+ * Cancelled tasks are hidden. Laid out in board pixels and cached until the tasks or the
  * panel size change (agent changes only refresh the card contents); cards and columns then glide
  * to their new places ({@link #step}). One instance per panel origin, client thread only.
  *
@@ -85,7 +84,7 @@ final class TaskBoard {
 	}
 
 	enum Col {
-		TODO("Todo", "todo"), DOING("Doing", "doing"), REVIEW("Review", "review"), DONE("Done", "done");
+		PLAN("План", "todo"), TODO("В очереди", "todo"), DOING("В работе", "doing"), REVIEW("Ревью", "review"), QUESTION("Нужно решение", "review"), DONE("Готово", "done");
 
 		final String label;
 		final String card;
@@ -371,6 +370,8 @@ final class TaskBoard {
 	static int densityOverride;
 
 	static Col colOf(Task t) {
+		if ("plan".equals(t.queueStage())) return Col.PLAN;
+		if ("question".equals(t.queueStage())) return Col.QUESTION;
 		return switch (t.status()) {
 			case DOING -> Col.DOING;
 			case REVIEW -> Col.REVIEW;
@@ -430,7 +431,7 @@ final class TaskBoard {
 		iy0 = trim + PAD - 1;
 		ix1 = pw - trim - PAD;
 		iy1 = ph - trim - PAD + 1;
-		float equal = (ix1 - ix0 - GAP * 3) / 4f;
+		float equal = (ix1 - ix0 - GAP * (Col.values().length - 1)) / Col.values().length;
 		boolean wasList = listMode;
 		// too narrow for four readable columns (small boards): one list, most urgent first
 		listMode = equal < LIST_BELOW;
@@ -516,7 +517,8 @@ final class TaskBoard {
 				}
 			}
 			col.family = listMode ? "working" : switch (col.col) {
-				case TODO -> "idle";
+				case PLAN, TODO -> "idle";
+				case QUESTION -> "waiting";
 				case DOING -> "working";
 				case REVIEW -> col.needYou > 0 ? "waiting" : "thinking";
 				case DONE -> "done";

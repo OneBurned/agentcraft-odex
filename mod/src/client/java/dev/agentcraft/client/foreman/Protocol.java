@@ -144,7 +144,7 @@ public final class Protocol {
 
 	public record Task(String id, String title, @Nullable String description, TaskStatus status, @Nullable String assignee, List<String> deps,
 		@Nullable String repoId, @Nullable String goalId, int priority, @Nullable String branch, @Nullable String worktree, CiStatus ci,
-		@Nullable String blockedReason, @Nullable String summary, @Nullable String createdBy, long createdAt, long updatedAt) {
+		@Nullable String blockedReason, @Nullable String summary, @Nullable String createdBy, long createdAt, long updatedAt, @Nullable String queueStage) {
 		public Task {
 			title = title == null ? id : title;
 			status = status == null ? TaskStatus.UNKNOWN : status;

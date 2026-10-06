@@ -1,11 +1,89 @@
 # Codex chat observer for TradeRecord
 
-The `observer` backend displays work performed in an existing Codex chat. It does not start
-Claude or another Codex session, call model APIs, execute task commands, create worktrees,
-merge, push or deploy. Marlow's existing character is labelled **Codex**; the other characters
-remain off shift and are not spawned in the observer game. Version 0.3.0 can forward game text to
-an explicitly bound existing desktop chat and return its public replies. Without the binding,
-sending is refused. Game approval and autonomous-agent control commands remain disabled.
+The `observer` backend connects an existing Codex chat to Minecraft. Codex remains the developer
+in that chat. Version 0.4.0 adds a command desk with a user-approved task queue and an optional
+Claude Code reviewer, represented by Wren. Other cast members remain hidden. Starting the bridge
+alone does not start work: drafts require approval and the queue requires an explicit Start.
+No automatic merge, push or deployment is implemented. Native tool permissions still belong to
+the Codex app; the game's decision queue accepts only questions created by the studio workflow.
+
+## 0.4.0 command desk
+
+Place **Пульт AgentCraft / Command Desk** from the creative AgentCraft tab, or use
+`/give @s agentcraft:command_desk`. Right-click it without the Configurator. Its tabs are:
+
+- **Команда**: enable/disable Codex and Claude, rename them, hide their NPC independently of execution.
+- **Внешность**: six bundled skins, custom 64×64 PNG (up to 512 KiB), wide/slim arms, outer layer,
+  name/role/activity labels and name colour. Mouse-following preview; Apply or restore defaults.
+- **План**: discuss the pool through the existing console, create/edit draft cards, expected result,
+  dependencies and priority. Discussion pauses the queue first. Text is sent only after Enter.
+- **Очередь**: approve individual drafts, Start/Continue, Pause, Stop, Planning, review and decisions.
+  The list refreshes every three seconds. Clicking a studio card on the wall opens the same details.
+- **Места**: per-agent desk, reading, tests, terminal, review, planning, rest and communication spots.
+  Stand on the spot and save it. Positions must be inside the workspace marked by the Configurator.
+- **Память**: shared notes and the existing library/catalog. Review reports include the checked commit.
+- **Настройки**: automatic/manual/disabled review, detected or explicit Claude Code executable,
+  browser login/check, connected project and Codex link state. Empty executable path means autodetect.
+
+The task wall has Plan → Queued → Working → Review → Done and Needs decision columns. Cancelled
+cards are hidden. The HUD tracks the pool goal. Adding a task does not start coding. Default review
+is automatic, with Claude initially disabled until the user adds it and signs in.
+
+The queue dispatches one approved task at a time into the bound desktop chat. Dependencies must be
+done; higher priority wins. It waits until the chat is idle before another dispatch or review.
+Descriptions are limited to 3000 characters, expected results to 1500. Unknown delivery is never
+automatically retried. Changing the bound chat pauses the queue and invalidates an active report.
+After checking the old chat, an explicit Continue adopts the current binding.
+
+Completion requires a correlated `studio.action/report` with the current run UUID, `ci: pass`,
+actual-check description and a clean Git HEAD. A completed chat response or observer progress event
+cannot itself complete a pool card. Codex's task prompt supplies the absolute report helper path and
+port. Keep the JSON report outside the repository so the checkout stays clean. Example helper:
+`node tools/studio.mjs report --file <report.json> --port 7878`. `create --file <task.json>` creates
+drafts with title, description, expected, deps and priority; approving and starting remain user actions.
+
+Claude receives the committed changes for each attempt, requirements, claimed checks and shared
+notes through stdin. It runs with no tools, no MCP servers, hooks disabled, no persisted session,
+and outside the project directory. This is a diff review, not an independent test execution or a
+whole-repository audit. Missing context should produce a question. HEAD and clean status are checked
+before and after review, so an obsolete verdict is rejected. Separate attempt ranges exclude commits
+made by independent tasks between attempts. First findings return to Codex; after two non-passing
+reviews the user decides. Findings go to shared Markdown memory and the Claude journal.
+
+Pause/Stop interrupts the active Codex turn or kills the launched Claude review process. Existing
+edits remain in files. Pause puts coding back in the queue; Stop requires an explicit retry or decision.
+Planning also interrupts current work. Resume sends a new correlated attempt, not the old run's report.
+Disconnected/failed Codex interruption is an error, not a confirmed stop. Restart restores the queue
+paused, and interrupted coding requires inspection. Independent approved tasks can continue while a
+question waits, provided the working tree is clean. An unresolved dependency never starts. Agents
+approach the player within the reachable workspace; questions remain available through J/the podium
+and pult even when the player is outside it. Native Codex permission dialogs stay in the desktop app.
+
+Claude Code detection includes PATH, `~/.local/bin`, `AGENTCRAFT_CLAUDE_EXE`, and Windows Claude
+Desktop's versioned `LocalCache/Roaming/Claude/claude-code` directory. The Electron `Claude.exe` is
+not a CLI. Signing in to Desktop does not guarantee CLI authentication. On this machine the bundled
+Code 2.1.288 was found, but `auth status` reported logged out. Use **Войти / проверить вход** and finish
+the browser login before starting a reviewed pool. Neither credentials nor raw auth output are stored
+in the game. Login is never initiated merely by opening the pult.
+
+Queue/profile state is in the bridge's existing persistent store (`backend.studio`); shared notes are
+in its memory directory. The latest ten shared records contribute up to 2000 characters of context;
+the full notes and reports remain accessible in the library. Local appearance is in
+`config/agentcraft-studio.json`, PNG copies in `config/agentcraft-skins`. Separate station coordinates
+are keyed by the singleplayer save path. These client settings are not distributed to other players.
+An existing workspace and the overworld singleplayer setup are still required.
+
+Release 0.4.0 requires both the new JAR and bridge, followed by a game restart. The previously installed
+0.3.2 remains unchanged until a separately approved installation. In-game visual checks and a real
+authenticated Claude review remain pending; build and automated checks do not substitute for those.
+
+Validation: the full Foreman check passed 556 tests, TypeScript and generated protocol documentation;
+an additional immediate-pause regression and subsequent changes passed focused queue/observer/review
+checks. Gradle build and all eight existing Java model tests passed. The portable smoke check runs
+with its own temporary repository/home/port and an absent chat binding: draft approval, notes,
+pause, clean shutdown, restart persistence and the bundled report helper all passed. It does not
+send a task to the user's chat. Run it explicitly with
+`node tools/test/studio-package.mjs <portable-directory>`.
 
 ## Start and stop on this Windows machine
 
