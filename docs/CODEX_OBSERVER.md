@@ -146,6 +146,10 @@ unchanged. Without conversation.json the previous independent-history mode remai
   data is an error, never permission to create a replacement conversation. Leases do not expire
   on a timer. After a crashed wrapper, the return launcher refuses recovery while its recorded
   process or child is still alive; Desktop recovery requires an explicit closed-session confirmation.
+  If both the recorded owner and child processes are gone, game/review/terminal locks show a
+  `Return-Klava-To-Game.cmd` recovery hint instead of asking the user to wait indefinitely.
+  Reading this status never deletes the lock. A live child or uncertain process access keeps
+  the busy status; only explicit return performs recovery.
 
 Desktop receives a project-local `.mcp.json`, `CLAUDE.local.md` imports and `.claude/settings.json`
 that disables hooks, configures the Klava tools and denies native source read/edit/shell tools,

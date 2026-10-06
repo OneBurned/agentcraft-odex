@@ -26,8 +26,11 @@ export function conversationLease(dir: string) {
 export function leaseNotice(dir: string): string | undefined {
   const lease = conversationLease(dir);
   if (!lease) return undefined;
-  return lease.owner === 'desktop' ? 'Клава в разделе Code. Верни разговор через Return-Klava-To-Game.cmd.'
-    : lease.owner === 'terminal' ? 'Клава в терминале. Закрой её разговор, чтобы продолжить в игре.'
+  if (lease.owner === 'desktop') return 'Клава в разделе Code. Верни разговор через Return-Klava-To-Game.cmd.';
+  if (!alive(lease.pid) && !(lease.childPid && alive(lease.childPid))) {
+    return 'Процесс Клавы завершился, но разговор остался заблокирован. Запусти Return-Klava-To-Game.cmd в папке Клавы, чтобы вернуть его в игру.';
+  }
+  return lease.owner === 'terminal' ? 'Клава в терминале. Закрой её разговор, чтобы продолжить в игре.'
     : 'Клава ещё занята. Дождись завершения ответа или ревью.';
 }
 /** Exclusive writer, including the entire interactive terminal lifetime. Never expires by timeout. */
