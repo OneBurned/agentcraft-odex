@@ -27,4 +27,11 @@ async function preserveOrCreate(file, value) {
 await preserveOrCreate(path.join(directory, 'access.json'), access);
 await fs.mkdir(profile, { recursive: true });
 await preserveOrCreate(path.join(profile, 'claude-workspace.json'), { directory });
+// Tiny ASCII launchers handle paths with spaces and leave account credentials in the keyring.
+const quote = value => `'${value.replaceAll("'", "''")}'`;
+for (const [name, resume] of [['Start-Klava', false], ['Continue-Klava', true]]) {
+  const ps = `$Host.UI.RawUI.WindowTitle = 'Klava - TradeRecord and AgentCraft'\r\n& ${quote(path.join(root, 'tools/open-klava.ps1'))} -Workspace ${quote(directory)}${resume ? ' -Continue' : ''}\r\n`;
+  await fs.writeFile(path.join(directory, `${name}.ps1`), '\uFEFF' + ps, 'utf8');
+  await fs.writeFile(path.join(directory, `${name}.cmd`), `@echo off\r\npowershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0${name}.ps1"\r\nif errorlevel 1 pause\r\n`, 'utf8');
+}
 console.log(JSON.stringify({ prepared: true, directory, projects: access.repositories.map(r => r.github), restartRequired: true }));

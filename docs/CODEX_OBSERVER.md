@@ -57,6 +57,26 @@ reads also passed for both projects. Package: `dist/AgentCraft-Codex-0.4.7-klava
 checks passed. The running bridge has not yet been restarted for this extension.
 No new Minecraft mod installation is needed.
 
+#### Separate interactive Claude Code terminal
+
+The same local workspace can be opened independently using `Start-Klava.cmd` in
+`C:\Users\GB\Documents\Klava-reviewer`; `Continue-Klava.cmd` continues its last terminal chat.
+`tools/setup-klava.mjs` creates both launchers while preserving existing Markdown instructions
+and memory. They invoke `tools/open-klava.ps1` / `tools/klava-terminal.mjs`, locate the installed
+Claude CLI, and use the same strictly configured MCP tools with built-in tools/hooks/skills disabled.
+The session is named «Клава — TradeRecord и AgentCraft». Unlike game requests, terminal chats
+use normal Claude session persistence. Terminal and Minecraft transcripts are separate; workspace
+instructions and `MEMORY.md` are shared. Restarting the game bridge is not required to open this terminal.
+This creates a local Claude Code workspace, not an ordinary cloud Project in the Claude chat UI.
+
+The launcher reloads all three Markdown files on every launch, passes them via a temporary
+`--append-system-prompt-file`, and disables system prompt snapshots so resumed sessions use the
+current instructions. It deletes its generated context file on ordinary exit. No prompt is sent
+automatically in interactive mode. On first launch Claude may ask the user to trust this workspace.
+The `-Check` option performs a non-persistent headless startup check: the installed Claude CLI
+successfully identified its role and both projects from the supplied files. It does not change code
+or memory. Both launchers keep GitHub credentials in the existing local login.
+
 ### 0.4.7 personal controls and direct dialogs (installed)
 
 The agent card's Message button now opens its inline field. Enter/Send addresses that agent's
