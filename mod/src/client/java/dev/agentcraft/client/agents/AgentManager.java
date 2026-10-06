@@ -60,6 +60,7 @@ public final class AgentManager {
 	private final Map<Integer, ClientAgentEntity> byEntityId = new HashMap<>();
 	private final StationAssigner assigner = new StationAssigner();
 	private final Seats seats = new Seats();
+	private final dev.agentcraft.client.studio.RestDirector restDirector = new dev.agentcraft.client.studio.RestDirector();
 	private final Map<String, UserSpot> userSpots = new HashMap<>();
 	private final Map<String, String> awaiting = new HashMap<>();
 	private final Map<String, Integer> awaitingCounts = new HashMap<>();
@@ -166,9 +167,33 @@ public final class AgentManager {
 		}
 
 		Set<String> keep = new HashSet<>();
+		boolean gathering = dev.agentcraft.client.studio.StudioScreen.gathering();
+		Set<String> resting = new HashSet<>();
+		for (Agent a : agents) if (dev.agentcraft.workspace.RestCoordinator.canRest(a.state().wire(),
+			StationAssigner.stationKey(a), a.isActive(), a.isPaused(), stale, awaiting.containsKey(a.id()), gathering)) resting.add(a.id());
+		restDirector.begin(lvl, resting, agents.stream().map(Agent::id).toList());
+		int meetingIndex = 0;
 		for (Agent a : agents) {
 			Anchor target = targets.get(a.id());
-			target = dev.agentcraft.client.studio.StudioPreferences.get().target(a.id(), StationAssigner.stationKey(a), target);
+			if (!StationAssigner.stationKey(a).equals("lounge"))
+				target = dev.agentcraft.client.studio.StudioPreferences.get().target(a.id(), StationAssigner.stationKey(a), target);
+			boolean meeting = gathering && !stale && a.isActive() && !followsPlayer(a) && !awaiting.containsKey(a.id());
+			boolean dancing = false, dancePlace = false;
+			if (meeting) {
+				Anchor shared = layout.get(AnchorNames.slot("meeting", ++meetingIndex));
+				if (shared == null) {
+					shared = layout.get("meeting");
+					if (shared != null && meetingIndex > 1 && pf != null) {
+						Anchor nearby = shared.offset((meetingIndex-1)*1.2, 0, 0); var p = nearby.blockPos();
+						if (layout.bounds() != null && layout.bounds().contains(p.getX(),p.getY(),p.getZ())
+							&& Double.isFinite(pf.floor(p.getX(),p.getY(),p.getZ()))) shared = nearby;
+					}
+				}
+				target = dev.agentcraft.client.studio.StudioPreferences.get().target(a.id(), "meeting", shared == null ? target : shared);
+			} else if (resting.contains(a.id()) && pf != null) {
+				var rest = restDirector.target(a.id(), lvl, pf, entities.get(a.id()), ticks);
+				if (rest != null) { target = rest.anchor(); dancing = rest.dance(); dancePlace = target.name().startsWith("dance_"); }
+			}
 			if (target == null) {
 				continue;
 			}
@@ -184,7 +209,8 @@ public final class AgentManager {
 			}
 			AgentView v = e.view();
 			v.update(a, stale, awaiting.get(a.id()), awaitingCounts.getOrDefault(a.id(), 0));
-			v.station = StationAssigner.stationKey(a);
+			v.dancing = dancing; v.planningGathering = meeting;
+			v.station = meeting ? "meeting" : StationAssigner.stationKey(a);
 			v.anchor = target.name();
 			if (playerFeet != null && !stale && followsPlayer(a)) {
 				Anchor near = userSpot(a.id(), e, playerFeet, waitingIndex++, waitingCount, pf);
@@ -194,7 +220,7 @@ public final class AgentManager {
 			} else {
 				userSpots.remove(a.id());
 			}
-			Seats.Seat seat = pf == null ? null : seats.at(lvl, target, ticks, pf);
+			Seats.Seat seat = pf == null || dancePlace ? null : seats.at(lvl, target, ticks, pf);
 			Anchor effective = seat != null ? seat.target() : target;
 			if (relayout) {
 				e.life().setSeat(seat);

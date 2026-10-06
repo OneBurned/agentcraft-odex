@@ -9,6 +9,46 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### 0.4.4 rest places, music and planning (prepared)
+
+Opening the Plan tab (including its task forms/details) gathers visible active characters at
+their personal `meeting` anchors, with shared meeting positions as fallback. Leaving the tab
+restores destinations from real agent state. This is a client presentation override; it does
+not pause Codex, Claude, or the queue. Questions take precedence over gathering.
+
+`config/agentcraft-studio.json` now also stores `restPlaces`, scoped by single-player save path
+and agent ID. Each agent can have up to 32 normal/dance points (ID, kind flag, anchor). Existing
+personal `lounge` anchors are read as a legacy first point until the list is edited. An explicitly
+empty list stays empty; old lounge anchors cannot reappear after deletion. Rest assignments append;
+marking the same physical location replaces the duplicate, and moving one point preserves others.
+The command desk's Places → Rest tab cycles through points and offers add/move/delete. Dance
+addition and relocation arm the Configurator and close the screen so the user can aim in-world.
+
+Configurator cycle adds **Отдых: танцы у шеста** after ordinary Rest. Right-click a vertical chain
+or fence column of at least three blocks. The bottom must be at feet level with a walkable 3×3
+ring and headroom inside the workspace. No new decorative block is required. A jukebox within
+five blocks (3D distance from the bottom block) must actually be playing; merely containing a
+disc or emitting note-block pulses does not qualify. Loaded jukeboxes are inspected every ten
+ticks on the integrated server thread, then immutable music snapshots are read by the client.
+
+Only active, unpaused, connected, idle/done agents at `lounge`, without questions or a planning
+gathering, choose rest points. Physical poles and normal rest points are reserved exclusively.
+Music/validity changes reconsider immediately; otherwise choices hold for 600 ticks before
+rotating among alternatives. Available musical dance points have priority over normal rest.
+Pole/ring removal or music ending falls back to another rest point or the shared lounge.
+The new DANCE posture alternates reaching arms and rhythmic steps while collision-aware motion
+circles the pole. Work/questions interrupt it using existing smooth pose transitions.
+
+Version 0.4.4 includes the prepared 0.4.3 Configurator selection. Installation is pending separate
+approval; installed version remains 0.4.2. This is a mod-only update and does not require a bridge
+restart. In-game animation, music response and UI appearance must be checked after installation;
+the user's running game was not modified or restarted during preparation.
+Validation: mod build and all 25 Java tests passed. Ten new checks cover music availability
+changes, physical reservations across different agent IDs, interruption/release, stable choice
+and rotation, eligibility, preserving/moving/deduplicating rest points and JSON round-trip.
+`dist/AgentCraft-Codex-0.4.4-ready` and its Windows ZIP contain the verified 0.4.4 JAR, new classes
+and all six added skins. These checks do not replace an in-game animation/UI test.
+
 ### 0.4.3 configurator agent selection (prepared)
 
 Right-click a visible agent with the Configurator to select that agent by stable ID, including

@@ -32,7 +32,7 @@ public final class AgentLife {
 
 	/** What the body is doing (picked every tick). */
 	public enum Posture {
-		WALK, IDLE, SIT_IDLE, SIT_TYPE, SIT_THINK, SIT_SCRATCH, READ, TYPE_STAND, LEAN_BENCH, REVIEW, WAIT, THINK, SCRATCH, RELAX, STRETCH, TALK
+		WALK, IDLE, SIT_IDLE, SIT_TYPE, SIT_THINK, SIT_SCRATCH, READ, TYPE_STAND, LEAN_BENCH, REVIEW, WAIT, THINK, SCRATCH, RELAX, STRETCH, TALK, DANCE
 	}
 
 	/** Eye height of the agent model (player eye 1.62 x model scale 0.9375). */
@@ -304,12 +304,14 @@ public final class AgentLife {
 	}
 
 	private Posture choose(AgentView v, boolean walking, boolean seated) {
+		if (v.dancing && !v.stale && !v.paused) return Posture.DANCE;
 		if (walking) {
 			return Posture.WALK;
 		}
 		if (v.stale) {
 			return seated ? Posture.SIT_IDLE : Posture.IDLE;
 		}
+		if (v.planningGathering) return seated ? Posture.SIT_THINK : bubble.visible() ? Posture.TALK : Posture.THINK;
 		String fam = v.dotFamily();
 		boolean paused = v.paused || !v.active;
 		boolean talking = bubble.visible() && !seated;
@@ -378,6 +380,17 @@ public final class AgentLife {
 			case WALK -> {
 				t[P_ARMW] = 0f;
 				t[P_LEAN] = 0.03f;
+			}
+			case DANCE -> {
+				// Alternate the reaching arm while circling the pole; smooth pose channels also blend the exit.
+				float beat = age * 0.16f;
+				float switchHand = (1f + Mth.sin(age * 0.025f)) * 0.5f;
+				arms(t, -1.35f - switchHand * 1.1f, -0.25f, 0.1f,
+					-2.45f + switchHand * 1.1f, 0.25f, -0.1f);
+				t[P_RAZ] += 0.18f * Mth.sin(beat); t[P_LAZ] -= 0.18f * Mth.sin(beat + 0.8f);
+				t[P_LEAN] = 0.05f + 0.07f * Mth.sin(beat * 0.5f);
+				t[P_LEGW] = 0.35f;
+				t[P_RLX] = 0.28f * Mth.sin(beat); t[P_LLX] = -t[P_RLX];
 			}
 			case IDLE -> {
 			}
@@ -479,7 +492,7 @@ public final class AgentLife {
 			if (n != null) {
 				point = new Vec3(n.x, eye.y - 0.25, n.z);
 			}
-		} else if (!v.stale) {
+		} else if (!v.stale && !v.dancing) {
 			SpeechBubble.Line say = bubble.visible() ? bubble.current() : null;
 			if (say != null && say.to() != null) {
 				point = lookPointFor(say.to(), playerEye, playerDist);

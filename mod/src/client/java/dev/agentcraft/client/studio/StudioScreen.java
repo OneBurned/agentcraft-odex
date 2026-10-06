@@ -30,6 +30,7 @@ public final class StudioScreen extends Screen {
     private int tab, page, x, y, w, h, top, role;
     private String agent = "marlow", status = "Подключаю пульт…";
     private String openTask;
+    private int restIndex;
     private boolean busy;
     private int pollTicks;
     private StudioPreferences.Look draft;
@@ -40,6 +41,13 @@ public final class StudioScreen extends Screen {
     private record Label(String text, int x, int y, int width) {}
     public StudioScreen() { super(Component.literal("Пульт AgentCraft")); }
     public StudioScreen(String taskId) { this(); openTask = taskId; tab = 3; }
+    public static boolean gathering() {
+        var screen = Minecraft.getInstance().gui.screen();
+        if (screen instanceof StudioScreen studio) return studio.tab == 2;
+        if (screen instanceof Form form && form.parent instanceof StudioScreen studio) return studio.tab == 2;
+        if (screen instanceof TaskDetails details) return details.parent.tab == 2;
+        return false;
+    }
     public static void initFeature() {
         StationInteractions.onUse(ModBlocks.COMMAND_DESK, (p, pos, state, be) -> Minecraft.getInstance().gui.setScreen(new StudioScreen()));
         dev.agentcraft.client.dev.DevBridge.registerScreen("studio", mc -> new StudioScreen());
@@ -191,10 +199,36 @@ public final class StudioScreen extends Screen {
     private void places() {
         selectAgent(); int left = x + 12, cy = top + 28;
         button("Место: " + ROLE_NAMES[role], left, cy, w - 24, () -> { role = (role + 1) % ROLES.length; layout(); });
+        if (ROLES[role].equals("lounge")) {
+            restPlaces(left, cy + 25);
+            return;
+        }
         button("Назначить там, где я стою", left, cy + 27, w - 24, () -> { StudioPreferences.get().mark(agent, ROLES[role]); status = "Место сохранено для " + agent; });
         button("Убрать отдельное место", left, cy + 54, w - 24, () -> { StudioPreferences.get().remove(agent, ROLES[role]); status = "Используется общее место"; });
         label("Сначала отметь основной участок Настройщиком.", left, cy + 82, w - 24);
         label("Пульт можно открыть, стоя на будущем месте агента.", left, cy + 95, w - 24);
+    }
+    private void restPlaces(int left, int cy) {
+        var prefs = StudioPreferences.get(); var points = prefs.rest(agent);
+        restIndex = points.isEmpty() ? 0 : Math.min(restIndex, points.size() - 1);
+        var selected = points.isEmpty() ? null : points.get(restIndex);
+        String text = selected == null ? "Места отдыха ещё не назначены" : (restIndex + 1) + "/" + points.size()
+            + " · " + (selected.dance() ? "Танцы у шеста" : "Обычный отдых") + " · " + selected.anchor().blockPos().toShortString();
+        button(text, left, cy, w - 24, () -> { if (!points.isEmpty()) restIndex = (restIndex + 1) % points.size(); layout(); });
+        button("Добавить отдых там, где я стою", left, cy + 23, (w - 28) / 2, () -> { prefs.mark(agent, "lounge"); status = "Место отдыха добавлено"; layout(); });
+        button("Добавить танцы Настройщиком", left + (w - 28) / 2 + 4, cy + 23, (w - 28) / 2,
+            () -> ConfiguratorClient.restPlacement(agent, true, null));
+        button("Перенести выбранное место", left, cy + 46, (w - 28) / 2, () -> {
+            if (selected == null) return;
+            ConfiguratorClient.restPlacement(agent, selected.dance(), selected.id());
+        });
+        button("Удалить выбранное", left + (w - 28) / 2 + 4, cy + 46, (w - 28) / 2, () -> {
+            if (selected != null) prefs.removeRest(agent, selected.id()); status = "Место удалено"; layout();
+        });
+        if (h >= 290) {
+            label("Для танцев: шест 3 блока, свободная площадка 3×3.", left, cy + 76, w - 24);
+            label("Проигрыватель с играющей пластинкой — не дальше 5 блоков.", left, cy + 89, w - 24);
+        }
     }
     private void memory() {
         int left = x + 12;
