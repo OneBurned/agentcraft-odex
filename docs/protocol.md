@@ -51,6 +51,7 @@ Exact option labels: merge decisions use `Merge`, `Request changes`, `Reject`; p
 | `repoId` | string | no |  |
 | `worktree` | string | no | id of the worktree the agent is working in (see Repo.worktrees) |
 | `paused` | boolean | yes |  |
+| `controls` | { message: boolean, pause: boolean, resume: boolean, stop: boolean, hint: string } | no | Observer card capabilities for this agent, derived from its real owned work. |
 | `active` | boolean | yes | false = off shift (not on the current team, or stopped by the user); render idle in the lounge |
 
 ### <a id="logentry"></a>LogEntry

@@ -118,9 +118,9 @@ public final class ConsoleCommands {
 	public static List<Command> commands(ForemanState s) {
 		if (!observer(s)) return COMMANDS;
 		return List.of(new Command("help", "/help", "команды; /help blocks — назначение блоков"),
-			new Command("pause", "/pause", "приостановить реальную задачу Codex"),
-			new Command("resume", "/resume", "продолжить приостановленную задачу"),
-			new Command("stop", "/stop", "остановить задачу Codex и очистить очередь сообщений"),
+			new Command("pause", "/pause [@имя]", "приостановить работу выбранного агента; без имени — Codex"),
+			new Command("resume", "/resume [@имя]", "продолжить свою работу или снять личную паузу"),
+			new Command("stop", "/stop [@имя]", "остановить работу выбранного агента"),
 			new Command("blocks", "/blocks", "справка по оборудованию и мебели"),
 			new Command("chat", "/chat", "подключённый чат и состояние связи"),
 			new Command("status", "/status", "задачи и состояние Codex"),
@@ -176,6 +176,8 @@ public final class ConsoleCommands {
 			return new Invalid("type an agent name after @ (Tab completes)");
 		}
 		String id = resolveAgent(who, s, true);
+		if (observer(s) && id == null && who.equalsIgnoreCase("codex")) id = "marlow";
+		if (observer(s) && id == null && who.equalsIgnoreCase("claude")) id = "wren";
 		if (id == null) {
 			return new Invalid("no agent named @" + who + agentListSuffix(s));
 		}
@@ -192,9 +194,13 @@ public final class ConsoleCommands {
 		String rest = sp < 0 ? "" : trimmed.substring(sp + 1).strip();
 		List<String> args = splitArgs(rest);
 		if (observer(s) && List.of("pause", "resume", "stop").contains(cmd)) {
-			if (!args.isEmpty() && !(args.size() == 1 && List.of("@codex", "@marlow").contains(args.get(0).toLowerCase(Locale.ROOT))))
-				return new Invalid("Команда управляет только подключённым чатом Codex: /" + cmd);
-			return new AgentAction(List.of("marlow"), cmd, null);
+			if (args.size() > 1) return new Invalid("Укажи одного агента: /" + cmd + " @имя");
+			String who = args.isEmpty() ? "marlow" : args.get(0).replaceFirst("^@", "");
+			String id = resolveAgent(who, s, false);
+			if (id == null && who.equalsIgnoreCase("codex")) id = "marlow";
+			if (id == null && who.equalsIgnoreCase("claude")) id = "wren";
+			if (!List.of("marlow", "wren").contains(id == null ? "" : id)) return new Invalid("Выбери Codex или Claude по имени персонажа.");
+			return new AgentAction(List.of(id), cmd, null);
 		}
 		if (observer(s) && List.of("spawn", "task", "t", "answer", "a", "repo").contains(cmd)) {
 			return new Invalid("Управление агентами недоступно. Напиши задачу или ответ обычным текстом; /help — справка.");
@@ -504,7 +510,8 @@ public final class ConsoleCommands {
 
 	/** One short line for the right side of the input: what Enter will do. Null = nothing to say. */
 	public static @Nullable String describe(Intent in, ForemanState s) {
-		if (observer(s) && (in instanceof Goal || in instanceof Message)) return "отправить в чат Codex";
+		if (observer(s) && in instanceof Goal) return "отправить в чат Codex";
+		if (observer(s) && in instanceof Message m) return "отправить: " + displayName(m.to().equals("all") ? "marlow" : m.to(), s);
 		return switch (in) {
 			case Goal g -> g.repoId() == null ? "new goal" : "new goal → " + repoName(g.repoId(), s);
 			case Message m -> m.to().equals("all") ? "message everyone" : "message " + displayName(m.to(), s);

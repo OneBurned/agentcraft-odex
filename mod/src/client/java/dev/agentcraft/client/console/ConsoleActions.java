@@ -282,8 +282,8 @@ public final class ConsoleActions {
 	private static void help(@Nullable String topic) {
 		if ("blocks".equals(topic)) { blocks(); return; }
 		if (ConsoleCommands.observer(Foreman.state())) {
-			ConsoleLog.add(Tone.HEADER, "Консоль Codex");
-			ConsoleLog.add(Tone.INFO, "Обычный текст или @Codex текст — сообщение в подключённый чат. Туда же пиши ответы на уточнения.");
+			ConsoleLog.add(Tone.HEADER, "Консоль AgentCraft");
+			ConsoleLog.add(Tone.INFO, "Обычный текст или @Codex текст — в чат Codex. @Claude текст или @имя персонажа — выбранному агенту. Claude обсуждает план и ревью; код меняет Codex.");
 			for (Command c : ConsoleCommands.commands(Foreman.state())) {
 				if (topic == null || c.name().startsWith(topic)) ConsoleLog.add(Tone.HELP, c.usage() + "\t" + c.help());
 			}

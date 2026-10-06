@@ -35,7 +35,7 @@ import { truncate } from './util/text.js';
 export interface Backend {
   readonly name: 'sim' | 'claude' | 'observer';
   onObserverUpdate?(update: ObserverUpdate): Record<string, unknown>;
-  onChatMessage?(text: string): Promise<Record<string, unknown>>;
+  onChatMessage?(text: string, agentId?: string): Promise<Record<string, unknown>>;
   onChatControl?(action: 'pause' | 'resume' | 'stop', agentId?: string): Promise<Record<string, unknown>>;
   onStudioAction?(action: string, payload: Record<string, unknown>): Promise<Record<string, unknown>>;
   /** Called once after the core is ready (and after restart: resume work). */
@@ -193,7 +193,7 @@ export class Foreman {
   /** Patch an agent and broadcast if anything changed. */
   setAgent(
     id: string,
-    patch: Partial<Pick<Agent, 'state' | 'station' | 'activity' | 'paused' | 'active'>> & {
+    patch: Partial<Pick<Agent, 'state' | 'station' | 'activity' | 'paused' | 'active' | 'controls'>> & {
       taskId?: string | null;
       repoId?: string | null;
       worktree?: string | null;
@@ -201,7 +201,7 @@ export class Foreman {
   ): Agent {
     const a = this.requireAgent(id);
     let changed = false;
-    const set = <K extends 'state' | 'station' | 'activity' | 'paused' | 'active'>(k: K, v: Agent[K] | undefined) => {
+    const set = <K extends 'state' | 'station' | 'activity' | 'paused' | 'active' | 'controls'>(k: K, v: Agent[K] | undefined) => {
       if (v !== undefined && a[k] !== v) {
         a[k] = v;
         changed = true;
@@ -212,6 +212,7 @@ export class Foreman {
     if (patch.activity !== undefined) set('activity', truncate(patch.activity.replace(/\s+/g, ' ').trim(), 48));
     set('paused', patch.paused);
     set('active', patch.active);
+    if (patch.controls !== undefined && JSON.stringify(a.controls) !== JSON.stringify(patch.controls)) set('controls', patch.controls);
     for (const k of ['taskId', 'repoId', 'worktree'] as const) {
       const v = patch[k];
       if (v === undefined) continue;
@@ -517,10 +518,10 @@ export class Foreman {
     }
     if (this.config.backend === 'observer' && (msg.type === 'goal.submit' || msg.type === 'user.message')) {
       if (!this.backend?.onChatMessage) throw new ClientError('Чат Codex не подключён.');
-      if (msg.type === 'user.message' && !['all', 'marlow', 'codex'].includes(msg.to.toLowerCase())) {
-        throw new ClientError('В этом режиме сообщения отправляются только Codex.');
+      if (msg.type === 'user.message' && !['all', 'marlow', 'codex', 'wren', 'claude'].includes(msg.to.toLowerCase())) {
+        throw new ClientError('Выбери Codex или Claude.');
       }
-      return this.backend.onChatMessage(msg.text);
+      return this.backend.onChatMessage(msg.text, msg.type === 'user.message' && ['wren', 'claude'].includes(msg.to.toLowerCase()) ? 'wren' : 'marlow');
     }
     if (this.config.backend === 'observer' && msg.type === 'decision.answer' &&
       this.decisions.get(msg.decisionId)?.tool === 'studio') {

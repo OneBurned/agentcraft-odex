@@ -212,4 +212,14 @@ describe('Codex observer', () => {
     const ack = await send(h, { v: 1, id: 'claude', type: 'agent.action', agentId: 'wren', action: 'stop' });
     expect(ack?.ok).toBe(false);
   });
+  it('routes explicit Claude messages to Claude and ordinary console text to Codex', async () => {
+    const h = await setup();
+    const relay = vi.spyOn(h.backend, 'onChatMessage').mockResolvedValue({ accepted: true });
+    await send(h, { v: 1, id: 'claude-message', type: 'user.message', to: 'wren', text: 'Привет' });
+    expect(relay).toHaveBeenLastCalledWith('Привет', 'wren');
+    await send(h, { v: 1, id: 'codex-message', type: 'user.message', to: 'marlow', text: 'Задача' });
+    expect(relay).toHaveBeenLastCalledWith('Задача', 'marlow');
+    await send(h, { v: 1, id: 'plain-message', type: 'goal.submit', text: 'План' });
+    expect(relay).toHaveBeenLastCalledWith('План', 'marlow');
+  });
 });

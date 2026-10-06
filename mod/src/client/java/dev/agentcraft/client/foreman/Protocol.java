@@ -114,7 +114,7 @@ public final class Protocol {
 
 	public record Agent(String id, String name, AgentRole role, @Nullable String title, String color, @Nullable String accent, String skin,
 		AgentState state, String activity, Station station, @Nullable String taskId, @Nullable String repoId, @Nullable String worktree,
-		@Nullable Boolean paused, @Nullable Boolean active) {
+		@Nullable Boolean paused, @Nullable Boolean active, @Nullable AgentControls controls) {
 		public Agent {
 			name = name == null ? id : name;
 			role = role == null ? AgentRole.UNKNOWN : role;
@@ -134,6 +134,8 @@ public final class Protocol {
 			return paused != null && paused;
 		}
 	}
+
+	public record AgentControls(boolean message, boolean pause, boolean resume, boolean stop, String hint) {}
 
 	public record LogEntry(long ts, LogKind kind, String text) {
 		public LogEntry {

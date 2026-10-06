@@ -194,20 +194,25 @@ export class ObserverBackend implements Backend {
     return { taskId: task.id, goalId: task.goalId, state: update.state };
   }
 
-  async onChatMessage(text: string): Promise<Record<string, unknown>> {
+  async onChatMessage(text: string, agentId = 'marlow'): Promise<Record<string, unknown>> {
     try {
+      if (agentId === 'wren') {
+        if (!this.studio) throw new Error('Мост ещё запускается.');
+        return await this.studio.messageClaude(text);
+      }
       if (!this.chat) throw new Error('Чат не подключён.');
       const result = await this.chat.send(text);
       this.fm.bus.send('user', 'marlow', text);
+      for (const chunk of textChunks('Вы: ' + text, 1900)) this.fm.agentLog('marlow', 'text', chunk);
       return result;
     } catch (e) { throw new ClientError((e as Error).message); }
   }
   async onChatControl(action: ChatControl, agentId = 'marlow'): Promise<Record<string, unknown>> {
-    if (this.studio?.ownsActiveTask() || (action === 'resume' && this.studio?.data.mode === 'paused' && this.studio.data.items.length)) {
-      return this.studio.action(action === 'resume' ? 'start' : action, {});
-    }
-    if (['wren', 'claude'].includes(agentId.toLowerCase())) throw new ClientError('Сейчас нет запущенного ревью Claude. Управление очередью находится в пульте.');
     try {
+      const id = ['wren', 'claude'].includes(agentId.toLowerCase()) ? 'wren' : 'marlow';
+      const handled = await this.studio?.controlAgent(id, action);
+      if (handled) return handled;
+      if (id === 'wren') throw new Error('Мост Claude ещё запускается.');
       if (!this.chat) throw new Error('Чат не подключён.');
       return await this.chat.control(action);
     } catch (e) { throw new ClientError((e as Error).message); }

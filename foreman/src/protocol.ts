@@ -92,6 +92,8 @@ export const Agent = z.object({
   repoId: Id.optional(),
   worktree: Id.optional().describe('id of the worktree the agent is working in (see Repo.worktrees)'),
   paused: z.boolean(),
+  controls: z.object({ message: z.boolean(), pause: z.boolean(), resume: z.boolean(), stop: z.boolean(), hint: z.string() }).optional()
+    .describe('Observer card capabilities for this agent, derived from its real owned work.'),
   active: z.boolean().describe('false = off shift (not on the current team, or stopped by the user); render idle in the lounge'),
 });
 export type Agent = z.infer<typeof Agent>;

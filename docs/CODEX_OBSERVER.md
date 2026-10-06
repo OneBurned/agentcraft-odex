@@ -9,6 +9,43 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### 0.4.7 personal controls and direct dialogs (prepared)
+
+The agent card's Message button now opens its inline field. Enter/Send addresses that agent's
+stable ID and keeps the draft until delivery is acknowledged. Sent text (`Вы:`) and replies are
+saved in that agent's journal. Console mentions accept current character names plus `@Codex`
+and `@Claude`; plain text and `@all` retain the existing Codex destination. The hint shows the
+actual recipient. `/pause`, `/resume`, `/stop` accept one optional agent mention.
+
+Claude conversation uses a separate `ClaudeDialog` CLI process with tools, MCP, hooks and CLI
+session persistence disabled. It receives the last bounded conversation history, recent pool
+cards, review summaries and shared notes, and cannot read/edit project files or create tasks.
+Its prompt is passed over stdin; only public reply text is logged, never raw account diagnostics.
+History (last 30 entries) and a pending reply are persisted in the existing studio profile.
+Busy or paused conversations reject additional sends explicitly. Review and conversation never
+run simultaneously for Claude. Codex messages continue into the existing bound desktop chat.
+
+Personal controls resolve the selected owner before touching a running task. Idle Resume clears
+only that agent's pause; it does not start the queue. Pausing an owned coding/review task records
+the specific suspended card and pauses queue dispatch. Resume dispatches only that card (with a
+new report correlation for coding), leaving the queue paused. A Claude pause/stop cannot interrupt
+Codex, or vice versa. Global queue controls remain in the command desk; planning an empty pool no
+longer creates a phantom Claude pause. `Agent.controls` advertises availability to both new cards;
+old clients can still send controls, with ownership checked by the bridge.
+
+Pause waits for the real Claude process exit before acknowledging and retains the pending question;
+Resume recomputes the answer with saved context. Stop clears the pending answer but keeps history.
+Late output from an interrupted run is ignored. Restart preserves interrupted dialog as paused and
+never automatically resends. Ordinary Codex turn controls retain native desktop interruption and
+saved-context continuation. A different bound chat cannot resume an old suspended queue card.
+
+Validation: bridge typecheck, full 574-test suite, then 52 focused tests for the final availability
+guard; the mod build and 33 Java tests passed. A real installed Claude CLI answered the isolated
+dialog smoke request «Связь с Claude работает.» No actual user task was interrupted for testing.
+In-game card/input verification is pending. The package is `dist/AgentCraft-Codex-0.4.7-ready`
+with its matching Windows ZIP. Mod installation and bridge restart await separate approval;
+0.4.6 remains installed. Preserve the existing bridge profile, chat binding and Minecraft settings.
+
 ### 0.4.6 separate planning desk (installed)
 
 The new **Стол планирования / Planning Desk** block (`agentcraft:planning_desk`) opens a
@@ -467,7 +504,7 @@ Minecraft. The prepared package is `dist/AgentCraft-Codex-0.3.0-chat-behavior-Wi
 
 ## Real task controls and readable messages (0.3.1)
 
-The card's Message button opens the normal console directly, without the QA screen registry
+Before 0.4.7, the card's Message button opened the normal console directly, without the QA screen registry
 or synthetic keystrokes, preserving a draft. Card and console messages use 75% text scale.
 The card wraps full log entries instead of truncating the first line and supports wheel scrolling
 through the retained history. Buttons and input fields retain their normal size.

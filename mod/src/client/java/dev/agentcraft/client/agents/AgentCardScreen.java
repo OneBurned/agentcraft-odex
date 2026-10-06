@@ -436,20 +436,27 @@ public final class AgentCardScreen extends Screen {
 
 		// actions
 		layoutButtons(ag, ix, y, iw);
+		String disabledHint = null;
 		for (Btn b : buttons) {
 			drawButton(g, font, b, mouseX, mouseY);
+			if (b.disabled && ag.controls() != null && mouseX >= b.x && mouseX < b.x + b.w && mouseY >= b.y && mouseY < b.y + b.h)
+				disabledHint = b.id.equals("message") && ag.isActive() ? "Дождись ответа агента или сними его паузу" : ag.controls().hint();
 		}
 		y += 20 + 6;
 
 		// hints or the last action's result
 		if (status != null && System.currentTimeMillis() < statusUntil) {
 			Panels.text(g, font, TextUtil.ellipsize(font, status, iw), ix, y, statusError ? UiStyle.color("paper.del_fg") : UiStyle.color("paper.add_fg"));
+		} else if (disabledHint != null) {
+			Panels.text(g, font, TextUtil.ellipsize(font, disabledHint, iw), ix, y, muted);
 		} else if (!live) {
 			int hx = hint(g, font, ix, y, ix + iw, "Esc", "close");
 			Panels.text(g, font, TextUtil.ellipsize(font, "Foreman offline: read only", ix + iw - hx), hx, y, muted);
 		} else if (field != null) {
 			int hx = hint(g, font, ix, y, ix + iw, "Enter", "send");
 			hint(g, font, hx, y, ix + iw, "Esc", "cancel");
+		} else if (ag.controls() != null && !ag.controls().pause() && !ag.controls().resume() && !ag.controls().stop()) {
+			Panels.text(g, font, TextUtil.ellipsize(font, ag.controls().hint(), iw), ix, y, muted);
 		} else if (armed >= 0 && armed < optionRows.size()) {
 			int hx = hint(g, font, ix, y, ix + iw, String.valueOf(armed + 1), "again to answer");
 			hint(g, font, hx, y, ix + iw, "Esc", "close");
@@ -597,6 +604,12 @@ public final class AgentCardScreen extends Screen {
 		stop.label = observer || ag.isActive() ? "Стоп" : "Spawn";
 		stop.primary = false;
 		stop.disabled = !on;
+		if (observer && ag.controls() != null) {
+			var controls = ag.controls();
+			msg.disabled |= !controls.message();
+			pause.disabled |= !(ag.isPaused() ? controls.resume() : controls.pause());
+			stop.disabled |= !controls.stop();
+		}
 		int gap = 6;
 		int bw = (iw - 2 * gap) / 3;
 		msg.x = ix;
@@ -932,6 +945,16 @@ public final class AgentCardScreen extends Screen {
 			setStatus("The Foreman is offline", true);
 			return;
 		}
+		var controls = ag.controls();
+		if (ConsoleCommands.observer(Foreman.state()) && controls != null) {
+			boolean available = switch (id) {
+				case "message" -> controls.message();
+				case "pause" -> ag.isPaused() ? controls.resume() : controls.pause();
+				case "stop" -> controls.stop();
+				default -> true;
+			};
+			if (!available) { setStatus(controls.hint(), true); return; }
+		}
 		switch (id) {
 			case "message" -> {
 				EditBox f = field;
@@ -945,10 +968,9 @@ public final class AgentCardScreen extends Screen {
 						closeField();
 						send(Foreman.answer(d, Protocol.REQUEST_CHANGES, text), "Requested changes on " + d);
 					} else {
-						closeField();
-						send(Foreman.message(agentId, text), "Sent to " + ag.name());
+						send(Foreman.message(agentId, text), "Отправлено: " + ag.name(), this::closeField);
 					}
-				} else if (!openConsole(this.minecraft, ConsoleCommands.observer(Foreman.state()) ? "" : "@" + agentId + " ")) {
+				} else {
 					openField(Mode.MESSAGE, null);
 				}
 			}
@@ -980,16 +1002,22 @@ public final class AgentCardScreen extends Screen {
 	}
 
 	private void send(CompletableFuture<Protocol.Ack> f, String ok) {
+		send(f, ok, null);
+	}
+	private void send(CompletableFuture<Protocol.Ack> f, String ok, @Nullable Runnable success) {
 		sending = true;
-		status = "Ожидаю подтверждение Codex…";
+		if (field != null) field.setEditable(false);
+		status = "Ожидаю подтверждение…";
 		statusError = false;
 		statusUntil = System.currentTimeMillis() + 20_000;
 		f.whenComplete((ack, err) -> Minecraft.getInstance().execute(() -> {
 			sending = false;
+			if (field != null) field.setEditable(true);
 			if (err != null || ack == null || !ack.ok()) {
 				setStatus(err != null ? "Could not reach the Foreman" : ack == null ? "No answer" : "Foreman: " + (ack.error() != null ? ack.error() : "refused"),
 					true);
 			} else {
+				if (success != null) success.run();
 				setStatus(ok, false);
 			}
 		}));
