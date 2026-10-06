@@ -122,7 +122,7 @@ public final class StudioScreen extends Screen {
         selectAgent(); var p = profile();
         if (draft == null) { draft = StudioPreferences.get().look(agent).copy(); draftSkin = str(p, "skin"); draftColor = str(p, "color"); }
         int left = x + 12, cy = top + 26, bw = Math.max(150, (w - 32) * 2 / 3), row = 23;
-        button("Скин: " + draftSkin, left, cy, bw, () -> {
+        button("Скин: " + Component.translatableWithFallback("skin.agentcraft." + draftSkin, draftSkin).getString(), left, cy, bw, () -> {
             var skins = array("skins"); int found = 0; for (int i = 0; i < skins.size(); i++) if (skins.get(i).getAsString().equals(draftSkin)) found = i;
             if (!skins.isEmpty()) draftSkin = skins.get((found + 1) % skins.size()).getAsString(); draft.png = ""; layout();
         });

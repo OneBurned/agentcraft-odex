@@ -80,8 +80,9 @@ export class Studio {
   view(): Record<string, unknown> {
     return { ...this.data, items: this.data.items.map(i => ({ ...i, ...this.fm.tasks.require(i.id) })), claudeFound: !!findClaude(this.data.claudePath), claudeAuth: this.claudeAuth,
       repo: this.fm.repos.defaultRepo()?.path ?? '', chat: this.activity?.phase ?? 'unavailable',
-      helper: this.reportHelper(), port: this.fm.config.port, notes: this.fm.memory.list(), skins: this.fm.cast.map(a => a.id) };
+      helper: this.reportHelper(), port: this.fm.config.port, notes: this.fm.memory.list(), skins: this.availableSkins() };
   }
+  private availableSkins(): string[] { return [...this.fm.cast.map(a => a.id), 'girl_swimsuit', 'gta_sa_girl', 'skuf', 'ded_vasyan', 'girl_no_armor', 'boy_no_armor']; }
   async action(action: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     // Pause must be able to abort an in-flight review; reviews never hold the command lock.
     return this.lock(async () => {
@@ -89,7 +90,7 @@ export class Studio {
       if (action === 'agent') {
         const p = profileInput.parse(payload);
         if (this.data.active && !p.enabled) throw new Error('Сначала останови текущую задачу. Скрыть персонажа можно без остановки.');
-        if (!this.fm.cast.some(a => a.id === p.skin)) throw new Error('Неизвестный встроенный скин. Свой PNG выбирается в клиенте.');
+        if (!this.availableSkins().includes(p.skin)) throw new Error('Неизвестный встроенный скин. Свой PNG выбирается в клиенте.');
         Object.assign(this.data.profiles.find(a => a.id === p.id)!, p); this.syncRoster();
       } else if (action === 'claude-login') {
         if (this.data.active || this.login) throw new Error('Дождись текущей работы или завершения входа.');

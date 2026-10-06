@@ -9,6 +9,26 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### 0.4.2 additional appearances (prepared)
+
+Six user-supplied PNGs are bundled unchanged as cosmetic skins: `girl_swimsuit`
+(**Девушка в купальнике**), `gta_sa_girl` (**Проститутка из GTA SA**), `skuf` (**Скуф**),
+`ded_vasyan` (**Дед Васян**), `girl_no_armor` (**Девушка без брони**) and
+`boy_no_armor` (**Парень с чёлкой**). The GTA SA and Vasya skins use the legacy 64×32 format;
+at runtime the mod invokes Minecraft's own legacy skin converter for limb mirroring and
+transparency. The other four use 64×64. Custom PNG import remains 64×64.
+The command desk uses Russian/English display names. Each can be
+applied to either agent; they do not add executors or change roles. The bridge advertises and validates these extra skins separately
+from the six-agent cast. Installation requires the 0.4.2 JAR and updated bridge; current
+installation remains 0.4.1 until separately approved.
+
+Validation: mod build and eight Java tests passed; bridge typecheck and 20 studio tests
+passed. An isolated profile check accepted all six skins for both agents without dispatching
+work. All six PNGs in `dist/AgentCraft-Codex-0.4.2-six-skins-ready` match the supplied files
+byte-for-byte; both locale labels and the legacy converter invoker are packaged. The matching
+archive is `dist/AgentCraft-Codex-0.4.2-six-skins-Windows.zip`. In-game appearance still needs
+verification after installation; Minecraft was not launched during preparation.
+
 ### 0.4.1 preview crash fix (installed)
 
 The user's `crash-2026-10-06_12.33.14-client.txt` shows `Entity.getId()` throwing from
@@ -32,7 +52,7 @@ Place **Пульт AgentCraft / Command Desk** from the creative AgentCraft tab,
 `/give @s agentcraft:command_desk`. Right-click it without the Configurator. Its tabs are:
 
 - **Команда**: enable/disable Codex and Claude, rename them, hide their NPC independently of execution.
-- **Внешность**: six bundled skins, custom 64×64 PNG (up to 512 KiB), wide/slim arms, outer layer,
+- **Внешность**: bundled skins (including six extra 0.4.2 appearances), custom 64×64 PNG (up to 512 KiB), wide/slim arms, outer layer,
   name/role/activity labels and name colour. Mouse-following preview; Apply or restore defaults.
 - **План**: discuss the pool through the existing console, create/edit draft cards, expected result,
   dependencies and priority. Discussion pauses the queue first. Text is sent only after Enter.

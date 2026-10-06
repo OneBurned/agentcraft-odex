@@ -12,7 +12,7 @@ import net.minecraft.world.entity.player.PlayerModelType;
 import net.minecraft.world.entity.player.PlayerSkin;
 
 /**
- * Agent skins: {@code assets/agentcraft/textures/entity/agent/<skin>.png} (64x64, both layers) with
+ * Agent skins: {@code assets/agentcraft/textures/entity/agent/<skin>.png} (64x64 or legacy 64x32) with
  * the arm model from cast.json ({@code slim} = 3 px arms). Unknown skins fall back to a vanilla
  * default skin so a new Foreman agent still renders.
  */
@@ -68,6 +68,20 @@ public final class AgentSkins {
 		if (!exists) {
 			AgentCraft.LOGGER.warn("No skin texture {} for agent {}; using a default skin", tex.texturePath(), agentId);
 			return DefaultPlayerSkin.get(java.util.UUID.nameUUIDFromBytes(agentId.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+		}
+		// Bundled legacy skins need the same conversion as downloaded player skins.
+		// ResourceTexture alone would sample the missing left limbs from a 32-pixel image.
+		try (var stream = Minecraft.getInstance().getResourceManager().open(tex.texturePath());
+				var image = com.mojang.blaze3d.platform.NativeImage.read(stream)) {
+			if (image.getWidth() == 64 && image.getHeight() == 32) {
+				var converted = dev.agentcraft.client.mixin.SkinTextureDownloaderInvoker.agentcraft$processLegacySkin(image, skinId);
+				Identifier id = AgentCraft.id("studio/legacy/" + skinId);
+				Minecraft.getInstance().getTextureManager().register(id,
+						new net.minecraft.client.renderer.texture.DynamicTexture(() -> id.toString(), converted));
+				tex = new ClientAsset.ResourceTexture(id, id);
+			}
+		} catch (java.io.IOException e) {
+			AgentCraft.LOGGER.warn("Cannot read bundled skin {}", skinId, e);
 		}
 		return PlayerSkin.insecure(tex, null, null, m != null && m.slim() ? PlayerModelType.SLIM : PlayerModelType.WIDE);
 	}
