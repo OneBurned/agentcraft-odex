@@ -9,7 +9,7 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
-### 0.4.9 readable console and task-wall controls (prepared)
+### 0.4.9 readable console and task-wall controls (installed)
 
 The console uses nearly the full available window and shows all wrapped lines, preserving
 paragraphs and lists. Authors occupy a separate row and messages have spacing. Paired bold/inline
@@ -32,8 +32,14 @@ pool cards open Studio controls from wall clicks, task browsing and dev entry po
 buttons cannot be activated through the task-wall dev press helper either. Sim/Claude backend
 task controls retain their existing actions.
 
-Package: `dist/AgentCraft-Codex-0.4.9-readable-console`. Installation and in-game visual verification
-require a separate step; the installed version remains 0.4.8.
+Package: `dist/AgentCraft-Codex-0.4.9-readable-console`. Installed with user approval on 2026-10-06;
+the live bridge runs source revision `4a2bda0`. The installed JAR matches the tested package.
+Four draft cards t19–t22, both character profiles, chat/session binding, personal Markdown files,
+native Claude transcript and Minecraft settings were preserved. The restarted bridge publishes
+fullText on new Codex messages. No draft was approved or started. Minecraft was not launched;
+visual verification of font controls, scrolling and board clicks remains for the next game session.
+Backup and verification: `artifacts/backups/install-0.4.9-2026-10-06T14-50-48-992Z`.
+Previous mods: `.minecraft/agentcraft-backups/20261006-185049-344`.
 Validation: TypeScript, 621 Foreman tests, protocol-doc consistency and the Gradle build with
 35 Java tests passed. Tests cover complete multiline messages from both agents and the user,
 restart persistence, bounded history and paragraph/list/code formatting. The isolated portable
@@ -162,7 +168,7 @@ Package: `dist/AgentCraft-Codex-0.4.7-shared-conversation-release`.
 ### Klava review workspace and GitHub (active)
 
 Dialogs and automated reviews can now share an explicitly configured personal workspace.
-The Minecraft mod is 0.4.8; the bridge runs source revision `5c9ea12`. The local workspace is
+The Minecraft mod is 0.4.9; the bridge runs source revision `4a2bda0`. The local workspace is
 `C:\Users\GB\Documents\Klava-reviewer`. Its `CLAUDE.md` defines personality/review rules,
 `PROJECTS.md` explains both existing products, and `MEMORY.md` stores durable notes. These files
 are reloaded before each conversation or review and sent through stdin, avoiding Windows
