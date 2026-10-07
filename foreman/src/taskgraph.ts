@@ -36,6 +36,7 @@ export interface TaskPatch {
   worktree?: string;
   ci?: CiStatus;
   summary?: string;
+  studioReview?: Task['studioReview'];
   blockedReason?: string | null;
   repoId?: string;
 }
@@ -123,6 +124,7 @@ export class TaskGraph {
     if (patch.worktree !== undefined) t.worktree = patch.worktree;
     if (patch.ci !== undefined) t.ci = patch.ci;
     if (patch.summary !== undefined) t.summary = patch.summary;
+    if (patch.studioReview !== undefined) t.studioReview = patch.studioReview;
     if (patch.repoId !== undefined) t.repoId = patch.repoId;
     if (patch.blockedReason !== undefined) {
       if (patch.blockedReason === null) delete t.blockedReason;

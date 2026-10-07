@@ -42,13 +42,16 @@ import org.jspecify.annotations.Nullable;
  * stations (same facing, side by side) is a review queue: the k-th station from the viewer's left
  * shows the k-th waiting merge decision (oldest first); the first one carries the count, or an
  * "all clear" card when nothing waits. Card: worker face + name + task, task title, +/- and file
- * count, CI dot; a pulsing clay dot while it waits for you.
+ * count, CI dot; a pulsing clay dot while it waits for you. With no MERGE queue, the first
+ * station displays the latest studio review (task/commit, safe step or verdict).
  */
 public class MergeStationRenderer extends StationRenderer<MergeStationBlockEntity, MergeStationRenderer.State> {
 	static final float PX_PER_BLOCK = 96f;
 	static final int CARD_W = 88;
 	static final int CARD_H = 63;
 	static final int EMPTY_H = 22;
+	static final int REVIEW_W = 112;
+	static final int REVIEW_H = 94;
 	static final float TILT = 14f;
 	/** Depth step (blocks) for opaque layers stacked on the card. */
 	static final float LIFT = 0.0015f;
@@ -56,6 +59,11 @@ public class MergeStationRenderer extends StationRenderer<MergeStationBlockEntit
 	public static class State extends StationRenderState {
 		public boolean show;
 		public boolean empty;
+		public boolean studioReview;
+		public String reviewStatus = "";
+		public String reviewDetail = "";
+		public String reviewHead = "";
+		public boolean waitingForUser;
 		public int index;
 		public int count;
 		public @Nullable String worker;
@@ -129,6 +137,7 @@ public class MergeStationRenderer extends StationRenderer<MergeStationBlockEntit
 	protected void extractStation(MergeStationBlockEntity be, State s, float partialTicks) {
 		Level level = be.getLevel();
 		s.show = false;
+		s.studioReview = false;
 		if (level == null || Foreman.state() == null || !Foreman.state().hasData()) {
 			return;
 		}
@@ -137,15 +146,35 @@ public class MergeStationRenderer extends StationRenderer<MergeStationBlockEntit
 		int k = rowIndex(level, be.getBlockPos(), be.getBlockState());
 		s.index = k;
 		s.count = q.size();
-		if (k >= q.size()) {
-			s.show = k == 0;
+		ForemanState st = Foreman.state();
+		ReviewStationCard card = ReviewStationCard.select(st.tasks().values(), q, k);
+		if (card.kind() == ReviewStationCard.Kind.EMPTY || card.kind() == ReviewStationCard.Kind.HIDDEN) {
+			s.show = card.kind() == ReviewStationCard.Kind.EMPTY;
 			s.empty = true;
 			return;
 		}
 		s.show = true;
 		s.empty = false;
-		Decision d = q.get(k);
-		ForemanState st = Foreman.state();
+		if (card.kind() == ReviewStationCard.Kind.REVIEW) {
+			Task task = card.task();
+			var review = task.studioReview();
+			s.studioReview = true;
+			s.worker = "wren";
+			s.name = ReviewKit.agentName(s.worker);
+			s.nameColor = ReviewKit.agentInk(s.worker);
+			s.taskId = task.id();
+			s.title = ReviewKit.plain(task.title());
+			s.reviewHead = review.head() == null ? "—" : review.head().substring(0, Math.min(8, review.head().length()));
+			s.reviewStatus = card.status(st.isStale());
+			s.reviewDetail = ReviewKit.plain(card.detail());
+			s.waitingForUser = review.waitingForUser();
+			s.ciFamily = st.isStale() || "paused".equals(review.phase()) ? "idle"
+				: review.waitingForUser() ? "waiting" : "running".equals(review.phase()) ? "working"
+				: "pass".equals(review.verdict()) ? "done"
+				: "error".equals(review.phase()) || "changes".equals(review.verdict()) ? "error" : "idle";
+			return;
+		}
+		Decision d = card.decision();
 		Task t = d.taskId() == null ? null : st.task(d.taskId());
 		Worktree w = null;
 		Repo r = d.repoId() == null ? null : st.repo(d.repoId());
@@ -186,8 +215,9 @@ public class MergeStationRenderer extends StationRenderer<MergeStationBlockEntit
 			return;
 		}
 		Font font = Minecraft.getInstance().font;
-		int h = s.empty ? EMPTY_H : CARD_H;
-		int w = s.empty ? Math.min(CARD_W, 17 + Math.max(font.width("All merged"), font.width("nothing waits")) + 7) : CARD_W;
+		int h = s.empty ? EMPTY_H : s.studioReview ? REVIEW_H : CARD_H;
+		int w = s.empty ? Math.min(CARD_W, 17 + Math.max(font.width("Всё чисто"), font.width("Нет ревью")) + 7) : s.studioReview ? REVIEW_W : CARD_W;
+		float pixels = s.studioReview ? 128f : PX_PER_BLOCK;
 		int light = LightCoordsUtil.pack(Math.max(LightCoordsUtil.block(s.light), 11), LightCoordsUtil.sky(s.light));
 		ps.pushPose();
 		// north-facing model frame: the viewer stands at -Z; the card stands on the top face, leaning back
@@ -196,18 +226,18 @@ public class MergeStationRenderer extends StationRenderer<MergeStationBlockEntit
 		ps.translate(-0.5f, -0.5f, -0.5f);
 		ps.translate(0.5f, 1.0f + 0.004f, 0.52f);
 		ps.rotateDegrees(Axis.XP, TILT);
-		float hb = h / PX_PER_BLOCK;
-		float wb = w / PX_PER_BLOCK;
+		float hb = h / pixels;
+		float wb = w / pixels;
 		ps.pushPose();
 		ps.translate(wb / 2f, hb, 0);
-		ps.scale(-1f / PX_PER_BLOCK, -1f / PX_PER_BLOCK, 1f);
+		ps.scale(-1f / pixels, -1f / pixels, 1f);
 		drawCard(s, ps, collector, font, w, h, light);
 		ps.popPose();
 		// back of the card (the front quads are culled from behind)
 		ps.pushPose();
 		ps.translate(-wb / 2f, hb, 0.001f);
 		ps.rotateDegrees(Axis.YP, 180);
-		ps.scale(-1f / PX_PER_BLOCK, -1f / PX_PER_BLOCK, 1f);
+		ps.scale(-1f / pixels, -1f / pixels, 1f);
 		WorldUi.submitFill(ps, collector, 0, 0, w, h + 1, UiStyle.color("palette.ui.panel_shade"), light);
 		ps.popPose();
 		ps.popPose();
@@ -219,10 +249,14 @@ public class MergeStationRenderer extends StationRenderer<MergeStationBlockEntit
 		if (s.empty) {
 			WorldUi.submitNineSlice(ps, c, WorldUi.Layer.SOLID, Kit.card("done"), 0, 0, w, h, 0xFFFFFFFF, light);
 			WorldUi.submitSprite(ps, c, Kit.dot("done", false), 7, 7, 7, 7, 0xFFFFFFFF, light);
-			WorldUi.submitText(ps, c, "All merged", 17, 4, ink, light);
-			WorldUi.submitText(ps, c, "nothing waits", 17, 12, muted, light);
+			WorldUi.submitText(ps, c, "Всё чисто", 17, 4, ink, light);
+			WorldUi.submitText(ps, c, "Нет ревью", 17, 12, muted, light);
 			// the brass foot
 			WorldUi.submitFill(ps, c, 2, h - 1, w - 2, h + 1, UiStyle.color("palette.ui.border"), light);
+			return;
+		}
+		if (s.studioReview) {
+			drawStudioReview(s, ps, c, font, w, h, light);
 			return;
 		}
 		WorldUi.submitNineSlice(ps, c, WorldUi.Layer.SOLID, Kit.card("review"), 0, 0, w, h, 0xFFFFFFFF, light);
@@ -281,6 +315,29 @@ public class MergeStationRenderer extends StationRenderer<MergeStationBlockEntit
 			WorldUi.submitText(ps, c, ci, w - 15 - font.width(ci), sy, s.ciInk, light);
 		}
 		WorldUi.submitFill(ps, c, 2, h - 1, w - 2, h + 1, UiStyle.color("palette.ui.border"), light);
+	}
+
+	private void drawStudioReview(State s, PoseStack ps, SubmitNodeCollector c, Font font, int w, int h, int light) {
+		int ink = UiStyle.color("paper.text"), muted = UiStyle.color("paper.muted");
+		WorldUi.submitNineSlice(ps, c, WorldUi.Layer.SOLID, Kit.card("review"), 0, 0, w, h, 0xFFFFFFFF, light);
+		submitFace(ps, c, s.worker, 6, 5, light);
+		WorldUi.submitText(ps, c, TextUtil.ellipsize(font, s.name, w - 38), 18, 5, s.nameColor, light);
+		WorldUi.submitSprite(ps, c, Kit.dot(s.ciFamily, false), w - 13, 5, 7, 7, 0xFFFFFFFF, light);
+		WorldUi.submitText(ps, c, TextUtil.ellipsize(font, s.taskId + " · " + s.reviewHead, w - 12), 6, 17, muted, light);
+		drawLines(ps, c, font, s.title, 6, 29, w - 12, 2, ink, light);
+		WorldUi.submitText(ps, c, TextUtil.ellipsize(font, s.reviewStatus, w - 12), 6, 50, ink, light);
+		drawLines(ps, c, font, s.reviewDetail, 6, 62, w - 12, 2, muted, light);
+		if (s.waitingForUser) WorldUi.submitText(ps, c, TextUtil.ellipsize(font, "Ждём твой ответ", w - 12), 6, 82, ink, light);
+		WorldUi.submitFill(ps, c, 2, h - 1, w - 2, h + 1, UiStyle.color("palette.ui.border"), light);
+	}
+
+	private static void drawLines(PoseStack ps, SubmitNodeCollector c, Font font, String text, int x, int y, int width, int limit, int ink, int light) {
+		List<String> lines = TextUtil.wrapPlain(font, text, width);
+		for (int i = 0; i < Math.min(limit, lines.size()); i++) {
+			String line = lines.get(i);
+			if (i == limit - 1 && lines.size() > limit) line = TextUtil.ellipsize(font, line + TextUtil.ELLIPSIS, width);
+			WorldUi.submitText(ps, c, line, x, y + i * 9, ink, light);
+		}
 	}
 
 	private static void submitFace(PoseStack ps, SubmitNodeCollector c, @Nullable String agent, float x, float y, int light) {

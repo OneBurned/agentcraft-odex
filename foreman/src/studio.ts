@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { Foreman } from './foreman.js';
 import type { ChatActivity, ChatControl } from './codex-desktop.js';
 import { textChunks } from './codex-desktop.js';
-import type { Decision } from './protocol.js';
+import type { Decision, ReviewProgress } from './protocol.js';
 import { ClaudeReviewer, cleanHead, gitText, claudeLoggedIn, findClaude, type Reviewer } from './studio-review.js';
 import { ClaudeDialog, type DialogRunner } from './claude-dialog.js';
 import { loadClaudeWorkspace } from './claude-workspace.js';
@@ -172,6 +172,8 @@ export class Studio {
       delete this.data.suspended![agent]; this.personalPause(agent, false);
       this.question(i, agent, 'Работа остановлена пользователем. Проверь результат перед повтором.');
     }
+    if (agent === 'wren') this.updateReview(i, { phase: 'paused',
+      summary: action === 'pause' ? 'Ревью на паузе' : 'Ревью остановлено пользователем', waitingForUser: action === 'stop' });
   }
 
   replyCodex(message: string): Promise<Record<string, unknown>> {
@@ -272,6 +274,17 @@ export class Studio {
   private lock<T>(f: () => Promise<T>): Promise<T> { const p = this.serial.then(f, f); this.serial = p.catch(() => {}); return p; }
   private save() {
     this.publishControls();
+    for (const i of this.data.items) {
+      const review = this.fm.tasks.get(i.id)?.studioReview;
+      if (!review) continue;
+      // Restart, binding changes and cancelled attempts must never look like live review.
+      const paused = review.phase === 'running' && (this.data.active !== i.id || this.reviewAbort?.signal.aborted || this.closed);
+      const answered = review.waitingForUser && i.stage !== 'question';
+      if (paused || answered) this.updateReview(i, {
+        ...(paused ? { phase: 'paused', summary: 'Ревью приостановлено. Запусти проверку снова.' } : {}),
+        ...(answered ? { waitingForUser: false } : {}),
+      });
+    }
     for (const i of this.data.items) { const t = this.fm.tasks.get(i.id); if (t && t.queueStage !== i.stage) { t.queueStage = i.stage; this.fm.ctx.emit({ type: 'task.upsert', task: { ...t } }); } }
     this.fm.store.data.backend.studio = this.data; this.fm.store.markDirty(); this.fm.store.flush();
   }
@@ -508,7 +521,9 @@ export class Studio {
     if (this.dialogAbort || this.data.dialog!.pending) throw new Error('Дождись завершения диалога Клавы.');
     if (this.data.personalPaused!.includes('wren')) throw new Error('Сними личную паузу Клавы.');
     const t = this.fm.tasks.require(i.id); const controller = new AbortController(); this.reviewAbort = controller;
-    this.data.active = i.id; this.save(); this.fm.setAgent('wren', { paused: false }); this.fm.act('wren', 'reading', 'mergestation', `Ревью: ${t.title}`);
+    this.data.active = i.id;
+    this.fm.tasks.update(i.id, { studioReview: { head: i.head!, phase: 'running', startedAt: this.fm.ctx.now(), step: 'Начинаю проверку', waitingForUser: false } });
+    this.save(); this.fm.setAgent('wren', { paused: false }); this.fm.act('wren', 'reading', 'mergestation', `Ревью: ${t.title}`);
     this.fm.setAgent('wren', { taskId: i.id });
     const started = `Ревью ${i.id}: начинаю проверку «${t.title}».`;
     this.fm.bus.feed('message', started, { agentId: 'wren', to: 'user' });
@@ -516,6 +531,7 @@ export class Studio {
     this.fm.personas?.say('wren', 'review_started');
     void this.reviewer.run({ cwd: this.fm.repos.require(t.repoId!).path, base: i.ranges?.[0]?.base ?? i.base!, head: i.head!, ranges: i.ranges, task: `${t.title}\n${t.description}\nОжидается: ${i.expected}`, checks: i.checks ?? '', knowledge: this.knowledge() }, controller.signal, step => {
       if (controller.signal.aborted || this.closed || this.data.active !== i.id) return;
+      this.updateReview(i, { step });
       this.fm.bus.feed('message', `Ревью ${i.id}: ${step}`, { agentId: 'wren', to: 'user' });
       this.fm.agentLog('wren', 'text', `Ревью ${i.id}: ${step}`);
     })
@@ -532,13 +548,24 @@ export class Studio {
         if (result.verdict === 'pass') { i.stage = 'done'; this.fm.tasks.setStatus(i.id, 'done', { force: true }); this.fm.act('wren', 'done', 'lounge', 'Ревью завершено'); }
         else if (result.verdict === 'changes' && i.rounds < 2) { i.stage = 'queued'; this.fm.tasks.setStatus(i.id, 'todo', { force: true }); this.fm.act('wren', 'idle', 'lounge', 'Замечания переданы Codex'); }
         else this.question(i, 'wren', result.summary);
+        this.updateReview(i, { phase: 'finished', verdict: result.verdict, summary: result.summary, waitingForUser: i.stage === 'question' });
         this.save();
         if (result.verdict !== 'question') this.fm.personas?.say('wren', result.verdict === 'pass' ? 'review_pass' : 'review_changes');
       })).catch(e => this.lock(async () => {
         if (controller.signal.aborted || this.closed || this.data.active !== i.id) return;
         this.fm.personas?.say('wren', 'error');
-        this.question(i, 'wren', (e as Error).message); this.save();
+        this.question(i, 'wren', (e as Error).message);
+        this.updateReview(i, { phase: 'error', summary: (e as Error).message, waitingForUser: true }); this.save();
       }));
+  }
+  private updateReview(i: Item, patch: Partial<ReviewProgress>) {
+    const current = this.fm.tasks.require(i.id).studioReview;
+    if (!current) return;
+    const compact = (value: string) => value.replace(/\s+/g, ' ').trim().slice(0, 600);
+    this.fm.tasks.update(i.id, { studioReview: { ...current, ...patch,
+      ...(patch.step !== undefined ? { step: compact(patch.step) } : {}),
+      ...(patch.summary !== undefined ? { summary: compact(patch.summary) } : {}),
+    } });
   }
   onDecision(d: Decision) {
     if (!this.ownsDecision(d)) return;

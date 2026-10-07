@@ -33,6 +33,18 @@ Exact option labels: merge decisions use `Merge`, `Request changes`, `Reject`; p
 
 ## Entities
 
+### <a id="reviewprogress"></a>ReviewProgress
+
+| field | type | required | notes |
+| --- | --- | --- | --- |
+| `head` | string | yes | Exact commit submitted to the reviewer; clients may show its first 8 characters. |
+| `phase` | `running` \| `finished` \| `paused` \| `error` | yes |  |
+| `startedAt` | integer | yes | Start of this review attempt; use this, not task.updatedAt, to select the latest review. |
+| `step` | string | yes | Last safe public step from the review stream; never raw tool output or reasoning. |
+| `verdict` | `pass` \| `changes` \| `question` | no | Only a completed reviewer result has a verdict; interruption/error must not invent one. |
+| `summary` | string | no | Review result or interruption/error explanation, compacted to 600 characters. |
+| `waitingForUser` | boolean | yes | A review-related studio question still needs an answer. |
+
 ### <a id="agent"></a>Agent
 
 | field | type | required | notes |
@@ -69,6 +81,7 @@ Exact option labels: merge decisions use `Merge`, `Request changes`, `Reject`; p
 | `id` | string | yes | e.g. "t3" |
 | `observerKey` | string | no | Stable external task key for the Codex observer; survives restarts. |
 | `queueStage` | `plan` \| `queued` \| `coding` \| `review` \| `question` \| `done` \| `cancelled` | no |  |
+| `studioReview` | [ReviewProgress](#reviewprogress) | no | Latest studio review attempt. Optional v1 extension, carried by snapshot and task.upsert; old clients ignore it, old tasks omit it. MERGE decisions are unchanged. |
 | `title` | string | yes |  |
 | `description` | string | no |  |
 | `status` | [TaskStatus](#taskstatus) | yes | Task Wall column. `cancelled` tasks are kept for history but should not be shown on the wall. |

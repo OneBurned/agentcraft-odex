@@ -9,6 +9,46 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### Review station card (t35, not installed)
+
+The review station displays the latest studio review when no open MERGE decisions occupy its
+row. The first station shows the task ID/title, the first eight characters of the exact reviewed
+commit, and the latest safe step from the review stream. Both automatic and explicitly started
+manual reviews use this path. A task merely awaiting manual review does not claim a running
+review. The card uses the current reviewer profile name and colour.
+
+After completion the card retains `pass`, `changes` or `question` and a short result excerpt
+until a newer review starts. `question`, errors requiring help, and a second unsuccessful
+`changes` round show **Ждём твой ответ**. Answering, cancelling or retrying the question clears
+that marker. Pause/stop and bridge recovery show a paused attempt without inventing a verdict;
+process failures show **Ошибка ревью**. A disconnected client labels the retained card
+**Нет связи**. With no review history or pending MERGE decisions, the first station says
+**Всё чисто / Нет ревью**; extra stations stay blank.
+
+The bridge persists the optional `Task.studioReview` projection and publishes it through the
+existing `task.upsert` and `snapshot` messages. `startedAt` orders attempts independently of
+unrelated task edits. Each new attempt replaces the prior attempt's verdict and step; late
+callbacks from an interrupted attempt cannot update the card. Steps reuse the filtered t24
+stream, without model reasoning or raw tool output. Summaries are normalized to one line and
+bounded to 600 characters; the table card wraps title/detail into two lines each, with ellipsis.
+Full review messages continue to appear in the existing conversation and agent journal.
+
+Right-clicking a studio-review card opens that task in the command desk. Existing MERGE
+decisions retain their row ordering, cards and diff-screen click targets, taking precedence
+over studio review. This is an additive protocol v1 extension: old clients ignore the optional
+field; new clients accept tasks from old bridges without it. See `ReviewProgress` in
+[protocol.md](protocol.md). No installation, bridge restart or live visual check is part of t35.
+
+Validation: the mod builds and all 70 Java tests pass without skips (including the installed
+private schematic fixtures). The bridge passes TypeScript checking, protocol-document
+consistency and 110 focused tests across studio, protocol, review process/stream and task graph;
+the final studio run passes 53 tests. Snapshot/upsert tests cover automatic/manual review,
+progress, all verdicts, errors, answered/cancelled questions, pause/stop, late callbacks and
+restart recovery. Java tests exercise real snapshot/upsert decoding, card selection, MERGE row
+precedence, latest-attempt ordering and stale/paused/error labels. Reviewer processes are mocked.
+After installation, visually check a running step, final result, question marker, paused state,
+long Cyrillic titles and the task opened by right-click.
+
 ### Persona descriptions in game conversations (t30, not installed)
 
 The observer reloads `roles.marlow.description` / `roles.wren.description` from the profile's

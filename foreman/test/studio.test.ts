@@ -5,6 +5,7 @@ import { Studio } from '../src/studio.js';
 import { ClaudeReviewer, cleanHead, gitText, type ReviewResult, type Reviewer } from '../src/studio-review.js';
 import { demoRepo, makeForeman, rmrf, tempDir, until } from './helpers.js';
 import type { DialogRunner } from '../src/claude-dialog.js';
+import { ReviewProgress, parseServerMessage } from '../src/protocol.js';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -431,12 +432,19 @@ describe('command desk queue', () => {
     await h.studio.pump(); await until(() => i.stage === 'question');
     expect(h.fm.decisions.open()).toHaveLength(1);
     expect(h.fm.decisions.open()[0]).toMatchObject({ taskId: i.id, question: 'Изменения слишком велики для одного ревью. Раздели задачу.' });
+    expect(h.fm.tasks.require(i.id).studioReview).toMatchObject({ phase: 'error', waitingForUser: true, head: i.head });
+    expect(h.fm.tasks.require(i.id).studioReview?.verdict).toBeUndefined();
     await h.studio.pump(); expect(h.run).toHaveBeenCalledTimes(1);
+    await h.studio.action('cancel', { id: i.id });
+    expect(h.fm.tasks.require(i.id).studioReview?.waitingForUser).toBe(false);
   });
   it('manual mode waits for the explicit review button', async () => {
     const h = await setup('manual'); const i = await h.start();
     await h.studio.action('report', { id: i.id, run: i.run, status: 'done', summary: 'implemented', checks: 'tests', ci: 'pass' });
-    await h.studio.pump(); expect(h.run).not.toHaveBeenCalled(); await h.studio.action('review', { id: i.id }); await until(() => i.stage === 'done');
+    await h.studio.pump(); expect(h.run).not.toHaveBeenCalled();
+    expect(h.fm.tasks.require(i.id).studioReview).toBeUndefined();
+    await h.studio.action('review', { id: i.id }); await until(() => i.stage === 'done');
+    expect(h.fm.tasks.require(i.id).studioReview).toMatchObject({ phase: 'finished', verdict: 'pass', waitingForUser: false });
   });
   it.each([
     ['pass', 'Принято'], ['changes', 'Нужны исправления'], ['question', 'Нужен ответ'],
@@ -446,7 +454,12 @@ describe('command desk queue', () => {
     const feed = vi.spyOn(h.fm.bus, 'feed');
     const log = vi.spyOn(h.fm, 'agentLog');
     h.run.mockImplementation(async (_input, _signal, onStep) => {
-      onStep?.('Читаю foreman/src/studio.ts (agentcraft)'); return { verdict, summary };
+      const initial = h.fm.tasks.require(i.id).studioReview;
+      expect(initial).toMatchObject({ head: _input.head, phase: 'running', step: 'Начинаю проверку', waitingForUser: false });
+      expect(initial?.verdict).toBeUndefined();
+      onStep?.('Читаю foreman/src/studio.ts (agentcraft)');
+      expect(h.fm.tasks.require(i.id).studioReview?.step).toBe('Читаю foreman/src/studio.ts (agentcraft)');
+      return { verdict, summary };
     });
     await h.studio.action('report', { id: i.id, run: i.run, status: 'done', summary: 'ready', checks: 'tests', ci: 'pass' });
     await h.studio.pump(); await until(() => i.rounds === 1);
@@ -460,27 +473,63 @@ describe('command desk queue', () => {
     expect(messages.slice(2).every(m => m.length <= 1900)).toBe(true);
     expect(messages.slice(2).join(' ').split('Подробное замечание.').length - 1).toBe(220);
     expect(log.mock.calls.filter(c => c[0] === 'wren').map(c => c[2])).toEqual(messages);
+    const review = h.fm.tasks.require(i.id).studioReview!;
+    expect(review).toMatchObject({ head: i.head, phase: 'finished', verdict, waitingForUser: verdict === 'question' });
+    expect(review.summary!.length).toBeLessThanOrEqual(600);
+    expect(ReviewProgress.safeParse(review).success).toBe(true);
+    const snapshot = h.fm.snapshot();
+    expect(snapshot.type === 'snapshot' && snapshot.tasks.find(t => t.id === i.id)?.studioReview).toEqual(review);
+    expect(parseServerMessage({ v: 1, ...snapshot }).ok).toBe(true);
+    const updates = h.events.filter(e => e.type === 'task.upsert' && e.task.id === i.id);
+    expect(updates.some(e => e.type === 'task.upsert' && e.task.studioReview?.phase === 'running' && e.task.studioReview?.step.startsWith('Читаю'))).toBe(true);
+    expect(updates.at(-1)).toMatchObject({ task: { studioReview: review } });
+    if (verdict === 'question') {
+      const d = h.fm.decisions.open()[0]!;
+      h.studio.onDecision({ ...d, status: 'answered', answer: { text: 'Проверь крайний случай', ts: Date.now() } });
+      await h.studio.action('get', {});
+      expect(h.fm.tasks.require(i.id).studioReview).toMatchObject({ verdict: 'question', waitingForUser: false });
+    }
   });
   it('returns changes to Codex and asks the user after two unsuccessful reviews', async () => {
     const h = await setup('auto'); h.run.mockResolvedValue({ verdict: 'changes', summary: 'Исправить обработку ошибок' }); const i = await h.start();
     for (let n = 0; n < 2; n++) {
       await h.studio.action('report', { id: i.id, run: i.run, status: 'done', summary: 'implemented', checks: 'tests', ci: 'pass' });
       await h.studio.pump(); await until(() => i.stage === (n === 0 ? 'queued' : 'question'));
+      expect(h.fm.tasks.require(i.id).studioReview).toMatchObject({ verdict: 'changes', waitingForUser: n === 1 });
       if (n === 0) await h.studio.pump();
     }
     expect(h.fm.decisions.open()).toHaveLength(1); expect(h.send).toHaveBeenCalledTimes(2);
   });
-  it('aborts reviewer on pause and ignores its late verdict', async () => {
+  it.each(['pause', 'stop'])('aborts reviewer on %s and ignores its late verdict', async action => {
     const h = await setup('auto'); let resolve!: (r: ReviewResult) => void; let step: ((s: string) => void) | undefined;
     const speech = vi.spyOn(h.fm.personas!, 'say');
     const feed = vi.spyOn(h.fm.bus, 'feed');
     h.run.mockImplementation((_input, _signal, onStep) => new Promise(r => { resolve = r; step = onStep; })); const i = await h.start();
     await h.studio.action('report', { id: i.id, run: i.run, status: 'done', summary: 'implemented', checks: 'tests', ci: 'pass' });
-    await h.studio.pump(); await h.studio.action('pause', {}); step?.('late step'); resolve({ verdict: 'pass', summary: 'late' });
-    await new Promise(r => setTimeout(r, 15)); expect(i.stage).toBe('review'); expect(h.studio.data.mode).toBe('paused');
+    await h.studio.pump(); await h.studio.action(action, {}); step?.('late step'); resolve({ verdict: 'pass', summary: 'late' });
+    await new Promise(r => setTimeout(r, 15)); expect(i.stage).toBe(action === 'pause' ? 'review' : 'question'); expect(h.studio.data.mode).toBe('paused');
     expect(feed.mock.calls.filter(c => c[2]?.agentId === 'wren').some(c => c[1].includes('late'))).toBe(false);
-    expect(speech.mock.calls).toContainEqual(['wren', 'pause']);
+    expect(speech.mock.calls).toContainEqual(['wren', action]);
     expect(speech.mock.calls).not.toContainEqual(['wren', 'review_pass']);
+    expect(h.fm.tasks.require(i.id).studioReview).toMatchObject({ phase: 'paused', waitingForUser: action === 'stop' });
+    expect(h.fm.tasks.require(i.id).studioReview?.verdict).toBeUndefined();
+    expect(h.fm.tasks.require(i.id).studioReview?.step).not.toContain('late');
+  });
+  it('publishes manual review steps and marks a persisted running review paused after restart', async () => {
+    const h = await setup('manual'); const i = await h.start();
+    let step: ((s: string) => void) | undefined;
+    h.run.mockImplementation((_input, _signal, onStep) => { step = onStep; return new Promise(() => {}); });
+    await h.studio.action('report', { id: i.id, run: i.run, status: 'done', summary: 'ready', checks: 'tests', ci: 'pass' });
+    await h.studio.action('review', { id: i.id }); step?.('Проверка Git');
+    expect(h.fm.tasks.require(i.id).studioReview).toMatchObject({ phase: 'running', head: i.head, step: 'Проверка Git' });
+    h.fm.store.flush();
+    const saved = JSON.parse(fs.readFileSync(path.join(h.fm.config.dataDir, 'state.json'), 'utf8'));
+    expect(saved.tasks.find((t: { id: string }) => t.id === i.id).studioReview.phase).toBe('running');
+    h.studio.stop();
+    const restarted = new Studio(h.fm, { send: h.send, control: h.control }, { run: h.run });
+    expect(h.fm.tasks.require(i.id).studioReview).toMatchObject({ phase: 'paused', head: i.head, step: 'Проверка Git' });
+    step?.('Поздний шаг'); expect(h.fm.tasks.require(i.id).studioReview?.step).toBe('Проверка Git');
+    expect(h.run).toHaveBeenCalledTimes(1); restarted.stop();
   });
   it('restores queue paused without replaying a send or accepting old reports', async () => {
     const h = await setup(); const i = await h.start(); const run = i.run;

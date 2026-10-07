@@ -105,10 +105,22 @@ export const LogEntry = z.object({
 });
 export type LogEntry = z.infer<typeof LogEntry>;
 
+export const ReviewProgress = z.object({
+  head: z.string().describe('Exact commit submitted to the reviewer; clients may show its first 8 characters.'),
+  phase: z.enum(['running', 'finished', 'paused', 'error']),
+  startedAt: Ts.describe('Start of this review attempt; use this, not task.updatedAt, to select the latest review.'),
+  step: z.string().describe('Last safe public step from the review stream; never raw tool output or reasoning.'),
+  verdict: z.enum(['pass', 'changes', 'question']).optional().describe('Only a completed reviewer result has a verdict; interruption/error must not invent one.'),
+  summary: z.string().optional().describe('Review result or interruption/error explanation, compacted to 600 characters.'),
+  waitingForUser: z.boolean().describe('A review-related studio question still needs an answer.'),
+});
+export type ReviewProgress = z.infer<typeof ReviewProgress>;
+
 export const Task = z.object({
   id: Id.describe('e.g. "t3"'),
   observerKey: z.string().optional().describe('Stable external task key for the Codex observer; survives restarts.'),
   queueStage: z.enum(['plan', 'queued', 'coding', 'review', 'question', 'done', 'cancelled']).optional(),
+  studioReview: ReviewProgress.optional().describe('Latest studio review attempt. Optional v1 extension, carried by snapshot and task.upsert; old clients ignore it, old tasks omit it. MERGE decisions are unchanged.'),
   title: z.string(),
   description: z.string().optional(),
   status: TaskStatus,
@@ -512,6 +524,7 @@ export const CLIENT_MESSAGES = {
 } as const;
 
 export const ENTITY_SCHEMAS = {
+  ReviewProgress,
   Agent,
   LogEntry,
   Task,

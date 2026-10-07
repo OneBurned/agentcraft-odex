@@ -67,6 +67,17 @@ describe('protocol v1', () => {
     if (r.ok) expect('futureField' in r.msg).toBe(false);
   });
 
+  it('round-trips optional studio review progress and still accepts legacy tasks', () => {
+    const legacy = SERVER_EXAMPLES['task.upsert'];
+    expect(parseServerMessage(legacy).ok).toBe(true);
+    const review = { head: '123456789abcdef', phase: 'running', startedAt: 1, step: 'Читаю файл', waitingForUser: false };
+    const message = { ...legacy, task: { ...(legacy as { task: object }).task, studioReview: review } };
+    const parsed = parseServerMessage(JSON.stringify(message));
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.msg).toEqual(message);
+    expect(parseServerMessage({ ...message, task: { ...message.task, studioReview: { ...review, phase: 'invented' } } }).ok).toBe(false);
+  });
+
   it('exposes protocol version 1', () => {
     expect(PROTOCOL_VERSION).toBe(1);
   });

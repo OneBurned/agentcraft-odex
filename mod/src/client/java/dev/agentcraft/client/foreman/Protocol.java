@@ -144,9 +144,15 @@ public final class Protocol {
 		}
 	}
 
+	/** Optional v1 studio-review projection; legacy task messages omit it. */
+	public record ReviewProgress(String head, String phase, long startedAt, String step, @Nullable String verdict,
+		@Nullable String summary, boolean waitingForUser) {
+	}
+
 	public record Task(String id, String title, @Nullable String description, TaskStatus status, @Nullable String assignee, List<String> deps,
 		@Nullable String repoId, @Nullable String goalId, int priority, @Nullable String branch, @Nullable String worktree, CiStatus ci,
-		@Nullable String blockedReason, @Nullable String summary, @Nullable String createdBy, long createdAt, long updatedAt, @Nullable String queueStage) {
+		@Nullable String blockedReason, @Nullable String summary, @Nullable String createdBy, long createdAt, long updatedAt, @Nullable String queueStage,
+		@Nullable ReviewProgress studioReview) {
 		public Task {
 			title = title == null ? id : title;
 			status = status == null ? TaskStatus.UNKNOWN : status;
