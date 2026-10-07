@@ -30,7 +30,7 @@ const fallback = { version: 1 as const, minIntervalSeconds: 20, roles: {
   marlow: { description: 'Разработчик.', events: neutral }, wren: { description: 'Ревьюер.', events: neutral },
 } };
 
-/** Presentation only. Never writes to conversation history, agent logs, memory or model prompts. */
+/** Bubble phrases stay transient; the configured description is exposed separately for game replies. */
 export class PersonaSpeech {
   private config = fallback;
   private loaded?: string;
@@ -52,6 +52,12 @@ export class PersonaSpeech {
       if (this.warning !== reason) this.options.warn(`personas.json ${reason}. Используются нейтральные реплики; проверь файл в профиле моста.`);
       this.warning = reason;
     }
+  }
+
+  description(agentId: PersonaRole): string | undefined {
+    this.reload();
+    // A missing/broken profile keeps the legacy conversational prompt, not a fallback persona.
+    return this.loaded === undefined ? undefined : this.config.roles[agentId].description;
   }
 
   say(agentId: string, event: PersonaEvent): boolean {

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { readJson, writeJsonAtomic } from './util/fsx.js';
 import { interruptDesktop } from './codex-control.js';
+import { ARTIFACT_STYLE_RULE, personaPrompt } from './persona-prompt.js';
 
 export interface ChatBinding { threadId: string; pipePath: string; title: string; hostId: 'local'; }
 export const chatConfigPath = () => process.env.AGENTCRAFT_CHAT_CONFIG || path.join(os.homedir(), '.agentcraft', 'codex-chat.json');
@@ -119,6 +120,7 @@ export class DesktopChat {
     onText: (text: string, final: boolean) => void;
     onStatus: (message: string) => void;
     onActivity?: (activity: ChatActivity) => void;
+    personaDescription?: () => string | undefined;
     interrupt?: typeof interruptDesktop;
   }) {
     try { this.state = readJson<ChatState>(options.stateFile) ?? { threadId: '', seen: [] }; }
@@ -179,7 +181,7 @@ export class DesktopChat {
     }
     finally { this.polling = false; }
   }
-  async send(text: string): Promise<Record<string, unknown>> {
+  async send(text: string, purpose: 'message' | 'task' = 'message'): Promise<Record<string, unknown>> {
     if (this.stopped) throw new Error('Мост остановлен.');
     const binding = readBinding(this.options.configFile);
     if (!binding) throw new Error('Чат не подключён. Попроси Codex: «Подключи этот чат к игре».');
@@ -190,8 +192,9 @@ export class DesktopChat {
     if (!text.trim() || text.length > 12000) throw new Error('Сообщение должно содержать от 1 до 12000 символов.');
     this.sending = true;
     try {
+      const style = purpose === 'message' ? personaPrompt(this.options.personaDescription?.()) : '';
       const result = await (this.options.call ?? appCall)(binding, 'send_message_to_thread', {
-        prompt: `[Сообщение пользователя из игровой консоли AgentCraft]\n${text}`,
+        prompt: `[Сообщение пользователя из игровой консоли AgentCraft]\n${style ? style + '\n\nСообщение игрока:\n' : ''}${text}`,
       });
       if (result.threadId !== binding.threadId) throw new Error('Доставка не подтверждена. Проверь чат перед повторной отправкой.');
       return { chatDelivered: true, threadId: binding.threadId, chatTitle: binding.title };
@@ -204,7 +207,7 @@ export class DesktopChat {
     if (!binding || !this.online || binding.threadId !== this.state.threadId) throw new Error('Нет подтверждённой связи с выбранным чатом Codex.');
     if (action === 'resume') {
       if (this.state.control?.mode !== 'paused') throw new Error('Этот чат не поставлен на паузу из игры.');
-      const result = await this.send('Продолжи выполнение задачи с места, где она была поставлена на паузу кнопкой в игре.');
+      const result = await this.send(ARTIFACT_STYLE_RULE + '\nПродолжи выполнение задачи с места, где она была поставлена на паузу кнопкой в игре.', 'task');
       delete this.state.control;
       writeJsonAtomic(this.options.stateFile, this.state);
       return result;

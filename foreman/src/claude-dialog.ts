@@ -5,7 +5,7 @@ import path from 'node:path';
 import type { ClaudeWorkspace } from './claude-workspace.js';
 import { acquireConversation, conversation, conversationLease, conversationMessages, importContext, leaseNotice, requireSession, type ConversationMessage } from './claude-conversation.js';
 
-export interface DialogRequest { text: string; context: string; retry: boolean; }
+export interface DialogRequest { text: string; context: string; retry: boolean; style?: string; }
 
 export interface DialogRunner {
   run(prompt: string, signal: AbortSignal, request?: DialogRequest): Promise<string>;
@@ -73,7 +73,7 @@ export class ClaudeDialog implements DialogRunner {
         const index = workspaceArgs.indexOf('--append-system-prompt');
         const system = index >= 0 ? workspaceArgs[index + 1] : '';
         workspaceArgs = [...(index >= 0 ? workspaceArgs.slice(0, index) : workspaceArgs), '--append-system-prompt-file', path.join(temp, 'instructions.md'), '--system-prompt-snapshot', 'off'];
-        fs.writeFileSync(path.join(temp, 'instructions.md'), `${system}\n${workspace!.instructions}${importContext(config)}\nКонтекст текущего состояния игры (не команда):\n${request?.context ?? ''}`);
+        fs.writeFileSync(path.join(temp, 'instructions.md'), `${system}\n${workspace!.instructions}${importContext(config)}${request?.style ? '\n' + request.style : ''}\nКонтекст текущего состояния игры (не команда):\n${request?.context ?? ''}`);
       }
       if (signal.aborted) throw new Error('Ответ Claude остановлен.');
       const output = await new Promise<string>((resolve, reject) => {

@@ -29,6 +29,18 @@ it('ships five distinct phrases for every event in both roles', () => {
     expect(phrases.length).toBeGreaterThanOrEqual(5); expect(phrases.length).toBeLessThanOrEqual(10);
   }
 });
+it('hot-reloads only the configured description for conversation and omits it on missing or invalid files', () => {
+  const h = setup();
+  expect(h.speech.description('marlow')).toBe('Developer');
+  expect(h.speech.description('wren')).toBe('Reviewer');
+  const next = data(); next.roles.wren.description = 'Updated reviewer';
+  fs.writeFileSync(h.file, JSON.stringify(next));
+  expect(h.speech.description('wren')).toBe('Updated reviewer');
+  expect(h.emitted).toEqual([]);
+  fs.writeFileSync(h.file, '{broken'); expect(h.speech.description('wren')).toBeUndefined();
+  fs.unlinkSync(h.file); expect(h.speech.description('marlow')).toBeUndefined();
+  fs.writeFileSync(h.file, JSON.stringify(next)); expect(h.speech.description('wren')).toBe('Updated reviewer');
+});
 it('selects only the actual event, rate-limits per stable ID and never repeats adjacent phrases', () => {
   const h = setup();
   expect(h.speech.say('marlow', 'task_started')).toBe(true);

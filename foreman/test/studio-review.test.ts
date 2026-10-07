@@ -55,6 +55,9 @@ describe('read-only Claude review adapter', () => {
     expect(args[args.indexOf('--tools') + 1]).toBe(''); expect(args[args.indexOf('--settings') + 1]).toBe('{"disableAllHooks":true}');
     expect(options).toMatchObject({ shell: false, windowsHide: true, cwd: os.tmpdir() });
     expect(h.prompt()).toContain('Committed change'); expect(h.prompt()).toContain(h.input.head);
+    expect(h.prompt()).toContain('Не переноси характер в артефакты');
+    for (const text of ['код', 'комментарии', 'коммиты', 'документация', 'report', 'release notes', 'JSON verdict/summary', 'нейтральными и деловыми', 'Строгость ревью и требования к проверкам не меняются'])
+      expect(h.prompt()).toContain(text);
     h.respond({ structured_output: { verdict: 'pass', summary: 'Проверено' } });
     await expect(result).resolves.toMatchObject({ verdict: 'pass' });
   });

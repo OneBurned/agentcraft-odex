@@ -4,6 +4,7 @@ import net from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DesktopChat, chatActivity, pipeRequest, readBinding, textChunks, type ChatBinding } from '../src/codex-desktop.js';
 import { tempDir, rmrf } from './helpers.js';
+import { PersonaSpeech } from '../src/personas.js';
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmrf(dir); });
@@ -19,6 +20,29 @@ function fixture() {
   const options = { configFile, stateFile, call, onText, onStatus, onActivity, interrupt };
   return { ...options, dir, response, options, chat: new DesktopChat(options) };
 }
+
+it('adds the current Codex persona to game messages but not task delivery, and preserves legacy text without a profile', async () => {
+  const f = fixture(); const file = path.join(f.dir, 'personas.json');
+  const personas = new PersonaSpeech({ file, now: Date.now, emit: () => {}, warn: () => {} });
+  const chat = new DesktopChat({ ...f.options, personaDescription: () => personas.description('marlow') });
+  await chat.poll(); await chat.send('Первое сообщение');
+  const sent = () => f.call.mock.calls.filter(c => c[1] === 'send_message_to_thread').at(-1)![2].prompt;
+  expect(sent()).toBe('[Сообщение пользователя из игровой консоли AgentCraft]\nПервое сообщение');
+  const config = JSON.parse(fs.readFileSync(new URL('../../tools/templates/personas.json', import.meta.url), 'utf8'));
+  config.roles.marlow.description = 'Unique developer persona';
+  config.roles.wren.description = 'Unrelated reviewer persona';
+  fs.writeFileSync(file, JSON.stringify(config));
+  await chat.send('Личное сообщение');
+  expect(sent()).toContain('Unique developer persona'); expect(sent()).toContain('Личное сообщение');
+  expect(sent()).not.toContain('Unrelated reviewer persona');
+  expect(sent()).toContain('Не переноси характер в артефакты');
+  expect(sent()).toContain('JSON verdict/summary');
+  expect(sent()).not.toContain(config.roles.marlow.events.dance[0]);
+  await chat.send('Рабочая задача', 'task'); expect(sent()).not.toContain('Unique developer persona');
+  fs.unlinkSync(file); await chat.send('Без профиля');
+  expect(sent()).toBe('[Сообщение пользователя из игровой консоли AgentCraft]\nБез профиля');
+  chat.stop();
+});
 
 describe('desktop chat relay', () => {
   it('confirms a real interruption, persists pause across restart, and resumes only on request', async () => {

@@ -11,6 +11,7 @@ const sdk = vi.hoisted(() => ({ getSessionInfo: vi.fn(), getSessionMessages: vi.
 vi.mock('@anthropic-ai/claude-agent-sdk', () => sdk);
 import { ClaudeDialog } from '../src/claude-dialog.js';
 import { conversationLease } from '../src/claude-conversation.js';
+import { personaPrompt } from '../src/persona-prompt.js';
 const dirs: string[] = [];
 
 afterEach(() => { vi.clearAllMocks(); for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }); });
@@ -22,6 +23,27 @@ function fixture() {
   return { runner, child, respond, prompt: () => prompt };
 }
 describe('Claude conversational process', () => {
+  it('passes persona through the shared-session temporary system prompt without rewriting the user message or CLAUDE.md', async () => {
+    const h = fixture(); const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-dialog-persona-')); dirs.push(directory);
+    const sessionId = randomUUID();
+    fs.writeFileSync(path.join(directory, 'conversation.json'), JSON.stringify({ version: 1, sessionId }));
+    const personalFile = path.join(directory, 'CLAUDE.md'); fs.writeFileSync(personalFile, 'Personal instructions');
+    sdk.getSessionInfo.mockResolvedValue({ sessionId, cwd: directory });
+    const runner = new ClaudeDialog(() => 'mock-claude.exe', () => ({ directory, instructions: 'Workspace context', args: ['--append-system-prompt', 'Base rules'] }));
+    const response = runner.run('Legacy prompt', new AbortController().signal, {
+      text: 'Новое сообщение', context: 'Game context', retry: false, style: personaPrompt('Shared reviewer persona'),
+    });
+    await vi.waitFor(() => expect(proc.spawn).toHaveBeenCalledOnce());
+    const args = proc.spawn.mock.calls[0]![1];
+    const temporary = args[args.indexOf('--append-system-prompt-file') + 1];
+    const system = fs.readFileSync(temporary, 'utf8');
+    for (const text of ['Base rules', 'Workspace context', 'Game context', 'Shared reviewer persona', 'Не переноси характер в артефакты'])
+      expect(system).toContain(text);
+    expect(args[args.indexOf('--resume') + 1]).toBe(sessionId);
+    expect(h.prompt()).toBe('Новое сообщение');
+    h.respond({ result: 'Ответ', session_id: sessionId }); await expect(response).resolves.toBe('Ответ');
+    expect(fs.existsSync(temporary)).toBe(false); expect(fs.readFileSync(personalFile, 'utf8')).toBe('Personal instructions');
+  });
   it('resumes the bound native session with only the new message and retains the lock until exit on abort', async () => {
     const h = fixture(); const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-dialog-shared-')); dirs.push(directory);
     const sessionId = randomUUID(); fs.writeFileSync(path.join(directory, 'conversation.json'), JSON.stringify({ version: 1, sessionId, importedHistory: 'old game context' }));

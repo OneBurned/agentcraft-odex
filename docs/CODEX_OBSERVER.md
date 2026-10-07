@@ -9,6 +9,49 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### Persona descriptions in game conversations (t30, not installed)
+
+The observer reloads `roles.marlow.description` / `roles.wren.description` from the profile's
+`personas.json` for each new game message. Only that description is used as conversational
+style; the event phrase pools are not sent to a model. Missing, invalid or unreadable profiles
+omit the style block and retain the previous conversational prompt with the existing warning.
+The template now describes both bubbles and game replies. Existing custom profiles are not
+overwritten: the wrapper explicitly extends older bubble-only descriptions to game replies.
+
+Codex receives this style block with console and character-card messages (including automatic
+replies). The block is scoped to the current game reply, not later desktop work. Queue dispatch
+uses a separate task purpose and does not attach the persona description. Task prompts and
+resume commands explicitly require neutral code, code comments, commits, documentation,
+`report` payloads, release notes and review `verdict`/`summary` JSON.
+
+Claude's ordinary conversation prompt includes the reviewer description. Shared conversation
+mode places it in the temporary appended system-prompt file while sending the original user
+message unchanged. This preserves session history and interrupted-message matching. The file
+is removed when Claude exits. Personal `CLAUDE.md`, workspace instructions, conversation IDs
+and tool permissions are not modified. Automated review never receives the profile description;
+its prompt explicitly repeats the neutral-artifact rule and preserves review rigor.
+
+Descriptions are quoted data about speech style, not permission to run tools or override project
+rules. The wrapper limits roleplay to adults and excludes explicit sexual scenes. Model replies
+still follow the existing journal/feed path. Neutral artifact rules are prompt instructions,
+not an output filter or a guarantee that a model will follow them; normal code/review checks
+remain necessary. Tests inspect captured prompts using mocked transports/processes rather than
+starting real model conversations.
+
+Validation: TypeScript checking and 121 focused tests across persona loading, Codex transport,
+Claude ordinary/shared conversations, queue dispatch, review and observer integration pass.
+
+For terminal/Code replies, the user may separately add an optional **Conversation style** section
+to their personal `CLAUDE.md`, choosing the desired description and retaining this boundary:
+
+> Use the chosen persona only in direct replies to me. Keep code, comments, commits, documentation,
+> task reports, release notes and review JSON neutral and professional. Do not change review rigor
+> or project permissions. Roleplay must not include explicit sexual scenes.
+
+This is an optional proposal, not an automatic edit. The bridge's per-game-message instructions
+do not enable persona style for newly entered terminal/Code messages. No install/restart/push
+or live model/persona verification is performed by this task.
+
 ### Character speech in local Minecraft chat (t34, not installed)
 
 When an `agent.say` bubble is shown, the client also adds `<Name> text` to the vanilla Minecraft
@@ -130,9 +173,9 @@ do not change task status. Normal server lifecycle events do not depend on Minec
 
 Phrases are sent only as transient `agent.say` bubbles. They are not added to the conversation
 feed, agent logs, memory, task descriptions, model prompts, reports or reviewer verdict JSON,
-and do not affect the console's latest-reply recipient. The description is stored as presentation
-configuration, not injected into development or review instructions. The field can be edited
-manually; editing it alone does not regenerate phrase pools. This task adds no control-panel editor.
+and do not affect the console's latest-reply recipient. The description has a separate game-reply
+path (t30, above); it is not inserted into queue tasks or automated review. Editing the description
+does not regenerate phrase pools. There is no control-panel editor for persona descriptions.
 Both updated mod and bridge are needed for scene cues; both are installed as recorded above.
 Visual verification of the bubbles in Minecraft remains pending.
 The local profile file was created from the template and verified by hash. Validation: mod

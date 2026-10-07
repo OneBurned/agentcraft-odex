@@ -42,6 +42,7 @@ export class ObserverBackend implements Backend {
     this.timer = setInterval(() => this.expireActivity(), 30_000);
     this.timer.unref();
     this.chat = new DesktopChat({ configFile: this.chatFile, stateFile: path.join(this.fm.config.dataDir, 'codex-chat-state.json'),
+      personaDescription: () => this.fm.personas?.description('marlow'),
       onStatus: message => { this.chatGuidance = message; this.fm.setStatus({ auth: 'ok', message }); },
       onActivity: activity => this.onChatActivity(activity),
       onText: (text, final) => {
@@ -50,7 +51,7 @@ export class ObserverBackend implements Backend {
       },
     });
     this.chat.start();
-    this.studio = new Studio(this.fm, { send: text => this.chat!.send(text), control: action => this.chat!.control(action) });
+    this.studio = new Studio(this.fm, { send: (text, purpose) => this.chat!.send(text, purpose), control: action => this.chat!.control(action) });
     this.studio.start();
   }
 

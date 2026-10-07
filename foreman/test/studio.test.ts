@@ -11,10 +11,10 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) awai
 async function setup(reviewMode: 'auto' | 'manual' | 'off' = 'off') {
   const home = tempDir('ac-studio-'); const repo = await demoRepo();
   const h = makeForeman(home, ['--backend', 'observer']); await h.fm.repos.add(repo);
-  const send = vi.fn(async (_text: string) => ({})); const control = vi.fn(async () => ({}));
+  const send = vi.fn(async (_text: string, _purpose?: 'message' | 'task') => ({})); const control = vi.fn(async () => ({}));
   const run = vi.fn<Reviewer['run']>(async () => ({ verdict: 'pass', summary: 'Проверено' }));
   const stop = vi.fn(async () => {});
-  const dialogRun = vi.fn(async (_prompt: string, _signal: AbortSignal) => 'Ответ Клавы');
+  const dialogRun = vi.fn<DialogRunner['run']>(async () => 'Ответ Клавы');
   const dialogStop = vi.fn(async () => {});
   const dialog: DialogRunner = { run: dialogRun, stop: dialogStop };
   const studio = new Studio(h.fm, { send, control }, { run, stop }, dialog);
@@ -32,6 +32,30 @@ async function setup(reviewMode: 'auto' | 'manual' | 'off' = 'off') {
 }
 
 describe('personal agent controls and dialog', () => {
+  it('puts the reviewer description in game dialog and shared request, with neutral artifacts in dispatched tasks', async () => {
+    const h = await setup();
+    const config = JSON.parse(fs.readFileSync(new URL('../../tools/templates/personas.json', import.meta.url), 'utf8'));
+    config.roles.wren.description = 'Unique reviewer manner'; config.roles.marlow.description = 'Unique developer manner';
+    fs.writeFileSync(path.join(h.fm.config.dataDir, 'personas.json'), JSON.stringify(config));
+    await h.studio.messageClaude('Обсудим план');
+    await until(() => h.studio.data.dialog!.history.length === 2);
+    const [prompt, , request] = h.dialogRun.mock.calls[0]!;
+    expect(prompt).toContain('Unique reviewer manner'); expect(prompt).not.toContain('Unique developer manner');
+    expect(request?.style).toContain('Unique reviewer manner'); expect(request?.text).toBe('Обсудим план');
+    expect(request?.style).toContain('откровенных сексуальных сцен нет');
+    expect(prompt).not.toContain(config.roles.wren.events.rest[0]);
+    await h.start();
+    const [task, purpose] = h.send.mock.calls[0]!;
+    expect(purpose).toBe('task'); expect(task).toContain('Не переноси характер в артефакты');
+    for (const word of ['код', 'комментарии', 'коммиты', 'документация', 'report', 'release notes', 'JSON verdict/summary', 'нейтральными и деловыми'])
+      expect(task).toContain(word);
+    expect(task).not.toContain('Unique reviewer manner'); expect(task).not.toContain('Unique developer manner');
+  });
+  it('keeps legacy dialog without a persona profile', async () => {
+    const h = await setup(); await h.studio.messageClaude('Привет');
+    expect(h.dialogRun.mock.calls[0]![0]).not.toContain('Описание характера');
+    expect(h.dialogRun.mock.calls[0]![2]?.style).toBe('');
+  });
   it('shows the actual message restriction and re-enables the Claude card after it clears', async () => {
     const h = await setup();
     h.dialog.externalStatus = () => 'Общий разговор открыт в терминале';
