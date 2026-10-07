@@ -311,6 +311,10 @@ export class Studio {
     // Pause must be able to abort an in-flight review; reviews never hold the command lock.
     return this.lock(async () => {
       if (action === 'get') return this.view();
+      if (action === 'persona.get' || action === 'persona.save') {
+        if (!this.fm.personas) throw new Error('Редактор характеров доступен только в режиме наблюдения.');
+        return action === 'persona.get' ? this.fm.personas.edit(payload.agentId) : this.fm.personas.saveEdit(payload);
+      }
       if (action === 'draft.list' || action === 'draft.create') return this.planningAction(action, payload);
       if (action === 'agent') {
         const p = profileInput.parse(payload);

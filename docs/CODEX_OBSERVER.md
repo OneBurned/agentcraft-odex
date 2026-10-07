@@ -9,6 +9,45 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### Character and phrase editor (t31, not installed)
+
+Open **Пульт → Команда**, select Codex or Claude, then **Характер и фразы…**. The first page
+edits the description; the following twelve pages edit event pools. Arrows switch pages while
+retaining the draft. The fields scroll and the screen keeps navigation, save and status outside
+the field at normal GUI sizes down to 320×240. **Сохранить всё** saves the selected agent's
+description and pools together. The client retains the draft on validation, connection or
+server errors, focuses the offending page for local validation, and confirms discarding edits
+before closing or rereading. Long errors can be read by hovering the status area.
+
+Description: 1–2500 characters. Event pools: 2–20 distinct nonempty phrases, each at most 160
+characters. Enter one phrase per line; leading/trailing whitespace is trimmed. Internal blank
+lines and duplicates are rejected. Unedited legacy phrases containing newlines are preserved;
+editing that event uses the one-phrase-per-line format. The editor does not generate phrases
+from the description or change the global cooldown.
+
+`studio.action` provides `persona.get` and `persona.save`. The bridge validates the full agent
+payload, agent ID, event set, string lengths, uniqueness and the final profile's 128,000-byte
+UTF-8 limit. A save preserves the other agent and `minIntervalSeconds`, writes a temporary file
+beside `personas.json`, fsyncs and atomically renames it over the target. Failure leaves the
+previous file intact. Missing profiles offer neutral defaults and create the file only on an
+explicit save; damaged/unreadable files are not silently repaired or replaced.
+
+The editor sends the file revision received on load. A changed revision rejects a stale save;
+copy any needed draft text before confirming **Перечитать**. This detects changes since opening
+the editor, rather than providing a filesystem lock against arbitrary concurrent external writers.
+After a successful save, the next eligible real event uses the new phrase pool with the existing
+cooldown. New game messages use the new description through t30. Saving emits no test speech,
+starts no model call and does not restart the bridge. Personal `CLAUDE.md` is unchanged.
+
+Validation: TypeScript, 69 focused persona/studio tests, protocol-document consistency and the
+mod build pass. All 75 Java tests pass without skips. Bridge tests cover both agents, validation,
+stale revisions, missing/damaged files, atomic-rename failure, file-size limits, unchanged other
+roles and cooldowns, immediate reload and studio action routing. Java tests cover draft retention,
+phrase/description limits, payloads, legacy multiline preservation and editor geometry at
+320×240, 427×240, 480×270, 640×360 and 960×540. Actual Minecraft rendering/input remains a manual
+check after installation: navigation, Cyrillic paste, scrolling, errors, save/reload and leaving
+with an unsaved draft. This task performs no installation, bridge restart, push or real model call.
+
 ### Review station card (t35, not installed)
 
 The review station displays the latest studio review when no open MERGE decisions occupy its
@@ -215,7 +254,8 @@ Phrases are sent only as transient `agent.say` bubbles. They are not added to th
 feed, agent logs, memory, task descriptions, model prompts, reports or reviewer verdict JSON,
 and do not affect the console's latest-reply recipient. The description has a separate game-reply
 path (t30, above); it is not inserted into queue tasks or automated review. Editing the description
-does not regenerate phrase pools. There is no control-panel editor for persona descriptions.
+does not regenerate phrase pools. The command-desk editor for descriptions and phrase pools is
+documented above (t31).
 Both updated mod and bridge are needed for scene cues; both are installed as recorded above.
 Visual verification of the bubbles in Minecraft remains pending.
 The local profile file was created from the template and verified by hash. Validation: mod

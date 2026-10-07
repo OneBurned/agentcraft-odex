@@ -130,7 +130,8 @@ public final class StudioScreen extends Screen {
     }
     private void team() {
         selectAgent(); var p = profile();
-        int left = x + 12, cy = top + 28, bw = Math.min(230, w - 24);
+        button("Характер и фразы…", x + 163, top, w - 175, () -> minecraft.gui.setScreen(new PersonaScreen(this, agent, str(p, "name"))));
+        int left = x + 12, cy = top + 28, bw = Math.min(230, (w - 30) / 2);
         label("Имя персонажа", left, cy, bw);
         EditBox name = input("Имя", str(p, "name"), left, cy + 12, bw, 28);
         button("Сохранить имя", left + bw + 6, cy + 12, Math.max(90, w - bw - 30), () -> {
@@ -142,8 +143,10 @@ public final class StudioScreen extends Screen {
         button(flag(p, "visible") ? "Персонаж в мире: виден" : "Персонаж в мире: скрыт", left, cy + 63, w - 24, () -> {
             JsonObject next = p.deepCopy(); next.addProperty("visible", !flag(p, "visible")); request("agent", next, null);
         });
-        label(agent.equals("marlow") ? "Codex выполняет задачи в подключённом чате." : "Claude Code проверяет зафиксированную версию изменений.", left, cy + 90, w - 24);
-        label("Скрытие персонажа не отключает исполнителя.", left, cy + 103, w - 24);
+        if (cy + 112 < y + h - 22) {
+            label(agent.equals("marlow") ? "Codex выполняет задачи в подключённом чате." : "Claude Code проверяет зафиксированную версию изменений.", left, cy + 90, w - 24);
+            label("Скрытие персонажа не отключает исполнителя.", left, cy + 103, w - 24);
+        }
     }
     private void appearance() {
         selectAgent(); var p = profile();

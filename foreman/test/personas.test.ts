@@ -29,6 +29,73 @@ it('ships five distinct phrases for every event in both roles', () => {
     expect(phrases.length).toBeGreaterThanOrEqual(5); expect(phrases.length).toBeLessThanOrEqual(10);
   }
 });
+it.each(['marlow', 'wren'] as const)('saves %s atomically, preserves the other role and immediately reloads speech/description', agentId => {
+  const h = setup(); const before = PersonasFile.parse(JSON.parse(fs.readFileSync(h.file, 'utf8')));
+  const edit = h.speech.edit(agentId); const { notice, ...payload } = edit;
+  payload.description = 'Новый характер'; payload.events.rest = ['Новая реплика 1', 'Новая реплика 2'];
+  const rename = vi.spyOn(fs, 'renameSync');
+  const saved = h.speech.saveEdit(payload);
+  expect(saved.revision).not.toBe(edit.revision); expect(saved.description).toBe('Новый характер');
+  expect(rename).toHaveBeenCalledOnce(); expect(rename.mock.calls[0]![1]).toBe(h.file);
+  expect(String(rename.mock.calls[0]![0])).toMatch(/\.tmp$/);
+  const after = PersonasFile.parse(JSON.parse(fs.readFileSync(h.file, 'utf8')));
+  expect(after.roles[agentId === 'marlow' ? 'wren' : 'marlow']).toEqual(before.roles[agentId === 'marlow' ? 'wren' : 'marlow']);
+  expect(after.minIntervalSeconds).toBe(before.minIntervalSeconds);
+  expect(h.speech.description(agentId)).toBe('Новый характер');
+  h.speech.say(agentId, 'rest'); expect(h.emitted.at(-1)).toMatchObject({ text: 'Новая реплика 1' });
+  expect(fs.readdirSync(path.dirname(h.file))).toEqual(['personas.json']);
+});
+it('rejects invalid editor inputs without touching the profile', () => {
+  const h = setup(); const before = fs.readFileSync(h.file, 'utf8');
+  const { notice, ...payload } = h.speech.edit('wren');
+  const invalid = [
+    { ...payload, agentId: '../other' }, { ...payload, description: '' }, { ...payload, description: 'x'.repeat(2501) },
+    { ...payload, events: {} }, { ...payload, file: '../other.json' }, { ...payload, revision: '' },
+    ...[['one'], Array.from({ length: 21 }, (_, i) => String(i)), ['same', ' same '], ['', 'valid'], ['x'.repeat(161), 'valid'], [4, 'valid']]
+      .map(rest => ({ ...payload, events: { ...payload.events, rest } })),
+  ];
+  for (const edit of invalid) {
+    expect(() => h.speech.saveEdit(edit)).toThrow(); expect(fs.readFileSync(h.file, 'utf8')).toBe(before);
+  }
+  expect(() => h.speech.saveEdit({ ...payload, events: { ...payload.events, rest: ['same', 'same'] } })).toThrow('не должны повторяться');
+});
+it('preserves external edits and refuses stale revisions even when editing the other role', () => {
+  const h = setup(); const { notice, ...stale } = h.speech.edit('wren');
+  const external = data(); external.roles.marlow.description = 'Changed elsewhere';
+  const contents = JSON.stringify(external); fs.writeFileSync(h.file, contents);
+  expect(() => h.speech.saveEdit(stale)).toThrow('Профиль изменился');
+  expect(fs.readFileSync(h.file, 'utf8')).toBe(contents);
+});
+it('creates a missing file only on explicit save and never replaces a corrupted profile', () => {
+  const h = setup(null); const { notice, ...edit } = h.speech.edit('wren');
+  expect(notice).toContain('Файла пока нет'); expect(fs.existsSync(h.file)).toBe(false);
+  h.speech.saveEdit(edit); expect(PersonasFile.safeParse(JSON.parse(fs.readFileSync(h.file, 'utf8'))).success).toBe(true);
+  fs.writeFileSync(h.file, '{broken');
+  expect(() => h.speech.edit('wren')).toThrow('повреждён');
+  expect(() => h.speech.saveEdit(edit)).toThrow('повреждён'); expect(fs.readFileSync(h.file, 'utf8')).toBe('{broken');
+});
+it('keeps the original file and current speech usable if atomic replacement fails', () => {
+  const h = setup(); const before = fs.readFileSync(h.file, 'utf8');
+  const { notice, ...edit } = h.speech.edit('marlow'); edit.description = 'Not saved';
+  vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => { throw Object.assign(new Error('disk full'), { code: 'ENOSPC' }); });
+  expect(() => h.speech.saveEdit(edit)).toThrow('Не удалось сохранить');
+  expect(fs.readFileSync(h.file, 'utf8')).toBe(before); expect(h.speech.description('marlow')).toBe('Developer');
+  expect(fs.readdirSync(path.dirname(h.file))).toEqual(['personas.json']);
+});
+it('enforces the total UTF-8 file limit and does not reset speech cooldowns on save', () => {
+  const h = setup(); const big = data();
+  for (const profile of Object.values(big.roles)) for (const event of PERSONA_EVENTS)
+    profile.events[event] = Array.from({ length: 20 }, (_, i) => `${i} ${'я'.repeat(150)}`);
+  // Seed one large role, then reject a second role that would exceed the whole-file byte cap.
+  const first = data(); first.roles.marlow = big.roles.marlow;
+  fs.writeFileSync(h.file, JSON.stringify(first)); const before = fs.readFileSync(h.file, 'utf8');
+  const { notice, ...edit } = h.speech.edit('wren'); edit.events = PersonasFile.parse(big).roles.wren.events;
+  expect(() => h.speech.saveEdit(edit)).toThrow('128 КБ'); expect(fs.readFileSync(h.file, 'utf8')).toBe(before);
+  h.speech.say('wren', 'rest');
+  const { notice: unused, ...small } = h.speech.edit('wren'); small.events.rest = ['Updated first', 'Updated second'];
+  h.speech.saveEdit(small); expect(h.speech.say('wren', 'rest')).toBe(false);
+  h.advance(); expect(h.speech.say('wren', 'rest')).toBe(true); expect(h.emitted.at(-1)).toMatchObject({ text: 'Updated first' });
+});
 it('hot-reloads only the configured description for conversation and omits it on missing or invalid files', () => {
   const h = setup();
   expect(h.speech.description('marlow')).toBe('Developer');

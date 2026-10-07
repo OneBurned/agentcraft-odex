@@ -511,7 +511,7 @@ export const SERVER_MESSAGES = {
 
 export const CLIENT_MESSAGES = {
   'agent.scene': { schema: AgentSceneMsg, doc: 'Local observer NPC entered a rest/dance/nearby-colleague scene. Presentation only; never changes execution state.' },
-  'studio.action': { schema: StudioActionMsg, doc: 'Observer command desk: persistent plan/queue, review, roster and shared notes. get returns studio state in ack.result. Mutations are validated by the studio controller.' },
+  'studio.action': { schema: StudioActionMsg, doc: 'Observer command desk: persistent plan/queue, review, roster and shared notes. get returns studio state in ack.result. persona.get with payload {agentId: marlow|wren} returns {agentId, revision, description, events, notice}; persona.save accepts {agentId, revision, description, events}, validates and atomically replaces the persona profile, returning the same editor shape. revision is a SHA-256 file revision or missing for a new profile; stale saves and damaged existing files are rejected without overwriting them. Missing files start from neutral defaults only when explicitly saved. Mutations are validated by the studio controller.' },
   'observer.update': { schema: ObserverUpdateMsg, doc: 'Publish a real external Codex task status. Only accepted by the observer backend; never executes code or merges.' },
   hello: { schema: HelloMsg, doc: 'First message after connecting. The Foreman replies with `snapshot`, then streams upserts.' },
   'goal.submit': { schema: GoalSubmitMsg, doc: 'New goal for the lead (console: plain text).' },

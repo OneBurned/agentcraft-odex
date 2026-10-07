@@ -33,6 +33,17 @@ async function setup(reviewMode: 'auto' | 'manual' | 'off' = 'off') {
 }
 
 describe('personal agent controls and dialog', () => {
+  it('routes persona reads/saves through studio.action without dispatching tasks or modifying the roster', async () => {
+    const h = await setup(); const before = JSON.stringify(h.studio.data.profiles);
+    const loaded = await h.studio.action('persona.get', { agentId: 'wren' });
+    const { notice, ...payload } = loaded;
+    const result = await h.studio.action('persona.save', { ...payload, description: 'Новый характер ревьюера' });
+    expect(result.description).toBe('Новый характер ревьюера');
+    expect(h.fm.personas?.description('wren')).toBe('Новый характер ревьюера');
+    await expect(h.studio.action('persona.save', { ...payload, description: '' })).rejects.toThrow('пустым');
+    expect((await h.studio.action('persona.get', { agentId: 'wren' })).description).toBe('Новый характер ревьюера');
+    expect(JSON.stringify(h.studio.data.profiles)).toBe(before); expect(h.send).not.toHaveBeenCalled(); expect(h.run).not.toHaveBeenCalled();
+  });
   it('puts the reviewer description in game dialog and shared request, with neutral artifacts in dispatched tasks', async () => {
     const h = await setup();
     const config = JSON.parse(fs.readFileSync(new URL('../../tools/templates/personas.json', import.meta.url), 'utf8'));
