@@ -9,7 +9,7 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
-### Character and phrase editor (t31, not installed)
+### Character and phrase editor (t31)
 
 Open **Пульт → Команда**, select Codex or Claude, then **Характер и фразы…**. The first page
 edits the description; the following twelve pages edit event pools. Arrows switch pages while
@@ -48,7 +48,7 @@ phrase/description limits, payloads, legacy multiline preservation and editor ge
 check after installation: navigation, Cyrillic paste, scrolling, errors, save/reload and leaving
 with an unsaved draft. This task performs no installation, bridge restart, push or real model call.
 
-### Review station card (t35, not installed)
+### Review station card (t35)
 
 The review station displays the latest studio review when no open MERGE decisions occupy its
 row. The first station shows the task ID/title, the first eight characters of the exact reviewed
@@ -88,7 +88,7 @@ precedence, latest-attempt ordering and stale/paused/error labels. Reviewer proc
 After installation, visually check a running step, final result, question marker, paused state,
 long Cyrillic titles and the task opened by right-click.
 
-### Persona descriptions in game conversations (t30, not installed)
+### Persona descriptions in game conversations (t30)
 
 The observer reloads `roles.marlow.description` / `roles.wren.description` from the profile's
 `personas.json` for each new game message. Only that description is used as conversational
@@ -131,7 +131,7 @@ This is an optional proposal, not an automatic edit. The bridge's per-game-messa
 do not enable persona style for newly entered terminal/Code messages. No install/restart/push
 or live model/persona verification is performed by this task.
 
-### Character speech in local Minecraft chat (t34, not installed)
+### Character speech in local Minecraft chat (t34)
 
 When an `agent.say` bubble is shown, the client also adds `<Name> text` to the vanilla Minecraft
 chat. The current bridge profile supplies the name and name colour; the body stays white for
@@ -159,7 +159,7 @@ duplicate deliveries across snapshots, repeated phrases as new events, and feed/
 The mod build and all 65 Java tests pass (no failures or skipped tests).
 No installation or restart is performed by this task; in-game visual verification is pending.
 
-### Character-card messages and question answers (t33, not installed)
+### Character-card messages and question answers (t33)
 
 The character card uses Minecraft's `MOUSE_BUTTON_LEFT` constant. The previous handler checked
 literal `0`, while Minecraft 26.3 / SDL sends left clicks as `1`, so a rendered enabled button
@@ -196,19 +196,25 @@ and answering the second agent's question with another question still open.
 
 ### Installed local update (2026-10-07)
 
-Behavior commit `dd1c63a` is installed locally: console replies to the latest speaker (t32)
-and event-driven character bubbles (t29). The mod keeps version `0.4.13`; this build is
-identified by SHA-256 `820AEF8D416AADAB04BB00CD34225926DE68C709A9E0AB3CF18AC97C2B57BEEF`.
-The observer bridge was restarted and its connection verified. Client settings, building
-schematics and the existing persona profile were preserved and hash-checked. Previous mods:
-`.minecraft/agentcraft-backups/20261007-092812-499`. Profile backup:
-`artifacts/backups/update-dd1c63a-20261007-092848`. Installation record:
-`artifacts/install-dd1c63a-personas.json`.
+Behavior commit `3d8ac4f` is installed locally, including the persona editor (t31), review station
+(t35), conversation style (t30), speech in Minecraft chat (t34), and character-card fixes (t33).
+It retains console replies to the latest speaker (t32) and event-driven bubbles (t29).
+The mod keeps version `0.4.13`; identify this build by SHA-256
+`2299412848E941FB0E982F4B275D41290DF4C11E46F58B6CCF632F7ABBAC2DF9`.
 
-The build passed with 56 cached Java tests; TypeScript checking and 54 focused persona/studio
-tests passed. Minecraft was not launched; in-game visual verification remains pending.
-The queue is paused after restart. Task t30 (persona descriptions in full model replies) is
-unfinished and remains a question on the board; it is not included in this installed build.
+The observer stopped gracefully, saved its state, and restarted from the current source. The
+existing Codex chat connection is confirmed; `persona.get` successfully reads both agents and
+all twelve event pools through the live bridge. Client settings, building schematics, the persona
+profile and access configuration were preserved and hash-checked (ten protected files).
+Previous mod: `.minecraft/agentcraft-backups/20261007-112944-654-3d8ac4f`. Profile backup:
+`artifacts/backups/update-3d8ac4f-20261007-112944-654`. Installation record:
+`artifacts/install-3d8ac4f.json`.
+
+The installed build passed all 75 Java tests; TypeScript and 69 focused persona/studio tests
+passed. All five task cards above had completed review before installation. The queue remains
+paused with no active task or pending conversation. Minecraft was not launched; in-game visual
+verification remains pending. Review-station progress starts with new reviews; older records
+without `studioReview` remain compatible and are not fabricated during upgrade.
 
 ### Agent speech profiles (t29)
 
