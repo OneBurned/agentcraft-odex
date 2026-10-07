@@ -183,7 +183,7 @@ export class WorkspaceReader {
         const entry = `\n- ${new Date().toISOString().slice(0, 10)}: ${p.note}\n`;
         if (Buffer.byteLength(old + entry, 'utf8') > 60000) throw new Error('Память заполнена. Пользователю нужно сократить MEMORY.md.');
         await fs.appendFile(file, entry, 'utf8');
-        return 'Сохранено в личную память Клавы.';
+        return 'Сохранено в личную память Claude.';
       }); this.memorySerial = work.catch(() => {}); return work;
     }
     throw new Error('Неизвестный инструмент.');

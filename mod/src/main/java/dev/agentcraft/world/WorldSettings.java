@@ -28,7 +28,7 @@ public record WorldSettings(String name, String type, String seed, String gameMo
 	public static WorldSettings parse(JsonObject json) {
 		Set<String> fields = Set.of("name", "type", "seed", "gameMode", "difficulty", "daylightCycle", "weatherCycle", "spawnMobs", "autoBuild");
 		for (String key : json.keySet()) if (!fields.contains(key)) throw new IllegalArgumentException("Unknown world setting: " + key);
-		String name = text(json, "name", "TradeRecord World").trim();
+		String name = text(json, "name", "AgentCraft World").trim();
 		if (name.isEmpty() || name.length() > 64 || name.matches(".*[\\\\/:*?\"<>|\\p{Cntrl}].*") || name.endsWith(".")
 			|| name.equals("..") || name.matches("(?i)(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(?:\\..*)?")) {
 			throw new IllegalArgumentException("Invalid world name: use a simple folder name");

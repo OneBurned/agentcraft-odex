@@ -100,8 +100,8 @@ export class Studio {
         stop: enabled && available && !external && (!!owned || directBusy || pending),
         hint: external ?? (!enabled ? 'Исполнитель выключен в пульте' : !available ? 'Нет связи с исполнителем'
           : paused && resumeBlocked ? 'Продолжение недоступно: другая работа или изменён подключённый чат'
-          : id === 'wren' && paused ? 'Клава на паузе. Нажми «Продолжить», затем отправь сообщение'
-          : id === 'wren' && (owned || directBusy || pending) ? 'Клава занята ответом или ревью. Дождись завершения либо нажми «Стоп»'
+          : id === 'wren' && paused ? 'Claude на паузе. Нажми «Продолжить», затем отправь сообщение'
+          : id === 'wren' && (owned || directBusy || pending) ? 'Claude занята ответом или ревью. Дождись завершения либо нажми «Стоп»'
           : paused ? 'Продолжить: возобновить свою работу или снять личную паузу'
           : owned || directBusy ? 'Управление работой только этого агента' : 'Нет активной работы; можно отправить сообщение'),
       } });
@@ -197,8 +197,8 @@ export class Studio {
       if (external) throw new Error(external);
       if (!this.data.profiles[1]!.enabled) throw new Error('Включи Claude во вкладке «Команда».');
       if (this.owned('wren') || this.dialogAbort || this.data.suspended!.wren || this.data.dialog!.pending)
-        throw new Error('Клава занята или её ответ/ревью на паузе. Продолжи либо останови его перед новым сообщением.');
-      if (this.fm.requireAgent('wren').paused) throw new Error('Сначала нажми «Продолжить», чтобы снять личную паузу Клавы.');
+        throw new Error('Claude занята или её ответ/ревью на паузе. Продолжи либо останови его перед новым сообщением.');
+      if (this.fm.requireAgent('wren').paused) throw new Error('Сначала нажми «Продолжить», чтобы снять личную паузу Claude.');
       if (!findClaude(this.data.claudePath)) throw new Error('Claude Code не найден. Проверь настройки пульта.');
       await this.syncConversation(true);
       const shared = this.dialogRunner.shared?.();
@@ -367,7 +367,7 @@ export class Studio {
         if (this.data.reviewMode !== 'off' && this.checkAuth && !await claudeLoggedIn(findClaude(this.data.claudePath)!)) throw new Error('Сначала выполни вход в Claude Code во вкладке «Настройки».');
         if (!this.activity || ['working', 'waiting', 'unavailable'].includes(this.activity.phase)) throw new Error('Codex занят или связь не готова. Дождись завершения текущего ответа.');
         this.data.boundChat = this.activity.key.split('/')[0];
-        if (this.dialogAbort || this.data.dialog!.pending) throw new Error('Дождись ответа Клавы либо заверши её диалог перед запуском очереди.');
+        if (this.dialogAbort || this.data.dialog!.pending) throw new Error('Дождись ответа Claude либо заверши её диалог перед запуском очереди.');
         const suspended = this.data.items.find(i => i.id === this.data.suspended!.marlow && i.stage === 'queued');
         // Include commits made while paused before another task can take over this checkout.
         const resumeDirty = suspended && await this.closeAttempt(suspended);
@@ -427,15 +427,15 @@ export class Studio {
       return { item: card(existing), duplicate: true };
     }
     if (this.data.mode !== 'planning' || this.data.active)
-      throw new Error('Черновики Клавы доступны в режиме планирования без активной задачи. Открой «План» и нажми «Обсудить план».');
-    if (!this.data.profiles.find(p => p.id === 'wren')?.enabled) throw new Error('Включи Клаву во вкладке «Команда».');
+      throw new Error('Черновики Claude доступны в режиме планирования без активной задачи. Открой «План» и нажми «Обсудить план».');
+    if (!this.data.profiles.find(p => p.id === 'wren')?.enabled) throw new Error('Включи Claude во вкладке «Команда».');
     for (const dep of p.deps) if (!this.data.items.some(i => i.id === dep)) throw new Error('Зависимость должна быть задачей этого пула.');
     const repo = this.fm.repos.list().find(r => sameDirectory(r.path, source.path)) ?? await this.fm.repos.add(source.path, false);
     const existingGoal = this.data.items.map(i => this.fm.tasks.require(i.id)).find(t => t.repoId === repo.id && t.goalId && this.fm.goal(t.goalId))?.goalId;
     const goalId = existingGoal ?? this.fm.createGoal(`План: ${source.name}`, repo.id).id;
     const t = this.fm.tasks.create({ title: p.title, description: p.description, deps: p.deps, priority: p.priority, assignee: 'marlow', goalId, repoId: repo.id, createdBy: 'wren' });
     const i: Item = { id: t.id, stage: 'plan', expected: p.expected, rounds: 0, draftKey: p.requestId, draftHash: hash };
-    this.data.items.push(i); this.data.notice = 'Клава добавила черновик. Проверь и согласуй его во вкладке «План».';
+    this.data.items.push(i); this.data.notice = 'Claude добавила черновик. Проверь и согласуй его во вкладке «План».';
     this.save(); return { item: card(i), duplicate: false };
   }
   private item(p: Record<string, unknown>) { const i = this.data.items.find(i => i.id === p.id); if (!i) throw new Error('Задача не найдена в пуле.'); return i; }
@@ -522,8 +522,8 @@ export class Studio {
     const external = this.dialogRunner.externalStatus?.();
     if (external) throw new Error(external);
     if (!this.data.profiles[1]!.enabled) throw new Error('Claude отключён.');
-    if (this.dialogAbort || this.data.dialog!.pending) throw new Error('Дождись завершения диалога Клавы.');
-    if (this.data.personalPaused!.includes('wren')) throw new Error('Сними личную паузу Клавы.');
+    if (this.dialogAbort || this.data.dialog!.pending) throw new Error('Дождись завершения диалога Claude.');
+    if (this.data.personalPaused!.includes('wren')) throw new Error('Сними личную паузу Claude.');
     const t = this.fm.tasks.require(i.id); const controller = new AbortController(); this.reviewAbort = controller;
     this.data.active = i.id;
     this.fm.tasks.update(i.id, { studioReview: { head: i.head!, phase: 'running', startedAt: this.fm.ctx.now(), step: 'Начинаю проверку', waitingForUser: false } });

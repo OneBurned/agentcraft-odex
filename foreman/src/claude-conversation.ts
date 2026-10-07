@@ -12,7 +12,7 @@ const configFile = (dir: string) => path.join(dir, 'conversation.json');
 const lockFile = (dir: string) => path.join(dir, 'conversation-lock.json');
 function read(file: string): unknown {
   if (!fs.existsSync(file)) return undefined;
-  if (!fs.lstatSync(file).isFile() || fs.statSync(file).size > 150000) throw new Error('Повреждена настройка общего разговора Клавы.');
+  if (!fs.lstatSync(file).isFile() || fs.statSync(file).size > 150000) throw new Error('Повреждена настройка общего разговора Claude.');
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 export function conversation(dir: string): Conversation | undefined {
@@ -26,12 +26,12 @@ export function conversationLease(dir: string) {
 export function leaseNotice(dir: string): string | undefined {
   const lease = conversationLease(dir);
   if (!lease) return undefined;
-  if (lease.owner === 'desktop') return 'Клава в разделе Code. Верни разговор через Return-Klava-To-Game.cmd.';
+  if (lease.owner === 'desktop') return 'Claude в разделе Code. Верни разговор через Return-Klava-To-Game.cmd.';
   if (!alive(lease.pid) && !(lease.childPid && alive(lease.childPid))) {
-    return 'Процесс Клавы завершился, но разговор остался заблокирован. Запусти Return-Klava-To-Game.cmd в папке Клавы, чтобы вернуть его в игру.';
+    return 'Процесс Claude завершился, но разговор остался заблокирован. Запусти Return-Klava-To-Game.cmd в папке Claude, чтобы вернуть его в игру.';
   }
-  return lease.owner === 'terminal' ? 'Клава в терминале. Закрой её разговор, чтобы продолжить в игре.'
-    : 'Клава ещё занята. Дождись завершения ответа или ревью.';
+  return lease.owner === 'terminal' ? 'Claude в терминале. Закрой её разговор, чтобы продолжить в игре.'
+    : 'Claude ещё занята. Дождись завершения ответа или ревью.';
 }
 /** Exclusive writer, including the entire interactive terminal lifetime. Never expires by timeout. */
 export function acquireConversation(dir: string, owner: z.infer<typeof Lease>['owner']) {
@@ -51,7 +51,7 @@ export function returnConversation(dir: string, desktopClosed: boolean) {
   const lease = conversationLease(dir);
   if (!lease) return;
   if (lease.owner === 'desktop') {
-    if (!desktopClosed) throw new Error('Сначала закрой сессию Клавы в разделе Code и подтверди возврат.');
+    if (!desktopClosed) throw new Error('Сначала закрой сессию Claude в разделе Code и подтверди возврат.');
   } else if (alive(lease.pid) || (lease.childPid && alive(lease.childPid))) {
     throw new Error('Процесс разговора ещё работает. Сначала закрой его.');
   }
@@ -62,7 +62,7 @@ export function returnConversation(dir: string, desktopClosed: boolean) {
 export async function requireSession(dir: string, config: Conversation) {
   const info = await getSessionInfo(config.sessionId, { dir });
   if (!info || !info.cwd || path.resolve(info.cwd).toLowerCase() !== path.resolve(dir).toLowerCase())
-    throw new Error('Общая сессия Клавы не найдена в её папке. Новый разговор автоматически не создан.');
+    throw new Error('Общая сессия Claude не найдена в её папке. Новый разговор автоматически не создан.');
   return info;
 }
 export function publicMessages(rows: Awaited<ReturnType<typeof getSessionMessages>>): ConversationMessage[] {

@@ -23,7 +23,7 @@ public class ConsoleReplyTest {
         assertEquals("marlow", message(s, "Привет").to());
         feed(s, "message", "wren", "user");
         assertEquals("wren", message(s, "Привет").to());
-        assertEquals("ответ Клаве", ConsoleCommands.describe(message(s, "Привет"), s));
+        assertEquals("ответ: Клава", ConsoleCommands.describe(message(s, "Привет"), s));
         feed(s, "user", "user", "marlow");
         feed(s, "task", "marlow", "user");
         feed(s, "message", "marlow", "wren");

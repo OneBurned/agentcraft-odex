@@ -24,7 +24,7 @@ export const sameDirectory = (a: string, b: string) => {
 /** Operator-created binding, never an endpoint/path supplied by the model. */
 export function planningBinding(directory: string) {
   try { return PlanningBinding.parse(JSON.parse(fs.readFileSync(path.join(directory, 'planning.json'), 'utf8'))); }
-  catch { throw new Error('Планирование Клавы не подключено. Нужна настройка моста оператором.'); }
+  catch { throw new Error('Планирование Claude не подключено. Нужна настройка моста оператором.'); }
 }
 export function authorizePlanning(profile: string, port: number, token: unknown) {
   const binding = planningBinding(profile);

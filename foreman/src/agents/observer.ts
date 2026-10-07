@@ -30,7 +30,7 @@ export class ObserverBackend implements Backend {
   async start(): Promise<void> {
     const lead = this.fm.requireAgent('marlow');
     lead.name = 'Codex';
-    lead.title = 'TradeRecord · наблюдение';
+    lead.title = 'Наблюдение';
     for (const a of this.fm.agents()) {
       this.fm.setAgent(a.id, { active: a.id === lead.id, paused: false, state: 'idle',
         station: 'lounge', activity: a.id === lead.id ? 'Ожидаю статус из чата Codex' : 'Не задействован',

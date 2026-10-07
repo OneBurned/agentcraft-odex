@@ -45,6 +45,11 @@ public final class AgentSkins {
 	}
 
 	public static String importPng(String filename) throws Exception {
+		return importPng(filename, Minecraft.getInstance().gameDirectory.toPath().resolve("config/agentcraft-skins"));
+	}
+
+	/** Same importer with an explicit destination, also exercised against the packaged JAR. */
+	public static String importPng(String filename, java.nio.file.Path dir) throws Exception {
 		var p = java.nio.file.Path.of(filename);
 		if (java.nio.file.Files.size(p) > 524288) throw new IllegalArgumentException("PNG должен быть меньше 512 КБ");
 		byte[] bytes = java.nio.file.Files.readAllBytes(p);
@@ -52,7 +57,6 @@ public final class AgentSkins {
 			if (image.getWidth() != 64 || image.getHeight() != 64) throw new IllegalArgumentException("Нужен скин PNG 64×64");
 		}
 		String name = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes)) + ".png";
-		var dir = Minecraft.getInstance().gameDirectory.toPath().resolve("config/agentcraft-skins");
 		java.nio.file.Files.createDirectories(dir); java.nio.file.Files.write(dir.resolve(name), bytes);
 		return name;
 	}

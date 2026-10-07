@@ -29,7 +29,7 @@ it.each(['game', 'review'] as const)('keeps %s busy while its owner or child liv
       if (pid === livePid) return true;
       throw Object.assign(new Error('gone'), { code: 'ESRCH' });
     });
-    expect(leaseNotice(d)).toBe('Клава ещё занята. Дождись завершения ответа или ревью.');
+    expect(leaseNotice(d)).toBe('Claude ещё занята. Дождись завершения ответа или ревью.');
     expect(() => returnConversation(d, true)).toThrow('ещё работает');
     expect(conversationLease(d)).toBeDefined();
   }

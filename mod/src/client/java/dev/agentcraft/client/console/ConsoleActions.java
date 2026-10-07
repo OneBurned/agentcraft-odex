@@ -301,7 +301,7 @@ public final class ConsoleActions {
 		if ("blocks".equals(topic)) { blocks(); return; }
 		if (ConsoleCommands.observer(Foreman.state())) {
 			ConsoleLog.add(Tone.HEADER, "Консоль AgentCraft");
-			ConsoleLog.add(Tone.INFO, "Обычный текст — последнему написавшему агенту; без истории — Codex. Получатель виден до Enter и сохраняется после перезапуска. @Codex, @Клава, @Claude или @имя — явно выбранному агенту; @all — Codex. Если получатель недоступен, текст остаётся в поле.");
+			ConsoleLog.add(Tone.INFO, "Обычный текст — последнему написавшему агенту; без истории — Codex. Получатель виден до Enter и сохраняется после перезапуска. @Codex, @Claude или @имя — явно выбранному агенту; @all — Codex. Если получатель недоступен, текст остаётся в поле.");
 			for (Command c : ConsoleCommands.commands(Foreman.state())) {
 				if (topic == null || c.name().startsWith(topic)) ConsoleLog.add(Tone.HELP, c.usage() + "\t" + c.help());
 			}

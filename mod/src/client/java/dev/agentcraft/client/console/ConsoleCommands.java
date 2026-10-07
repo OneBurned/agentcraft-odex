@@ -179,7 +179,6 @@ public final class ConsoleCommands {
 		String id = resolveAgent(who, s, true);
 		if (observer(s) && id == null && who.equalsIgnoreCase("codex")) id = "marlow";
 		if (observer(s) && id == null && who.equalsIgnoreCase("claude")) id = "wren";
-		if (observer(s) && id == null && who.equalsIgnoreCase("клава")) id = "wren";
 		if (id == null) {
 			return new Invalid("no agent named @" + who + agentListSuffix(s));
 		}
@@ -537,7 +536,7 @@ public final class ConsoleCommands {
 	/** Recipient is frozen in the intent, including if another agent speaks during delivery. */
 	public static String replyHint(String id, ForemanState s) {
 		String name = displayName(id, s);
-		return name.equalsIgnoreCase("Клава") ? "ответ Клаве" : "ответ: " + name;
+		return "ответ: " + name;
 	}
 
 	public static @Nullable String replyError(Message m, ForemanState s) {

@@ -219,15 +219,16 @@ without `studioReview` remain compatible and are not fabricated during upgrade.
 ### Agent speech profiles (t29)
 
 The observer reads `<profile directory>/personas.json`, next to `state.json`. The local profile
-is `.agentcraft-home/traderecord`. The editable template is `tools/templates/personas.json`;
-portable packages contain the same template as `personas.example.json`. Copy it to the profile
-as `personas.json` for initial setup. Existing files are never overwritten automatically.
+is `.agentcraft-home/traderecord`. The personal editable template is `tools/templates/personas.json`;
+portable packages instead use the neutral `tools/portable-templates/personas.json` as
+`personas.example.json`. The portable launcher copies it only to a new profile without
+`personas.json`. Existing files are never overwritten automatically.
 
 The UTF-8 JSON object has `version: 1`, `minIntervalSeconds` (integer, 1–600, template: 20), and
 `roles`. Both `roles.marlow` and `roles.wren` contain `description` (1–2500 characters) and
 `events`. These stable IDs select the profile independently of character names and skins.
 Every event holds 2–20 distinct, nonempty strings of at most 160 characters; the template has
-five per event for each role. Required event keys:
+five per event for each role in the personal template and two in the neutral portable template. Required event keys:
 
 | Event | Trigger |
 | --- | --- |
@@ -1168,12 +1169,15 @@ Assigning a manual desk replaces the active building's anchors, retaining its bl
 placing a generated HQ deactivates the manual layout. Use the Configurator for manual layouts.
 
 Build the mod with JDK 25 and Gradle, then run `node tools/build-portable.mjs <fresh-output-dir>`.
-The Windows package contains AgentCraft 0.3.1, Fabric API 0.161.0+26.3, a bundled Node runtime,
-an observer-only bridge, status CLI, licenses and Russian instructions. Minecraft Java 26.3,
+The Windows package uses the mod version in `mod/gradle.properties`, Fabric API 0.161.0+26.3,
+a bundled Node runtime, an observer-only bridge, status CLI, neutral templates, licenses and
+Russian/English instructions. A mandatory privacy audit must pass before `PACKAGE-READY.json`
+is written; see [PORTABLE_PACKAGE.md](PORTABLE_PACKAGE.md). Minecraft Java 26.3,
 Fabric Loader 0.19.5+ and Java 25 must already be installed for the chosen launcher profile.
 `Install-Mod.cmd` copies the two mods to the selected game directory, backing up replaced
-versions outside `mods` and preserving existing client settings. `Start-Bridge.cmd` runs or
-reuses a local observer on port 7878. `Stop-Bridge.cmd` requests a graceful save and stop only
+versions outside `mods` and preserving existing client settings. `Start-Bridge.cmd` starts
+the package's observer on port 7878 and rejects an occupied port. `Connect-Codex.ps1` binds
+the selected desktop chat to this package's own profile. `Stop-Bridge.cmd` requests a graceful save and stop only
 from this package's owned process. Package state lives in `data/portable`, logs in `logs`.
 It needs no source checkout, npm install, model SDK credentials or TradeRecord repository.
 
