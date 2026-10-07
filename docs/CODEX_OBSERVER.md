@@ -9,6 +9,34 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### Character speech in local Minecraft chat (t34, not installed)
+
+When an `agent.say` bubble is shown, the client also adds `<Name> text` to the vanilla Minecraft
+chat. The current bridge profile supplies the name and name colour; the body stays white for
+readability. It uses Minecraft's `addClientSystemMessage`, so it does not send chat/command
+packets to the server or other players. Minecraft's own chat visibility settings still apply.
+Whitespace is normalized like the bubble's text; the chat keeps the complete phrase.
+
+**Пульт → Настройки → Реплики в чате** switches this local display on/off immediately. It is
+enabled by default, including existing configurations without the new field. The setting is
+`speechInMinecraftChat` in `config/agentcraft-studio.json`, alongside existing client preferences.
+It can be changed without the bridge connection and persists across restarts. A save failure
+restores the previous setting. Editing the JSON directly requires restarting Minecraft.
+
+Deduplication belongs to the client session, not to a character entity: the exact event tuple
+`agentId`, `ts`, `text`, `to` is remembered until the game exits. Reconnection, world changes,
+character recreation or renaming do not print the same event again. A new timestamp permits
+the same phrase later. Events shown while the setting is off are also remembered, so turning
+it on does not replay them. Fresh bubbles restored when an agent appears use the same path;
+expired/empty bubbles do not print. The QA-only local bubble preview is not an `agent.say` event.
+
+No new timer or model call is added; the bridge's existing persona cooldown remains in charge.
+AgentCraft's feed, console, message journals and reply recipient are unchanged. Java regressions
+cover literal formatting, current names/colours, default/serialized settings, disabled display,
+duplicate deliveries across snapshots, repeated phrases as new events, and feed/log isolation.
+The mod build and all 65 Java tests pass (no failures or skipped tests).
+No installation or restart is performed by this task; in-game visual verification is pending.
+
 ### Character-card messages and question answers (t33, not installed)
 
 The character card uses Minecraft's `MOUSE_BUTTON_LEFT` constant. The previous handler checked

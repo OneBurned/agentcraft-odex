@@ -120,7 +120,10 @@ public final class StudioScreen extends Screen {
             }
         }
         button("Обновить", x + w - 96, y + (planningOnly ? 28 : 51), 84, () -> request("get", new JsonObject(), null));
-        if (!data.has("version")) return;
+        if (!data.has("version")) {
+            if (tab == 6) speechChatSetting(x + 12, top, w - 24);
+            return;
+        }
         switch (tab) {
             case 0 -> team(); case 1 -> appearance(); case 2, 3 -> tasks(); case 4 -> places(); case 5 -> memory(); case 6 -> settings();
         }
@@ -255,11 +258,22 @@ public final class StudioScreen extends Screen {
         label("Общие записи передаются разработчику и ревьюеру.", left, top + 62, w - 24);
         label("Заключения Claude сохраняются в библиотеке с версией кода.", left, top + 76, w - 24);
     }
+    private void speechChatSetting(int left, int cy, int width) {
+        var preferences = StudioPreferences.get();
+        var toggle = button("Реплики в чате: " + (preferences.speechInMinecraftChat ? "вкл." : "выкл."), left, cy, width, () -> {
+            preferences.setSpeechInMinecraftChat(!preferences.speechInMinecraftChat);
+            status = "Сохранено на этом компьютере";
+            layout();
+        });
+        toggle.active = true; // a local option also works without a bridge connection
+    }
     private void settings() {
         int left = x + 12; String mode = str(data, "reviewMode");
-        button("Ревью: " + (mode.equals("auto") ? "автоматически" : mode.equals("manual") ? "по кнопке" : "выключено"), left, top, w - 24, () -> {
+        int half = (w - 28) / 2;
+        button("Ревью: " + (mode.equals("auto") ? "автоматически" : mode.equals("manual") ? "по кнопке" : "выключено"), left, top, half, () -> {
             JsonObject p = new JsonObject(); p.addProperty("reviewMode", mode.equals("auto") ? "manual" : mode.equals("manual") ? "off" : "auto"); p.addProperty("claudePath", str(data, "claudePath")); request("settings", p, null);
         });
+        speechChatSetting(left + half + 4, top, half);
         label("Claude Code: " + (flag(data, "claudeFound") ? str(data, "claudeAuth") : "укажи путь к claude.exe"), left, top + 29, w - 24);
         EditBox exe = input("Полный путь к claude.exe", str(data, "claudePath"), left, top + 43, w - 24, 1000);
         button("Сохранить путь", left, top + 68, (w - 28) / 2, () -> { JsonObject p = new JsonObject(); p.addProperty("reviewMode", mode); p.addProperty("claudePath", exe.getValue()); request("settings", p, null); });

@@ -25,6 +25,7 @@ public final class StudioPreferences {
     private static StudioPreferences loaded;
     public Map<String, Look> looks = new HashMap<>();
     public float consoleTextScale = 0.75f;
+    public boolean speechInMinecraftChat = true;
     public Map<String, Map<String, Anchor>> worlds = new HashMap<>();
     public Map<String, Map<String, List<RestPlace>>> restPlaces = new HashMap<>();
     public static StudioPreferences get() {
@@ -41,13 +42,19 @@ public final class StudioPreferences {
     private static Path file() { return Minecraft.getInstance().gameDirectory.toPath().resolve("config/agentcraft-studio.json"); }
     public static Look defaults(String id) { Look l = new Look(); var member = dev.agentcraft.Cast.get(id); l.slim = member != null && member.slim(); return l; }
     public Look look(String id) { Look l = looks.computeIfAbsent(id, StudioPreferences::defaults); if (l.png == null) l.png = ""; return l; }
+    public void setSpeechInMinecraftChat(boolean enabled) {
+        boolean previous = speechInMinecraftChat;
+        speechInMinecraftChat = enabled;
+        try { save(); }
+        catch (RuntimeException e) { speechInMinecraftChat = previous; throw e; }
+    }
     public void save() {
         try {
             Files.createDirectories(file().getParent());
             Path temp = file().resolveSibling("agentcraft-studio.json.tmp");
             Files.writeString(temp, GSON.toJson(this));
             Files.move(temp, file(), StandardCopyOption.REPLACE_EXISTING);
-        } catch (Exception e) { throw new IllegalStateException("Не удалось сохранить настройки внешности", e); }
+        } catch (Exception e) { throw new IllegalStateException("Не удалось сохранить настройки клиента AgentCraft", e); }
     }
     private String world() {
         var mc = Minecraft.getInstance();

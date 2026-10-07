@@ -181,6 +181,7 @@ public final class AgentLife {
 
 	void onSay(AgentSay say, int tick) {
 		bubble.show(say, age);
+		if (bubble.visible()) AgentManager.get().shownSpeech(say);
 	}
 
 	/** Another agent talks to this one: look at them while they talk. */

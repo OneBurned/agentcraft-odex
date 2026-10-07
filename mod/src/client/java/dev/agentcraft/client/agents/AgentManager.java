@@ -57,6 +57,7 @@ public final class AgentManager {
 	static final double USER_DISTANCE = 3.2;
 
 	private final Map<String, ClientAgentEntity> entities = new LinkedHashMap<>();
+	private final SpeechChat speechChat = new SpeechChat();
 	private final Map<Integer, ClientAgentEntity> byEntityId = new HashMap<>();
 	private final StationAssigner assigner = new StationAssigner();
 	private final Seats seats = new Seats();
@@ -79,6 +80,16 @@ public final class AgentManager {
 
 	public static AgentManager get() {
 		return INSTANCE;
+	}
+
+	void shownSpeech(Protocol.AgentSay say) {
+		var mc = Minecraft.getInstance();
+		var state = Foreman.state();
+		Agent profile = state == null ? null : state.agent(say.agentId());
+		if (mc.player == null || profile == null) return;
+		// Chat HUD insertion only: no player connection, server packet or Foreman message.
+		speechChat.shown(say, profile, dev.agentcraft.client.studio.StudioPreferences.get().speechInMinecraftChat,
+			line -> mc.gui.hud.getChat().addClientSystemMessage(line));
 	}
 
 	/** Live agent entities by agent id (client thread). */
@@ -384,6 +395,7 @@ public final class AgentManager {
 		long ago = System.currentTimeMillis() - say.ts();
 		if (ago >= 0 && ago < 8000) {
 			e.life().bubble.showLate(say, e.life().age(), (int) (ago / 50));
+			if (e.life().bubble.visible()) get().shownSpeech(say);
 		}
 	}
 
