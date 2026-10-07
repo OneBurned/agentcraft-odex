@@ -90,6 +90,7 @@ export class ObserverBackend implements Backend {
     const previous = this.lastChat;
     const a = this.fm.requireAgent('marlow');
     if (activity.phase === 'paused' || activity.phase === 'stopped') {
+      if (previous && (previous.key !== activity.key || previous.phase !== activity.phase)) this.fm.personas?.say(a.id, activity.phase === 'paused' ? 'pause' : 'stop');
       this.cancelRest(); this.detail = undefined;
       this.lastChat = activity; this.chatAvailable = true;
       this.fm.setAgent(a.id, { state: 'idle', paused: activity.phase === 'paused', station: 'desk',
@@ -124,6 +125,7 @@ export class ObserverBackend implements Backend {
       (this.detail?.at ?? 0) < activity.startedAt)) this.detail = undefined;
     if (this.detail) this.detail.turnKey = activity.key;
     if (activity.phase === 'working') {
+      if (previous && newTurn) this.fm.personas?.say(a.id, 'task_started');
       this.cancelRest();
       if (this.detail) {
         const d = this.detail;
@@ -134,6 +136,7 @@ export class ObserverBackend implements Backend {
           taskId: null, repoId: null });
       }
     } else if (activity.phase === 'waiting') {
+      this.fm.personas?.say(a.id, 'question');
       this.cancelRest();
       this.fm.act(a.id, 'waiting_user', 'user', 'Нужен твой ответ или подтверждение в Codex');
     } else if (activity.phase === 'completed') {
@@ -143,8 +146,10 @@ export class ObserverBackend implements Backend {
         return;
       }
       this.fm.act(a.id, 'done', 'desk', 'Ответ готов');
+      this.fm.personas?.say(a.id, 'task_finished');
       this.restLater();
     } else if (activity.phase === 'interrupted' || activity.phase === 'error') {
+      this.fm.personas?.say(a.id, activity.phase === 'error' ? 'error' : 'stop');
       this.cancelRest();
       this.fm.act(a.id, activity.phase === 'error' ? 'error' : 'blocked', 'desk',
         activity.phase === 'error' ? 'Ошибка в чате; проверь Codex' : 'Ответ остановлен; проверь Codex');
@@ -153,6 +158,7 @@ export class ObserverBackend implements Backend {
 
   onObserverUpdate(update: ObserverUpdate): Record<string, unknown> {
     if (this.studio?.ownsActiveTask()) {
+      if (update.state === 'error' || update.ci === 'fail') this.fm.personas?.say('marlow', 'error');
       if (update.state !== 'done') this.fm.act('marlow', update.state === 'review' ? 'reading' : update.state, stations[update.state], update.activity);
       return { taskId: this.studio.data.active, state: update.state };
     }
@@ -160,6 +166,8 @@ export class ObserverBackend implements Backend {
     if (update.repoId && !repo) throw new ClientError(`no repo "${update.repoId}"`);
     let task = this.fm.tasks.list().find(t => t.observerKey === update.key);
     if (task && task.repoId !== repo?.id) throw new ClientError('observer key already belongs to another repository');
+    const previousStatus = task?.status, previousCi = task?.ci;
+    const previousState = this.fm.requireAgent('marlow').state;
     if (!task) {
       const goal = this.fm.createGoal(update.title, repo?.id);
       task = this.fm.tasks.create({ title: update.title, createdBy: 'marlow', assignee: 'marlow',
@@ -170,6 +178,14 @@ export class ObserverBackend implements Backend {
     }
     const status: TaskStatus = update.state === 'done' ? 'done' : update.state === 'review' ? 'review'
       : ['blocked', 'error', 'waiting_user'].includes(update.state) ? 'blocked' : 'doing';
+    if (update.state === 'error' || update.ci === 'fail') {
+      if (previousStatus !== status || previousCi !== update.ci || (update.state === 'error' && previousState !== 'error')) this.fm.personas?.say('marlow', 'error');
+    } else if (update.state === 'waiting_user' && previousState !== 'waiting_user') {
+      this.fm.personas?.say('marlow', 'question');
+    } else if (status !== previousStatus) {
+      if (status === 'doing') this.fm.personas?.say('marlow', 'task_started');
+      else if (status === 'done') this.fm.personas?.say('marlow', 'task_finished');
+    }
     // Observer tasks have no managed worktree. Statuses reflect external work, including retries.
     this.fm.tasks.update(task.id, { title: update.title, summary: update.summary, ci: update.ci });
     this.fm.tasks.setStatus(task.id, status, { force: true,

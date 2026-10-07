@@ -32,6 +32,24 @@ async function setup(reviewMode: 'auto' | 'manual' | 'off' = 'off') {
 }
 
 describe('personal agent controls and dialog', () => {
+  it('never emits completion for a failed check or a stale successful report', async () => {
+    const h = await setup(); const i = await h.start();
+    const speech = vi.spyOn(h.fm.personas!, 'say');
+    await expect(h.studio.action('report', { id: i.id, run: i.run, status: 'done', summary: 'Not ready', checks: 'failed', ci: 'fail' })).rejects.toThrow();
+    expect(speech.mock.calls).toEqual([['marlow', 'error']]);
+    await expect(h.studio.action('report', { id: i.id, run: 'obsolete', status: 'done', summary: 'Old result', checks: 'passed', ci: 'pass' })).rejects.toThrow();
+    expect(speech.mock.calls).toEqual([['marlow', 'error']]);
+    expect(i.stage).toBe('coding');
+  });
+  it('emits failure instead of a successful verdict when review execution rejects', async () => {
+    const h = await setup('auto'); h.run.mockRejectedValue(new Error('Review failed'));
+    const i = await h.start();
+    await h.studio.action('report', { id: i.id, run: i.run, status: 'done', summary: 'ready', checks: 'tests', ci: 'pass' });
+    const speech = vi.spyOn(h.fm.personas!, 'say');
+    await h.studio.pump(); await until(() => i.stage === 'question');
+    expect(speech.mock.calls).toEqual([['wren', 'review_started'], ['wren', 'error'], ['wren', 'question']]);
+    expect(i.review).toBeUndefined();
+  });
   it('rejects automatic replies to unavailable Codex without sending, but accepts when ready', async () => {
     const h = await setup();
     h.studio.data.profiles[0]!.enabled = false;
@@ -315,9 +333,11 @@ describe('command desk queue', () => {
   });
   it('does not claim a stop when chat connectivity is lost', async () => {
     const h = await setup(); const i = await h.start();
+    const speech = vi.spyOn(h.fm.personas!, 'say');
     h.studio.onActivity({ key: '', phase: 'unavailable' });
     await expect(h.studio.action('stop', {})).rejects.toThrow('не подтверждена');
     expect(h.studio.data.active).toBe(i.id); expect(h.control).not.toHaveBeenCalled();
+    expect(speech).not.toHaveBeenCalled();
   });
   it('pauses on a binding change without sending or stopping the unrelated chat', async () => {
     const h = await setup(); const i = await h.start(); const oldRun = i.run;
@@ -368,6 +388,7 @@ describe('command desk queue', () => {
     ['pass', 'Принято'], ['changes', 'Нужны исправления'], ['question', 'Нужен ответ'],
   ] as const)('publishes safe review steps and the complete %s verdict in the shared feed', async (verdict, label) => {
     const h = await setup('auto'); const i = await h.start(); const summary = 'Подробное замечание. '.repeat(220) + 'Конец сводки';
+    const speech = vi.spyOn(h.fm.personas!, 'say');
     const feed = vi.spyOn(h.fm.bus, 'feed');
     const log = vi.spyOn(h.fm, 'agentLog');
     h.run.mockImplementation(async (_input, _signal, onStep) => {
@@ -375,6 +396,8 @@ describe('command desk queue', () => {
     });
     await h.studio.action('report', { id: i.id, run: i.run, status: 'done', summary: 'ready', checks: 'tests', ci: 'pass' });
     await h.studio.pump(); await until(() => i.rounds === 1);
+    expect(speech.mock.calls).toEqual([['marlow', 'task_finished'], ['wren', 'review_started'],
+      ['wren', verdict === 'question' ? 'question' : verdict === 'pass' ? 'review_pass' : 'review_changes']]);
     const messages = feed.mock.calls.filter(c => c[0] === 'message' && c[2]?.agentId === 'wren').map(c => c[1]);
     expect(messages[0]).toContain(`Ревью ${i.id}: начинаю проверку`);
     expect(messages[1]).toContain('Читаю foreman/src/studio.ts');
@@ -395,12 +418,15 @@ describe('command desk queue', () => {
   });
   it('aborts reviewer on pause and ignores its late verdict', async () => {
     const h = await setup('auto'); let resolve!: (r: ReviewResult) => void; let step: ((s: string) => void) | undefined;
+    const speech = vi.spyOn(h.fm.personas!, 'say');
     const feed = vi.spyOn(h.fm.bus, 'feed');
     h.run.mockImplementation((_input, _signal, onStep) => new Promise(r => { resolve = r; step = onStep; })); const i = await h.start();
     await h.studio.action('report', { id: i.id, run: i.run, status: 'done', summary: 'implemented', checks: 'tests', ci: 'pass' });
     await h.studio.pump(); await h.studio.action('pause', {}); step?.('late step'); resolve({ verdict: 'pass', summary: 'late' });
     await new Promise(r => setTimeout(r, 15)); expect(i.stage).toBe('review'); expect(h.studio.data.mode).toBe('paused');
     expect(feed.mock.calls.filter(c => c[2]?.agentId === 'wren').some(c => c[1].includes('late'))).toBe(false);
+    expect(speech.mock.calls).toContainEqual(['wren', 'pause']);
+    expect(speech.mock.calls).not.toContainEqual(['wren', 'review_pass']);
   });
   it('restores queue paused without replaying a send or accepting old reports', async () => {
     const h = await setup(); const i = await h.start(); const run = i.run;

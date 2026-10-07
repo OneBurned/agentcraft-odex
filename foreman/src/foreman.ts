@@ -31,6 +31,7 @@ import { Store } from './store.js';
 import { TaskError, TaskGraph } from './taskgraph.js';
 import { setUserName, userName } from './user.js';
 import { truncate } from './util/text.js';
+import { PersonaSpeech } from './personas.js';
 
 export interface Backend {
   readonly name: 'sim' | 'claude' | 'observer';
@@ -80,6 +81,7 @@ export class Foreman {
   readonly notifier: Notifier;
   readonly log: Logger;
   readonly cast: CastMember[];
+  readonly personas?: PersonaSpeech;
   backend: Backend | undefined;
   status: ForemanStatus;
 
@@ -110,6 +112,10 @@ export class Foreman {
     this.status = { version: FOREMAN_VERSION, backend: opts.config.backend, auth: opts.config.backend === 'sim' ? 'ok' : 'unknown', userName: userName() };
     if (opts.config.backend === 'sim') this.status.message = 'Simulated team (sim backend)';
     this.initRoster();
+    if (opts.config.backend === 'observer') this.personas = new PersonaSpeech({
+      file: path.join(opts.config.dataDir, 'personas.json'), now, emit: message => this.emit(message),
+      warn: message => { this.log.warn(message); this.bus.feed('system', message); },
+    });
     this.decisions.onCreated((d) => this.onDecisionCreated(d));
   }
 
@@ -350,6 +356,7 @@ export class Foreman {
   }
 
   private onDecisionCreated(d: Decision): void {
+    this.personas?.say(d.agentId, 'question');
     const who = this.nameOf(d.agentId);
     const label = d.kind === 'merge' ? 'merge review' : d.kind === 'permission' ? 'permission' : 'question';
     this.bus.feed('decision', `${who} needs you (${label}): ${d.question}`, { agentId: d.agentId, to: 'user' });
@@ -506,6 +513,17 @@ export class Foreman {
   }
 
   private async dispatch(msg: ClientMessage, reply: Reply): Promise<Record<string, unknown> | undefined> {
+    if (msg.type === 'agent.scene') {
+      if (!this.personas) throw new ClientError('Реплики сцен доступны в режиме наблюдения.');
+      const resting = (id: string) => {
+        const a = this.requireAgent(id);
+        return a.active && !a.paused && a.station === 'lounge' && ['idle', 'done'].includes(a.state)
+          && !this.decisions.open().some(d => d.agentId === id);
+      };
+      if (!resting(msg.agentId) || (msg.event === 'peer' && !resting(msg.agentId === 'marlow' ? 'wren' : 'marlow')))
+        return { spoken: false };
+      return { spoken: this.personas.say(msg.agentId, msg.event) };
+    }
     if (msg.type === 'studio.action') {
       if (!this.backend?.onStudioAction) throw new ClientError('Пульт доступен в режиме Codex.');
       return this.backend.onStudioAction(msg.action, msg.payload);

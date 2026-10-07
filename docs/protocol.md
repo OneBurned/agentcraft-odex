@@ -864,6 +864,25 @@ A client message was invalid or failed (also sent as ack.ok=false when it had an
 
 ## Mod -> Foreman
 
+### `agent.scene`
+
+Local observer NPC entered a rest/dance/nearby-colleague scene. Presentation only; never changes execution state.
+
+| field | type | required | notes |
+| --- | --- | --- | --- |
+| `id` | string | no | client correlation id; the Foreman answers with `ack` {re: id} |
+| `agentId` | `marlow` \| `wren` | yes |  |
+| `event` | `rest` \| `dance` \| `peer` | yes |  |
+
+```json
+{
+  "v": 1,
+  "type": "agent.scene",
+  "agentId": "wren",
+  "event": "dance"
+}
+```
+
 ### `studio.action`
 
 Observer command desk: persistent plan/queue, review, roster and shared notes. get returns studio state in ack.result. Mutations are validated by the studio controller.

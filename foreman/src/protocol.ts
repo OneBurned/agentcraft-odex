@@ -420,7 +420,9 @@ export const StudioActionMsg = z.object({ ...envelope('studio.action'),
   action: z.string().min(1).max(40), payload: z.record(z.string(), z.unknown()).default({}),
 });
 
+export const AgentSceneMsg = z.object({ ...envelope('agent.scene'), agentId: z.enum(['marlow', 'wren']), event: z.enum(['rest', 'dance', 'peer']) });
 export const ClientMessage = z.discriminatedUnion('type', [
+  AgentSceneMsg,
   HelloMsg,
   GoalSubmitMsg,
   UserMessageMsg,
@@ -496,6 +498,7 @@ export const SERVER_MESSAGES = {
 } as const;
 
 export const CLIENT_MESSAGES = {
+  'agent.scene': { schema: AgentSceneMsg, doc: 'Local observer NPC entered a rest/dance/nearby-colleague scene. Presentation only; never changes execution state.' },
   'studio.action': { schema: StudioActionMsg, doc: 'Observer command desk: persistent plan/queue, review, roster and shared notes. get returns studio state in ack.result. Mutations are validated by the studio controller.' },
   'observer.update': { schema: ObserverUpdateMsg, doc: 'Publish a real external Codex task status. Only accepted by the observer backend; never executes code or merges.' },
   hello: { schema: HelloMsg, doc: 'First message after connecting. The Foreman replies with `snapshot`, then streams upserts.' },

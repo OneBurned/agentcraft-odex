@@ -24,6 +24,7 @@ await build({...opts,entryPoints:[path.join(root,'tools/codex-progress.mjs')],ou
 await build({...opts,entryPoints:[path.join(root,'tools/studio.mjs')],outfile:path.join(out,'studio.mjs')});
 await build({...opts,entryPoints:[path.join(root,'tools/connect-codex-chat.ts')],outfile:path.join(out,'connect-codex-chat.mjs')});
 await copy(path.join(root,`mod/build/libs/agentcraft-${version}.jar`),path.join(out,`mods/agentcraft-${version}.jar`));
+await copy(path.join(root,'tools/templates/personas.json'),path.join(out,'personas.example.json'));
 // Optional private asset pack. Schematics remain user-owned files outside the public mod JAR.
 if(buildingSource) {
   for(const name of await fs.readdir(buildingSource)) {

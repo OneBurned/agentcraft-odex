@@ -9,6 +9,58 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### Agent speech profiles (t29, not installed)
+
+The observer reads `<profile directory>/personas.json`, next to `state.json`. The local profile
+is `.agentcraft-home/traderecord`. The editable template is `tools/templates/personas.json`;
+portable packages contain the same template as `personas.example.json`. Copy it to the profile
+as `personas.json` for initial setup. Existing files are never overwritten automatically.
+
+The UTF-8 JSON object has `version: 1`, `minIntervalSeconds` (integer, 1–600, template: 20), and
+`roles`. Both `roles.marlow` and `roles.wren` contain `description` (1–2500 characters) and
+`events`. These stable IDs select the profile independently of character names and skins.
+Every event holds 2–20 distinct, nonempty strings of at most 160 characters; the template has
+five per event for each role. Required event keys:
+
+| Event | Trigger |
+| --- | --- |
+| `task_started` | Task delivery confirmed, or live observer work begins |
+| `task_finished` | Validated successful task report or successful observed completion |
+| `error` | Reported failure or failed review/dialog process |
+| `review_started` | Review attempt starts |
+| `review_pass` / `review_changes` | Accepted reviewer verdict of that kind |
+| `question` | A real decision/question is raised |
+| `pause` / `stop` | Confirmed interruption or personal pause; rejected commands do not count |
+| `rest` | Character reaches its rest target |
+| `dance` | Character starts the actual dance posture at its rest target |
+| `peer` | Resting character encounters its resting colleague within four blocks |
+
+Edits hot-reload on the next event. Invalid/missing/unreadable/oversized files (over 128 KB)
+select neutral fallback phrases and a warning in the bridge log and system feed. One warning
+per failure condition prevents spam; correcting the file restores configured phrases. Invalid
+files are not replaced or repaired automatically. For custom phrase text, keep each pool's
+meaning consistent with its event, especially failure versus success.
+
+The bridge selects a random phrase excluding the agent's previous phrase. All event kinds share
+one per-agent cooldown; events during it are dropped, never queued for later. Cooldowns and
+last phrases are transient and reset on bridge restart. Rate limiting also applies to client
+scene cues. `agent.scene` reports only presentation transitions; the bridge rejects work events
+from that channel and ignores scenes for busy, paused, disabled or decision-waiting characters.
+The client checks arrival, music-driven dance posture and nearby colleague geometry; scene cues
+do not change task status. Normal server lifecycle events do not depend on Minecraft being open.
+
+Phrases are sent only as transient `agent.say` bubbles. They are not added to the conversation
+feed, agent logs, memory, task descriptions, model prompts, reports or reviewer verdict JSON,
+and do not affect the console's latest-reply recipient. The description is stored as presentation
+configuration, not injected into development or review instructions. The field can be edited
+manually; editing it alone does not regenerate phrase pools. This task adds no control-panel editor.
+Both updated mod and bridge are needed for scene cues. No installation, restart or push is
+performed here; visual verification of the bubbles in Minecraft remains pending.
+The local profile file was created from the template and verified by hash. Validation: mod
+build and 56 Java tests passed; the full bridge suite passed 663 tests, followed by 54 focused
+persona/studio tests after the final failure/report-order regression was added. Typechecking,
+protocol-document consistency and portable-builder syntax checks also passed.
+
 ### Console replies to the latest speaker (t32, not installed)
 
 Plain console text addresses the last Codex/Claude character to speak to the user. With no

@@ -185,6 +185,7 @@ export const SERVER_EXAMPLES: Ex<ServerMessage> = {
 };
 
 export const CLIENT_EXAMPLES: Ex<ClientMessage> = {
+  'agent.scene': { v: 1, type: 'agent.scene', agentId: 'wren', event: 'dance' },
   'studio.action': { v: 1, type: 'studio.action', id: 'studio-1', action: 'get', payload: {} },
   'observer.update': { v: 1, type: 'observer.update', key: 'chat/task-1', title: 'TradeRecord task', state: 'testing', activity: 'Running checks', ci: 'running' },
   hello: { v: 1, type: 'hello', modVersion: '0.1.0', protocol: 1, client: 'mod' },

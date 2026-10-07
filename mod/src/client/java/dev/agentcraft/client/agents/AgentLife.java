@@ -26,6 +26,7 @@ import org.jspecify.annotations.Nullable;
  * custom arm pose against the vanilla walk swing, and the held book. {@link AgentModel} applies it.
  */
 public final class AgentLife {
+	private final dev.agentcraft.workspace.PersonaScene personaScene = new dev.agentcraft.workspace.PersonaScene();
 	public static final int P_RAX = 0, P_RAY = 1, P_RAZ = 2, P_LAX = 3, P_LAY = 4, P_LAZ = 5;
 	public static final int P_RLX = 6, P_RLY = 7, P_RLZ = 8, P_LLX = 9, P_LLY = 10, P_LLZ = 11;
 	public static final int P_LEAN = 12, P_ARMW = 13, P_LEGW = 14, P_BOOK = 15;
@@ -227,6 +228,27 @@ public final class AgentLife {
 	}
 
 	// ---------------------------------------------------------------- tick
+	private boolean atRestTarget() {
+		AgentView v = e.view();
+		Anchor target = e.motion().target();
+		return dev.agentcraft.workspace.RestCoordinator.canRest(v.state.wire(), v.station, v.active, v.paused,
+			v.stale, v.awaitingUser, v.planningGathering) && !e.motion().walking() && target != null
+			&& e.position().distanceToSqr(target.pos()) < 1.25;
+	}
+
+	private void personaCue() {
+		if (!e.agentId().equals("marlow") && !e.agentId().equals("wren")) return;
+		var state = dev.agentcraft.client.foreman.Foreman.state();
+		boolean connected = state != null && !state.isStale() && state.status() != null
+			&& state.status().backend() == dev.agentcraft.client.foreman.Protocol.BackendName.OBSERVER;
+		ClientAgentEntity other = AgentManager.get().entities().get(e.agentId().equals("marlow") ? "wren" : "marlow");
+		String event = personaScene.update(connected && atRestTarget(), posture == Posture.DANCE,
+			other != null && other.life().atRestTarget() && e.position().distanceToSqr(other.position()) < 16);
+		if (!event.isEmpty()) {
+			var payload = new com.google.gson.JsonObject(); payload.addProperty("agentId", e.agentId()); payload.addProperty("event", event);
+			dev.agentcraft.client.foreman.Foreman.send("agent.scene", payload).exceptionally(error -> null);
+		}
+	}
 
 	void tick(Minecraft mc) {
 		age++;
@@ -266,6 +288,7 @@ public final class AgentLife {
 		}
 
 		posture = choose(v, walking, seatedTarget || sit > 0.5f);
+		personaCue();
 		pose(posture, tgt);
 		if (sit > 0f && !posture.name().startsWith("SIT")) {
 			// standing up / sitting down: legs follow the seat amount
