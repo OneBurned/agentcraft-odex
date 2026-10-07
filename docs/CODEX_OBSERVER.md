@@ -9,7 +9,23 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
-### Agent speech profiles (t29, not installed)
+### Installed local update (2026-10-07)
+
+Behavior commit `dd1c63a` is installed locally: console replies to the latest speaker (t32)
+and event-driven character bubbles (t29). The mod keeps version `0.4.13`; this build is
+identified by SHA-256 `820AEF8D416AADAB04BB00CD34225926DE68C709A9E0AB3CF18AC97C2B57BEEF`.
+The observer bridge was restarted and its connection verified. Client settings, building
+schematics and the existing persona profile were preserved and hash-checked. Previous mods:
+`.minecraft/agentcraft-backups/20261007-092812-499`. Profile backup:
+`artifacts/backups/update-dd1c63a-20261007-092848`. Installation record:
+`artifacts/install-dd1c63a-personas.json`.
+
+The build passed with 56 cached Java tests; TypeScript checking and 54 focused persona/studio
+tests passed. Minecraft was not launched; in-game visual verification remains pending.
+The queue is paused after restart. Task t30 (persona descriptions in full model replies) is
+unfinished and remains a question on the board; it is not included in this installed build.
+
+### Agent speech profiles (t29)
 
 The observer reads `<profile directory>/personas.json`, next to `state.json`. The local profile
 is `.agentcraft-home/traderecord`. The editable template is `tools/templates/personas.json`;
@@ -54,14 +70,14 @@ feed, agent logs, memory, task descriptions, model prompts, reports or reviewer 
 and do not affect the console's latest-reply recipient. The description is stored as presentation
 configuration, not injected into development or review instructions. The field can be edited
 manually; editing it alone does not regenerate phrase pools. This task adds no control-panel editor.
-Both updated mod and bridge are needed for scene cues. No installation, restart or push is
-performed here; visual verification of the bubbles in Minecraft remains pending.
+Both updated mod and bridge are needed for scene cues; both are installed as recorded above.
+Visual verification of the bubbles in Minecraft remains pending.
 The local profile file was created from the template and verified by hash. Validation: mod
 build and 56 Java tests passed; the full bridge suite passed 663 tests, followed by 54 focused
 persona/studio tests after the final failure/report-order regression was added. Typechecking,
 protocol-document consistency and portable-builder syntax checks also passed.
 
-### Console replies to the latest speaker (t32, not installed)
+### Console replies to the latest speaker (t32)
 
 Plain console text addresses the last Codex/Claude character to speak to the user. With no
 history it addresses Codex. The editor shows the recipient before Enter; explicit `@Codex`,
@@ -83,7 +99,7 @@ native approval waits must be handled in the desktop app. Explicit messages reta
 existing steering behavior. Hidden characters are not treated as disabled executors.
 Automatic replies stay in the editor until a successful acknowledgement, including when the
 console closes; failures keep the draft, and edited drafts are not erased by late acknowledgements.
-No update is installed or pushed by this task; in-game visual verification remains pending.
+The local update is installed as recorded above; in-game visual verification remains pending.
 Validation: all 55 Java tests and 654 bridge tests pass, the mod builds, TypeScript typechecking
 passes, and generated protocol documentation matches its schema. Java tests exercise the real
 console parser/snapshot model; bridge tests cover persistence, routing and unavailable executors.
