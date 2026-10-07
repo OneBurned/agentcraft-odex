@@ -171,6 +171,11 @@ public final class Protocol {
 		public boolean isOpen() {
 			return status == DecisionStatus.OPEN;
 		}
+
+		public boolean requiresText(@Nullable String option) {
+			return REQUEST_CHANGES.equals(option)
+				|| (kind == DecisionKind.QUESTION && "studio".equals(tool) && "Продолжить с ответом".equals(option));
+		}
 	}
 
 	public record Worktree(String id, String agentId, @Nullable String taskId, String branch, String base, String path, WorktreeStatus status,

@@ -32,6 +32,36 @@ async function setup(reviewMode: 'auto' | 'manual' | 'off' = 'off') {
 }
 
 describe('personal agent controls and dialog', () => {
+  it('shows the actual message restriction and re-enables the Claude card after it clears', async () => {
+    const h = await setup();
+    h.dialog.externalStatus = () => 'Общий разговор открыт в терминале';
+    h.studio.publishControls();
+    expect(h.fm.requireAgent('wren').controls).toMatchObject({ message: false, hint: 'Общий разговор открыт в терминале' });
+    await expect(h.studio.messageClaude('Привет')).rejects.toThrow('терминале');
+    h.dialog.externalStatus = () => undefined;
+    h.fm.setAgent('wren', { paused: true }); h.studio.publishControls();
+    expect(h.fm.requireAgent('wren').controls).toMatchObject({ message: false, hint: expect.stringContaining('на паузе') });
+    h.fm.setAgent('wren', { paused: false });
+    h.dialogRun.mockImplementation(() => new Promise(() => {}));
+    await h.studio.messageClaude('Привет'); h.studio.publishControls();
+    expect(h.fm.requireAgent('wren').controls).toMatchObject({ message: false, hint: expect.stringContaining('занята') });
+    await h.studio.controlAgent('wren', 'stop'); h.studio.publishControls();
+    expect(h.fm.requireAgent('wren').controls?.message).toBe(true);
+  });
+  it('continues a non-head agent question with the supplied text without creating another question', async () => {
+    const h = await setup();
+    const older = h.fm.createDecision({ agentId: 'wren', kind: 'question', question: 'Первый вопрос', options: ['Да'] });
+    const i = await h.start();
+    await h.studio.action('report', { id: i.id, run: i.run, status: 'question', summary: 'Как исправить?' });
+    const d = h.fm.decisions.open().find(q => q.taskId === i.id)!;
+    expect(h.fm.decisions.open()[0]!.id).toBe(older.id);
+    const answer = h.fm.decisions.answer(d.id, 'Продолжить с ответом', 'Добавь поле для текста');
+    h.studio.onDecision(answer); await h.studio.action('get', {});
+    expect(i.stage).toBe('queued'); expect(i.review).toContain('Добавь поле для текста');
+    expect(h.fm.decisions.open().map(q => q.id)).toEqual([older.id]);
+    await h.studio.pump();
+    expect(h.send.mock.calls.at(-1)![0]).toContain('Добавь поле для текста');
+  });
   it('never emits completion for a failed check or a stale successful report', async () => {
     const h = await setup(); const i = await h.start();
     const speech = vi.spyOn(h.fm.personas!, 'say');

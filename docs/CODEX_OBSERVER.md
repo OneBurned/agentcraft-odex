@@ -9,6 +9,41 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ## 0.4.0 command desk
 
+### Character-card messages and question answers (t33, not installed)
+
+The character card uses Minecraft's `MOUSE_BUTTON_LEFT` constant. The previous handler checked
+literal `0`, while Minecraft 26.3 / SDL sends left clicks as `1`, so a rendered enabled button
+ignored real mouse clicks. The live bridge snapshot during investigation allowed messages for
+both Codex and Claude; it was not blocking the observed action. This mismatch was confirmed
+against the local Minecraft input sources and a Java regression using real `MouseButtonEvent`
+values. A live graphical reproduction was unavailable: the game DevBridge did not respond.
+
+Clicking **Сообщение** or pressing **M** opens the same focused vanilla input inside the card.
+Enter sends; successful acknowledgement closes the input, while a failed send keeps the text.
+Responses continue to use the character's existing message journal. The enabled state and
+activation use the same current bridge controls. Missing controls, an offline connection,
+Claude's pause/busy state or a conversation held by terminal/Code disable messaging with a
+Russian reason; hovering the disabled action shows the full reason. An open question can be
+answered independently of permission to start a new conversation.
+
+**Ответить** opens the exact decision ID in the queue, with the character card as its parent;
+it no longer depends on that decision being the oldest overall or of its kind. The queue can
+navigate to other open decisions. **Продолжить с ответом** opens/focuses the answer field and
+sends both the selected option and the entered text. This also applies to inline fallback
+options and change requests. The bridge rejects an empty studio continuation before marking
+the decision answered, keeping the original question open instead of generating a duplicate.
+Cancellation still needs no text. Card labels and question-screen controls/statuses are Russian;
+user-authored text and protocol option values are preserved.
+
+Validation: Java tests cover SDL button values, message restrictions and required-text options;
+bridge tests cover empty-answer rejection, cancellation, free text, terminal/pause/busy controls,
+and resuming a non-head question with its supplied answer. The mod builds with 60 passing Java
+tests; TypeScript checking, protocol-document consistency, 55 decision/studio tests and 15
+observer tests pass. No installation, restart,
+push or real model message was performed for this task. Manual in-game verification remains:
+click/M, Cyrillic typing, Enter/failed-send draft retention, journal reply, blocked-control hint,
+and answering the second agent's question with another question still open.
+
 ### Installed local update (2026-10-07)
 
 Behavior commit `dd1c63a` is installed locally: console replies to the latest speaker (t32)
