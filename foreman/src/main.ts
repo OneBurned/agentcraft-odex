@@ -12,6 +12,7 @@ import { Foreman } from './foreman.js';
 import { ForemanServer } from './server.js';
 import { claimRunFiles, homeRunFile, liveOwner, profileRunFile, releaseRunFiles } from './runfile.js';
 import { isInsideOrEqual } from './util/fsx.js';
+import { assertProfileAvailable } from './profile-maintenance.js';
 
 async function createDemoRepo(cfg: Config, dir: string): Promise<void> {
   const mod = (await import(pathToFileURL(path.join(cfg.projectRoot, 'sandbox', 'create-demo.mjs')).href)) as {
@@ -34,6 +35,7 @@ export async function main(argv: string[]): Promise<void> {
     return;
   }
   const cfg = loadConfig(argv);
+  assertProfileAvailable(cfg.dataDir);
   const log = consoleLogger('foreman', { debug: cfg.debug, quiet: cfg.quiet });
 
   // one Foreman per profile (two would both write its state.json) - checked before --reset wipes it

@@ -28,6 +28,7 @@ await build({...opts,entryPoints:[path.join(root,'foreman/src/claude-workspace-s
 await build({...opts,entryPoints:[path.join(root,'tools/portable-control.mjs')],outfile:path.join(out,'control.mjs')});
 await build({...opts,entryPoints:[path.join(root,'tools/codex-progress.mjs')],outfile:path.join(out,'codex-progress.mjs')});
 await build({...opts,entryPoints:[path.join(root,'tools/studio.mjs')],outfile:path.join(out,'studio.mjs')});
+await build({...opts,entryPoints:[path.join(root,'tools/migrate-team.ts')],outfile:path.join(out,'migrate-team.mjs')});
 await build({...opts,entryPoints:[path.join(root,'tools/connect-codex-chat.ts')],outfile:path.join(out,'connect-codex-chat.mjs')});
 await build({...opts,entryPoints:[path.join(root,'tools/klava-terminal.mjs')],outfile:path.join(out,'foreman/src/agent-terminal.mjs')});
 // Replace only declared presentation resources. Classes, skins and third-party notices stay intact.

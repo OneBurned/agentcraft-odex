@@ -9,9 +9,11 @@ import { textChunks } from './codex-desktop.js';
 import type { Decision, ReviewProgress } from './protocol.js';
 import { ClaudeReviewer, cleanHead, gitText, claudeLoggedIn, findClaude, type Reviewer } from './studio-review.js';
 import { ClaudeDialog, type DialogRunner } from './claude-dialog.js';
-import { loadClaudeWorkspace } from './claude-workspace.js';
+import { loadClaudeWorkspace, claudeWorkspace } from './claude-workspace.js';
 import { authorizePlanning, DraftInput, sameDirectory } from './claude-planning.js';
 import { ARTIFACT_STYLE_RULE, personaPrompt } from './persona-prompt.js';
+import { AgentConnections, Connection } from './agent-connections.js';
+import { loadCast } from './cast.js';
 
 type Stage = 'plan' | 'queued' | 'coding' | 'review' | 'question' | 'done' | 'cancelled';
 interface Item { id: string; stage: Stage; expected: string; base?: string; head?: string; run?: string; checks?: string; review?: string; rounds: number; ranges?: { base: string; head: string }[]; draftKey?: string; draftHash?: string; }
@@ -24,7 +26,7 @@ const text = z.string().trim().min(1).max(6000);
 const taskInput = z.object({ title: text.max(200), description: text.max(3000), expected: text.max(1500), deps: z.array(z.string()).max(50).default([]), priority: z.number().int().min(0).max(100).default(0) });
 const profileInput = z.object({ id: z.string().regex(/^[a-z0-9_-]{1,64}$/), name: text.max(28), skin: z.string().regex(/^[a-z0-9_-]{1,40}$/), color: z.string().regex(/^#[a-fA-F0-9]{6}$/), enabled: z.boolean(), visible: z.boolean() });
 
-/** Pre-team profile queue; retained until explicit A4 migration, never used for team.json. */
+/** Original queue, also retained for explicitly migrated pairs until the role queue is available. */
 export class Studio {
   readonly data: StudioData;
   private activity?: ChatActivity;
@@ -53,7 +55,13 @@ export class Studio {
       for (const item of this.data.items) if (item.stage === 'coding') this.question(item, 'marlow', 'Мост был перезапущен во время работы. Проверь чат и изменения перед повторным запуском.');
       delete this.data.active;
     }
-    const workspace = () => loadClaudeWorkspace(this.fm.config.dataDir);
+    const workspace = () => {
+      if (!this.fm.migratedPair) return loadClaudeWorkspace(this.fm.config.dataDir);
+      const connections = new AgentConnections(this.fm.config.dataDir, this.fm.team!);
+      const c = connections.read('wren');
+      if (c?.transport !== 'claude-code') throw new Error('Нет прежнего подключения Claude.');
+      connections.assertCurrent(c); return claudeWorkspace(c.workspace);
+    };
     this.reviewer = reviewer ?? new ClaudeReviewer(() => findClaude(this.data.claudePath), workspace);
     this.dialogRunner = dialogRunner ?? new ClaudeDialog(() => findClaude(this.data.claudePath), workspace);
     this.checkAuth = reviewer === undefined;
@@ -290,6 +298,10 @@ export class Studio {
   }
   private fail(e: unknown) { this.data.mode = 'paused'; this.data.notice = (e as Error).message; this.save(); }
   syncRoster() {
+    if (this.fm.migratedPair) this.data.profiles = ['marlow', 'wren'].map(id => {
+      const a = this.fm.team!.get(id)!;
+      return { id, name: a.name, skin: a.appearance.skin, color: a.appearance.color, enabled: a.enabled, visible: a.visible };
+    });
     for (const p of this.data.profiles) {
       const a = this.fm.requireAgent(p.id);
       const title = p.id === 'marlow' ? 'Разработчик' : 'Ревьюер';
@@ -306,11 +318,20 @@ export class Studio {
       repo: this.fm.repos.defaultRepo()?.path ?? '', chat: this.activity?.phase ?? 'unavailable',
       helper: this.reportHelper(), port: this.fm.config.port, notes: this.fm.memory.list(), skins: this.availableSkins() };
   }
-  private availableSkins(): string[] { return [...this.fm.cast.map(a => a.id), 'girl_swimsuit', 'gta_sa_girl', 'skuf', 'ded_vasyan', 'girl_no_armor', 'boy_no_armor']; }
+  private availableSkins(): string[] { return [...loadCast(this.fm.config.projectRoot).cast.map(a => a.id), 'girl_swimsuit', 'gta_sa_girl', 'skuf', 'ded_vasyan', 'girl_no_armor', 'boy_no_armor']; }
   async action(action: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     // Pause must be able to abort an in-flight review; reviews never hold the command lock.
     return this.lock(async () => {
       if (action === 'get') return this.view();
+      if (this.fm.migratedPair && action === 'connection.bind') {
+        const current = new AgentConnections(this.fm.config.dataDir, this.fm.team!);
+        const id = String(payload.id), old = current.read(id);
+        const next = Connection.parse({ ...(payload.connection as object), version: 1, agentId: id });
+        if (id !== 'marlow' || old?.transport !== 'codex-desktop' || next.transport !== 'codex-desktop' || old.threadId !== next.threadId)
+          throw new Error('Для перенесённой очереди можно обновить адрес только прежнего чата Codex. Смена разговора требует отдельного переноса.');
+        const team = current.bind(payload, () => { if (this.data.active) throw new Error('Сначала приостанови очередь.'); });
+        return { team };
+      }
       if (action === 'persona.get' || action === 'persona.save') {
         if (!this.fm.personas) throw new Error('Редактор характеров доступен только в режиме наблюдения.');
         return action === 'persona.get' ? this.fm.personas.edit(payload.agentId) : this.fm.personas.saveEdit(payload);
@@ -321,6 +342,11 @@ export class Studio {
         if (!this.data.profiles.some(a => a.id === p.id)) throw new Error('Unknown agent');
         if ((this.data.active || this.dialogAbort) && !p.enabled) throw new Error('Сначала останови текущую задачу или ответ. Скрыть персонажа можно без остановки.');
         if (!this.availableSkins().includes(p.skin)) throw new Error('Неизвестный встроенный скин. Свой PNG выбирается в клиенте.');
+        if (this.fm.migratedPair) {
+          const a = this.fm.team!.get(p.id)!;
+          this.fm.teamAction('team.update', { id: p.id, revision: this.fm.team!.snapshot().revision,
+            patch: { name: p.name, enabled: p.enabled, visible: p.visible, appearance: { ...a.appearance, skin: p.skin, color: p.color } } });
+        }
         Object.assign(this.data.profiles.find(a => a.id === p.id)!, p); this.syncRoster();
       } else if (action === 'claude-login') {
         if (this.data.active || this.login) throw new Error('Дождись текущей работы или завершения входа.');

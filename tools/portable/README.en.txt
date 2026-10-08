@@ -5,7 +5,7 @@ A new profile creates an empty team.json. Manage agents with studio.mjs actions
 team.get/create/update/disable/archive/restore. Each agent has its own connection through
 connection.bind/get/check/send/control/unbind/importCodex. Two agents of one provider need distinct
 conversations. The role queue and setup UI are subsequent stages. Protocol 2 requires matching
-mod, bridge and tools. Legacy migration is a separate stage.
+mod, bridge and tools. Existing pairs can use the explicit migration command below.
 
 This is a neutral build of the existing observer mode: Codex performs work in a
 connected desktop conversation or its own CLI session; Claude can review changes. Arbitrary teams are configured
@@ -69,6 +69,28 @@ for this transport. Your CLI configuration and trusted hooks still apply.
 Do not copy credentials into binding.json or redistribute a used profile.
 Process tests and the installed CLI login probe passed; a manual two-model-session run
 is still pending. No model task is launched by connection.check.
+
+MIGRATE AN EXISTING PAIR
+Pause the queue, finish/stop active tasks, close Minecraft and stop the old bridge.
+Return the shared Claude conversation from terminal/Code. Leave Codex open and idle.
+From this package folder run:
+  runtime/node.exe migrate-team.mjs apply --profile-dir "D:/AgentCraft/data/observer" --game-dir "D:/Minecraft/Fabric" --codex-binding "D:/AgentCraft/codex-chat.json" --backup-dir "D:/AgentCraft-backups/before-team"
+Replace all paths with your own absolute paths. Select a NEW backup folder outside the
+profile, game and Claude workspace. A busy/unknown conversation or active task blocks migration.
+No model task is started. Symlinks/junctions and customized extra agents require separate handling.
+The tool backs up the full profile, Claude workspace, Codex binding and AgentCraft game
+settings/skins/world metadata. It keeps the original two IDs, history, pending replies,
+paused cards, personas and furniture assignments; unused default NPCs are not added.
+Provider-owned native conversation history and login stay in place and are not copied.
+The migrated pair retains its original queue, initially paused. Changes to composition/roles
+await the general role queue; names and appearance remain editable. Fresh teams are unaffected.
+Repeating a successful apply does not change files. To restore, stop work/game/bridge and
+return Claude again; run the same command with restore instead of apply and the SAME paths.
+Current managed data is backed up under before-restore-<UUID> before restoring original bytes.
+New files in managed profile/workspace/skin folders are removed there, but kept in that backup.
+Restore compatible old bridge/mod binaries separately if reverting to an older release.
+If interrupted, use restore before starting the bridge; its maintenance guard blocks partial data.
+This is not a full Minecraft world or account backup. Never distribute used data or backups.
 
 SETTINGS AND TEMPLATES
 The command desk edits names, appearance, personality and phrases. The launcher

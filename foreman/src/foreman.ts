@@ -33,6 +33,7 @@ import { TaskError, TaskGraph } from './taskgraph.js';
 import { setUserName, userName } from './user.js';
 import { truncate } from './util/text.js';
 import { PersonaSpeech } from './personas.js';
+import { assertProfileAvailable } from './profile-maintenance.js';
 
 export interface Backend {
   assertAgentIdle?(id: string): boolean | void;
@@ -96,6 +97,7 @@ export class Foreman {
   private closed = false;
 
   constructor(opts: ForemanOptions) {
+    assertProfileAvailable(opts.config.dataDir);
     this.config = opts.config;
     this.log = opts.logger ?? consoleLogger('foreman', { debug: opts.config.debug, quiet: opts.config.quiet });
     // Capture provenance before Store can quarantine an unreadable state and return an empty model.
@@ -183,6 +185,11 @@ export class Foreman {
     this.store.markDirty();
   }
 
+  get migratedPair(): boolean {
+    const marker = this.store.data.backend.teamMigration as { version?: number; kind?: string } | undefined;
+    return !!this.team && marker?.version === 1 && marker.kind === 'legacy-pair';
+  }
+
   syncTeam(): void {
     if (!this.team) return;
     const previous = this.agents();
@@ -197,7 +204,7 @@ export class Foreman {
     this.store.data.agents = next;
     for (const a of previous) if (!next.some(n => n.id === a.id)) this.emit({ type: 'agent.remove', agentId: a.id });
     for (const a of next) this.emit({ type: 'agent.upsert', agent: a });
-    if (!next.some(a => a.id === this.store.data.replyAgentId && a.enabled)) delete this.store.data.replyAgentId;
+    if (!this.migratedPair && !next.some(a => a.id === this.store.data.replyAgentId && a.enabled)) delete this.store.data.replyAgentId;
     this.store.markDirty();
     this.backend?.onTeamChanged?.();
   }
@@ -205,6 +212,8 @@ export class Foreman {
   teamAction(action: string, payload: Record<string, unknown>): Record<string, unknown> {
     if (!this.team) throw new ClientError('Этот профиль ещё использует прежнюю команду. Сначала нужен перенос A4.');
     if (action === 'team.get') return { ...this.team.snapshot() };
+    if (this.migratedPair && (action !== 'team.update' || !payload.patch || Object.keys(payload.patch as object).some(k => !['name', 'appearance', 'enabled', 'visible'].includes(k))))
+      throw new ClientError('Перенесённая очередь сохраняет двух прежних исполнителей. Изменение состава и ролей станет доступно с новой очередью; внешность и имена можно менять сейчас.');
     const result = this.team.change(action.replace(/^team\./, ''), payload, id => this.assertTeamAgentIdle(id));
     this.syncTeam();
     return { ...result };
@@ -566,7 +575,7 @@ export class Foreman {
 
   private async dispatch(msg: ClientMessage, reply: Reply): Promise<Record<string, unknown> | undefined> {
     if (msg.type === 'studio.action' && msg.action.startsWith('team.')) return this.teamAction(msg.action, msg.payload);
-    if (this.team && !['hello', 'repo.add', 'diff.request', 'agent.scene', 'studio.action', 'user.message', 'agent.action', 'observer.update'].includes(msg.type))
+    if (this.team && !this.migratedPair && !['hello', 'repo.add', 'diff.request', 'agent.scene', 'studio.action', 'user.message', 'agent.action', 'observer.update'].includes(msg.type))
       throw new ClientError('Агент не подключён. Выполнение ролей для новой команды будет доступно после настройки подключений.');
     if (this.team && (msg.type === 'user.message' || msg.type === 'agent.action')) {
       const id = this.resolveAgentId(msg.type === 'user.message' ? msg.to : msg.agentId);

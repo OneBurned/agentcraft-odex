@@ -25,15 +25,20 @@ export function loadClaudeWorkspace(dataDir: string): ClaudeWorkspace | undefine
   return claudeWorkspace(directory);
 }
 
-export function claudeWorkspace(directory: string): ClaudeWorkspace {
+/** Validate/read workspace documents without resolving a runnable MCP server or source loader. */
+export function workspaceInstructions(directory: string): string {
   WorkspaceConfig.parse(JSON.parse(fs.readFileSync(path.join(directory, 'access.json'), 'utf8')));
   const names = ['CLAUDE.md', 'PROJECTS.md', 'MEMORY.md'];
   if (fs.existsSync(path.join(directory, 'WORKSPACE.md'))) names.push('WORKSPACE.md');
-  const instructions = names.map(name => {
+  return names.map(name => {
     const file = path.join(directory, name);
     if (fs.statSync(file).size > 64000) throw new Error(`Слишком большой файл памяти: ${name}`);
     return `\n--- ${name} ---\n${fs.readFileSync(file, 'utf8')}`;
   }).join('\n');
+}
+
+export function claudeWorkspace(directory: string): ClaudeWorkspace {
+  const instructions = workspaceInstructions(directory);
   const here = path.dirname(fileURLToPath(import.meta.url));
   const bundled = path.join(here, 'claude-workspace-server.mjs');
   const serverArgs = fs.existsSync(bundled) ? [bundled] : ['--import', import.meta.resolve('tsx'), path.join(here, 'claude-workspace-server.ts')];

@@ -145,6 +145,15 @@ matching old `codex-chat-state.json` cursor if this agent does not already have 
 the import does not duplicate agents or overwrite a newer cursor. This is binding migration
 only: it does not convert an old profile into a team; full profile migration remains A4.
 
+### Existing team migration (A4 / t43)
+
+The explicit offline `migrate-team apply|restore` command is described in
+[TEAM_MIGRATION.md](TEAM_MIGRATION.md). It backs up data before activating `team.json`, keeps
+`marlow`/`wren` IDs and existing conversations, and pauses the queue. Migrated pairs retain the
+original studio queue/persona editor until the general role queue is ready; no second adapter
+owns their conversations. Default unused NPCs are omitted; customized extra agents need a decision.
+Fresh teams retain A2/A3 behavior. Starting the bridge alone does not migrate an old profile.
+
 ### Codex CLI connection (A3b / t42)
 
 CLI agents do not use the desktop app, named pipes, or desktop control internals. The transport

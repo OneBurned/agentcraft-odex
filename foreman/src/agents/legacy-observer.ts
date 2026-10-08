@@ -4,6 +4,7 @@ import type { AgentState, ObserverUpdate, Station, TaskStatus } from '../protoco
 import { DesktopChat, chatConfigPath, textChunks, type ChatActivity, type ChatControl } from '../codex-desktop.js';
 import path from 'node:path';
 import { Studio } from '../legacy-studio.js';
+import { AgentConnections } from '../agent-connections.js';
 
 const stations: Record<ObserverUpdate['state'], Station> = {
   thinking: 'meeting', reading: 'library', editing: 'desk', running: 'terminal',
@@ -26,6 +27,7 @@ export class LegacyObserverBackend implements Backend {
   private chatSeenAt = 0;
   private detail?: { at: number; turnKey?: string; state: AgentState; station: Station; activity: string };
   constructor(protected fm: Foreman, private chatFile = chatConfigPath()) {}
+  onTeamChanged() { this.studio?.syncRoster(); }
 
   async start(): Promise<void> {
     const lead = this.fm.requireAgent('marlow');
@@ -41,7 +43,18 @@ export class LegacyObserverBackend implements Backend {
     this.fm.setStatus({ auth: 'ok', message: guidance });
     this.timer = setInterval(() => this.expireActivity(), 30_000);
     this.timer.unref();
+    const connections = this.fm.migratedPair ? new AgentConnections(this.fm.config.dataDir, this.fm.team!) : undefined;
+    if (connections) {
+      const c = connections.read('wren');
+      if (c?.transport !== 'claude-code') throw new Error('Перенесённый профиль требует прежнее подключение Claude.');
+      connections.assertCurrent(c);
+    }
     this.chat = new DesktopChat({ configFile: this.chatFile, stateFile: path.join(this.fm.config.dataDir, 'codex-chat-state.json'),
+      ...(connections ? { binding: () => {
+        const c = connections.read('marlow');
+        if (c?.transport !== 'codex-desktop') throw new Error('Перенесённая очередь требует прежний Desktop-чат Codex.');
+        connections.assertCurrent(c); return c;
+      } } : {}),
       personaDescription: () => this.fm.personas?.description('marlow'),
       onStatus: message => { this.chatGuidance = message; this.fm.setStatus({ auth: 'ok', message }); },
       onActivity: activity => this.onChatActivity(activity),
