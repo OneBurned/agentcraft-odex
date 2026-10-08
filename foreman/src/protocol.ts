@@ -112,6 +112,7 @@ export const LogEntry = z.object({
 export type LogEntry = z.infer<typeof LogEntry>;
 
 export const ReviewProgress = z.object({
+  reviewerId: TeamId.optional().describe("Agent assigned to this review attempt; absent in historical reviews. Never infer a fixed reviewer."),
   head: z.string().describe('Exact commit submitted to the reviewer; clients may show its first 8 characters.'),
   phase: z.enum(['running', 'finished', 'paused', 'error']),
   startedAt: Ts.describe('Start of this review attempt; use this, not task.updatedAt, to select the latest review.'),

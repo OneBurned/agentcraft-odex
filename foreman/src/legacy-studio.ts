@@ -527,7 +527,7 @@ export class Studio {
     if (this.data.personalPaused!.includes('wren')) throw new Error('Сними личную паузу Claude.');
     const t = this.fm.tasks.require(i.id); const controller = new AbortController(); this.reviewAbort = controller;
     this.data.active = i.id;
-    this.fm.tasks.update(i.id, { studioReview: { head: i.head!, phase: 'running', startedAt: this.fm.ctx.now(), step: 'Начинаю проверку', waitingForUser: false } });
+    this.fm.tasks.update(i.id, { studioReview: { reviewerId: 'wren', head: i.head!, phase: 'running', startedAt: this.fm.ctx.now(), step: 'Начинаю проверку', waitingForUser: false } });
     this.save(); this.fm.setAgent('wren', { paused: false }); this.fm.act('wren', 'reading', 'mergestation', `Ревью: ${t.title}`);
     this.fm.setAgent('wren', { taskId: i.id });
     const started = `Ревью ${i.id}: начинаю проверку «${t.title}».`;

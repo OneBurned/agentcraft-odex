@@ -1,6 +1,5 @@
 package dev.agentcraft.hq;
 
-import dev.agentcraft.Cast;
 import dev.agentcraft.block.DecisionPodiumBlock;
 import dev.agentcraft.block.FacingEntityBlock;
 import dev.agentcraft.block.GlowStripBlock;
@@ -129,19 +128,18 @@ public final class TestRoomBuilder implements HqBuilder {
 		for (int x = -6; x <= 6; x++) {
 			set(level, x, FEET, -7, slab);
 		}
-		List<String> ids = Cast.ids();
 		for (int i = 0; i < 6; i++) {
 			int mx = -5 + 2 * i;
-			String id = i < ids.size() ? ids.get(i) : "agent" + i;
+			String id = "slot:" + (i + 1);
 			BlockPos m = new BlockPos(mx, FEET + 1, -7);
 			set(level, m, ModBlocks.MONITOR.defaultBlockState().setValue(PanelBlock.FACING, Direction.SOUTH).setValue(MonitorBlock.LIT, true));
 			panels.add(m);
 			bind(level, m, id);
-			a.put(AnchorNames.desk(id), mx + 0.5, FEET, -5.4, 180, 0);
+			a.put(AnchorNames.slot(AnchorNames.SHARED_DESK, i + 1), mx + 0.5, FEET, -5.4, 180, 0);
 			// a desk chair at the desk spot (agents sit on a seat block at desk_<id>; its back faces away from the desk)
 			set(level, mx, FEET, -6, Blocks.DARK_OAK_STAIRS.defaultBlockState().setValue(StairBlock.FACING, Direction.SOUTH));
-			a.put(AnchorNames.monitor(id), mx + 0.5, FEET + 1.5, -6.75, 0, 0);
-			a.cameraLookAt("desk_" + id, mx + 0.5, FEET + 1.75, -2.6, mx + 0.5, FEET + 1.4, -6.75);
+			a.put(AnchorNames.slot(AnchorNames.SHARED_MONITOR, i + 1), mx + 0.5, FEET + 1.5, -6.75, 0, 0);
+			a.cameraLookAt("shared_desk_" + (i + 1), mx + 0.5, FEET + 1.75, -2.6, mx + 0.5, FEET + 1.4, -6.75);
 		}
 		for (int x = -6; x <= 6; x += 2) {
 			set(level, x, FEET + 1, -7, (x % 4 == 0 ? Blocks.POTTED_FERN : Blocks.POTTED_AZALEA).defaultBlockState());
@@ -223,11 +221,10 @@ public final class TestRoomBuilder implements HqBuilder {
 		a.put(AnchorNames.slot(AnchorNames.USER, 3), 0.5, FEET, 9.4, 180, 0);
 		a.cameraLookAt("podium", 0.5, FEET + 1.62, 4.4, 0.5, FEET + 1.0, 7.5);
 		// test bench: one status lamp per agent, agents stand behind them facing north
-		List<String> ids = Cast.ids();
 		for (int i = 0; i < 6; i++) {
 			BlockPos p = new BlockPos(3 + i, FEET, 7);
 			set(level, p, ModBlocks.STATUS_LAMP.defaultBlockState().setValue(StatusLampBlock.STATUS, LampStatus.IDLE));
-			bind(level, p, "agent:" + (i < ids.size() ? ids.get(i) : "agent" + i));
+			bind(level, p, "agent:slot:" + (i + 1));
 		}
 		a.put(AnchorNames.slot(AnchorNames.TESTBENCH, 1), 3.7, FEET, 8.6, 180, 0);
 		a.put(AnchorNames.slot(AnchorNames.TESTBENCH, 2), 5.3, FEET, 8.6, 180, 0);

@@ -22,7 +22,10 @@ public record ReviewStationCard(Kind kind, @Nullable Decision decision, @Nullabl
 		return new ReviewStationCard(latest == null ? Kind.EMPTY : Kind.REVIEW, null, latest);
 	}
 
-	public String status(boolean stale) {
+    public String reviewerId() {
+        return task == null || task.studioReview() == null || task.studioReview().reviewerId() == null ? "" : task.studioReview().reviewerId();
+    }
+    public String status(boolean stale) {
 		if (kind != Kind.REVIEW || task == null) return "";
 		if (stale) return "Нет связи";
 		var review = task.studioReview();

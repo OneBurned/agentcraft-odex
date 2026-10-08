@@ -20,7 +20,7 @@ public class ConsoleReplyTest {
     }
     @Test public void latestUserDirectedAnswerOrQuestionWinsEvenAtSameTimestamp() {
         ForemanState s = state();
-        assertEquals("", message(s, "Привет").to());
+        assertTrue(ConsoleCommands.parse("Привет", s) instanceof ConsoleCommands.Invalid);
         feed(s, "message", "wren", "user");
         assertEquals("wren", message(s, "Привет").to());
         assertEquals("ответ: Клава", ConsoleCommands.describe(message(s, "Привет"), s));
@@ -28,7 +28,7 @@ public class ConsoleReplyTest {
         feed(s, "task", "marlow", "user");
         feed(s, "message", "marlow", "wren");
         feed(s, "message", "kit", "user");
-        assertEquals("kit", message(s, "Привет").to());
+        assertEquals("wren", message(s, "Привет").to()); // unknown historical author cannot become the reply target
         feed(s, "decision", "marlow", "user");
         assertEquals("marlow", message(s, "Да").to());
         feed(s, "message", "wren", "user"); // review conclusion uses this same envelope
@@ -36,14 +36,14 @@ public class ConsoleReplyTest {
     }
     @Test public void explicitTargetsAndCommandsKeepTheirPriority() {
         ForemanState s = state(); feed(s, "message", "wren", "user");
-        assertEquals("marlow", message(s, "@Codex задача").to());
-        assertEquals("wren", message(s, "@Claude вопрос").to());
+        assertEquals("marlow", message(s, "@marlow задача").to());
+        assertEquals("wren", message(s, "@wren вопрос").to());
         assertEquals("wren", message(s, "@Клава вопрос").to());
-        assertEquals("all", message(s, "@all вопрос").to());
-        assertFalse(message(s, "@Codex задача").reply());
+        assertTrue(ConsoleCommands.parse("@all вопрос", s) instanceof ConsoleCommands.Invalid);
+        assertFalse(message(s, "@marlow задача").reply());
         for (String cmd : new String[]{"pause", "resume", "stop"}) {
             var action = (ConsoleCommands.AgentAction) ConsoleCommands.parse("/" + cmd, s);
-            assertEquals(java.util.List.of("marlow"), action.agentIds());
+            assertEquals(java.util.List.of("wren"), action.agentIds());
         }
         assertTrue(ConsoleCommands.parse("/goal задача", s) instanceof ConsoleCommands.Goal);
     }
@@ -58,14 +58,14 @@ public class ConsoleReplyTest {
             assertEquals("wren", message(s, "Мой полный\nтекст").to());
             assertEquals("Мой полный\nтекст", message(s, "Мой полный\nтекст").text());
             assertNotNull(ConsoleCommands.replyError(message(s, "Да"), s));
-            assertNull(ConsoleCommands.replyError(message(s, "@Codex Да"), s));
+            assertNull(ConsoleCommands.replyError(message(s, "@marlow Да"), s));
         }
     }
     @Test public void snapshotsRestorePersistedChoiceOrDeriveLegacyHistoryAndResetOtherProfile() {
         ForemanState s = state();
-        apply(s, "snapshot", "{\"replyAgentId\":\"wren\",\"feed\":[]}");
+        apply(s, "snapshot", "{\"agents\":[{\"id\":\"wren\"},{\"id\":\"marlow\"}],\"replyAgentId\":\"wren\",\"feed\":[]}");
         assertEquals("wren", s.replyAgentId());
-        apply(s, "snapshot", "{\"feed\":[{\"kind\":\"message\",\"agentId\":\"marlow\",\"to\":\"user\",\"text\":\"Ответ\"}]}");
+        apply(s, "snapshot", "{\"agents\":[{\"id\":\"wren\"},{\"id\":\"marlow\"}],\"feed\":[{\"kind\":\"message\",\"agentId\":\"marlow\",\"to\":\"user\",\"text\":\"Ответ\"}]}");
         assertEquals("marlow", s.replyAgentId());
         feed(s, "message", "wren", "user");
         for (int i = 0; i < 205; i++) feed(s, "task", "marlow", "user");

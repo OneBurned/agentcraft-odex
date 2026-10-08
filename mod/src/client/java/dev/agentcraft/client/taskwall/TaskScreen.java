@@ -514,7 +514,14 @@ public class TaskScreen extends Screen {
 	private void press(Btn b) {
 		if (!b.enabled()) return;
 		switch (b.id()) {
-			case "message" -> minecraft.gui.setScreen(new dev.agentcraft.client.console.ConsoleScreen("@Codex По задаче " + taskId + " («" + (task() == null ? "" : task().title()) + "»): "));
+			case "message" -> {
+                Task current = task();
+                String recipient = current == null ? null : current.assignee();
+                if (recipient == null || Foreman.state().agent(recipient) == null) {
+                    feedback = "У задачи нет исполнителя в текущей команде. Выбери адресата в консоли.";
+                    feedbackError = true;
+                } else minecraft.gui.setScreen(new dev.agentcraft.client.console.ConsoleScreen("@" + recipient + " По задаче " + taskId + " («" + current.title() + "»): "));
+            }
 			case "plan" -> minecraft.gui.setScreen(dev.agentcraft.client.studio.StudioScreen.planningDesk());
 			case "prev" -> browse(-1);
 			case "next" -> browse(1);

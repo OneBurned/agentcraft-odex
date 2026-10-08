@@ -8,7 +8,7 @@ import java.util.List;
  * least the required names below; extra names are fine.
  *
  * <pre>
- * desk_&lt;agentId&gt;      feet spot at the agent's desk, facing the monitor          (one per cast agent)
+ * desk_&lt;agentId&gt;      feet spot at the agent's desk, facing the monitor          (optional personal place)
  * monitor_&lt;agentId&gt;   centre of that agent's monitor screen, yaw = screen front
  * &lt;station&gt;           shared station spot: library, terminal, testbench, mergestation, meeting, lounge, user
  * &lt;station&gt;_2.._N     extra slots at the same station (agents spread over them, see {@link #slot})
@@ -21,6 +21,8 @@ import java.util.List;
  * </pre>
  */
 public final class AnchorNames {
+	public static final String SHARED_DESK = "shared_desk";
+	public static final String SHARED_MONITOR = "shared_monitor";
 	public static final String DESK_PREFIX = "desk_";
 	public static final String MONITOR_PREFIX = "monitor_";
 	public static final String CAM_PREFIX = "cam_";

@@ -149,8 +149,12 @@ public final class Protocol {
 
 	/** Optional v1 studio-review projection; legacy task messages omit it. */
 	public record ReviewProgress(String head, String phase, long startedAt, String step, @Nullable String verdict,
-		@Nullable String summary, boolean waitingForUser) {
-	}
+		@Nullable String summary, boolean waitingForUser, @Nullable String reviewerId) {
+        public ReviewProgress(String head, String phase, long startedAt, String step, @Nullable String verdict,
+            @Nullable String summary, boolean waitingForUser) {
+            this(head, phase, startedAt, step, verdict, summary, waitingForUser, null);
+        }
+    }
 
 	public record AgentIdentity(String id, String name, String provider) {}
 

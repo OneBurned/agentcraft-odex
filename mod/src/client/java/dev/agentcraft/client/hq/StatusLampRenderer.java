@@ -138,11 +138,11 @@ public class StatusLampRenderer extends StationRenderer<StatusLampBlockEntity, S
 	private static void extractAgentHologram(State s) {
 		ForemanState st = Foreman.state();
 		Font font = Minecraft.getInstance().font;
-		String id = s.binding.startsWith("agent:") ? s.binding.substring(6) : "marlow";
+		String id = dev.agentcraft.client.foreman.AgentSelection.binding(s.binding, st);
 		Agent a = st == null ? null : st.agent(id);
 		Task task = a == null || a.taskId() == null ? null : st.task(a.taskId());
 		s.cardW = 208;
-		s.agentName = TextUtil.ellipsize(font, a == null ? "Codex" : a.name(), 66);
+		s.agentName = TextUtil.ellipsize(font, a == null ? "Не назначен" : a.name(), 66);
 		s.statusWord = s.stale ? "Нет связи" : a == null ? "Ожидание" : a.isPaused() ? "Пауза" : switch (a.state()) {
 			case THINKING -> "Обдумывает";
 			case READING -> "Читает";

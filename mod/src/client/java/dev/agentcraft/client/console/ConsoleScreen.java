@@ -92,6 +92,7 @@ public class ConsoleScreen extends Screen {
 		catch (RuntimeException e) { prefs.consoleTextScale = previous; ConsoleLog.add(Tone.ERROR, "Не удалось сохранить размер шрифта."); }
 	}
 	private final List<int[]> chipHits = new ArrayList<>(); // x, y, w, h, agent index
+	private int rosterPage;
 	private final List<String> chipAgents = new ArrayList<>();
 	private int popupX;
 	private int popupY;
@@ -523,9 +524,10 @@ public class ConsoleScreen extends Screen {
 		// roster chips: start a message
 		for (int[] hit : chipHits) {
 			if (mx >= hit[0] && mx < hit[0] + hit[2] && my >= hit[1] && my < hit[1] + hit[3]) {
-				String id = chipAgents.get(hit[4]);
+				if (hit[4] < 0) { rosterPage++; return true; }
+                String id = chipAgents.get(hit[4]);
 				Agent a = Foreman.state() == null ? null : Foreman.state().agent(id);
-				String tag = "@" + (a != null ? a.name() : id).toLowerCase(Locale.ROOT) + " ";
+				String tag = "@" + id + " ";
 				if (input.isEmpty()) {
 					input.set(tag);
 				} else {
@@ -796,11 +798,12 @@ public class ConsoleScreen extends Screen {
 	}
 
 	private int rosterWidth(@Nullable ForemanState s) {
-		return s == null ? 0 : s.agents().size() * ROSTER_STEP;
+		return s == null ? 0 : (Math.min(s.agents().size(), rosterCapacity()) + (s.agents().size() > rosterCapacity() ? 1 : 0)) * ROSTER_STEP;
 	}
 
 	/** Roster portraits: 16 px faces (2x), so who is on shift reads at a glance. */
 	private static final int ROSTER_STEP = 21;
+    private int rosterCapacity() { return Math.max(1, (panelW / 2) / ROSTER_STEP - 1); }
 
 	private void drawRoster(GuiGraphicsExtractor g, @Nullable ForemanState s, int x, int y, int mouseX, int mouseY) {
 		if (s == null) {
@@ -809,7 +812,11 @@ public class ConsoleScreen extends Screen {
 		int i = 0;
 		String hovered = null;
 		boolean stale = s.isStale();
-		for (Agent a : s.agents().values()) {
+		var roster = List.copyOf(s.agents().values());
+        int capacity = rosterCapacity();
+        int pages = Math.max(1, (roster.size() + capacity - 1) / capacity);
+        rosterPage %= pages;
+        for (Agent a : roster.subList(Math.min(rosterPage * capacity, roster.size()), Math.min((rosterPage + 1) * capacity, roster.size()))) {
 			int cx = x + i * ROSTER_STEP;
 			boolean off = !a.isActive() || stale;
 			// while the Foreman is offline nobody's state is known: no live colours
@@ -832,7 +839,14 @@ public class ConsoleScreen extends Screen {
 			}
 			i++;
 		}
-		if (hovered != null) {
+		if (pages > 1) {
+            int nx = x + capacity * ROSTER_STEP;
+            g.text(font, "›", nx + 5, y + 4, UiBits.ink(), false);
+            chipHits.add(new int[]{nx, y, ROSTER_STEP, 19, -1});
+            if (mouseX >= nx && mouseX < nx + ROSTER_STEP && mouseY >= y && mouseY < y + 19)
+                g.setTooltipForNextFrame(font, Component.literal("Следующие агенты · " + (rosterPage + 1) + "/" + pages), mouseX, mouseY);
+        }
+        if (hovered != null) {
 			Agent a = s.agent(hovered);
 			if (a != null) {
 				String st = stale ? "last known: " + (a.isPaused() ? "paused" : a.activity()) : !a.isActive() ? "off shift" : a.isPaused() ? "paused"

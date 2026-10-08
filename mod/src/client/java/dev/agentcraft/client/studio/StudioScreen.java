@@ -28,7 +28,8 @@ public final class StudioScreen extends Screen {
     private static final String[] ROLE_NAMES = {"Стол", "Чтение", "Проверки", "Терминал", "Ревью", "Планирование", "Отдых", "Общение"};
     private JsonObject data = new JsonObject();
     private int tab, page, x, y, w, h, top, role;
-    private String agent = "marlow", status = "Подключаю пульт…";
+    private String rosterKey = "";
+    private String agent = "", status = "Подключаю пульт…";
     private String openTask;
     private Screen taskReturn;
     private int restIndex;
@@ -65,9 +66,35 @@ public final class StudioScreen extends Screen {
     }
     @Override public boolean isPauseScreen() { return false; }
     @Override public void onClose() { minecraft.gui.setScreen(taskReturn); }
-    @Override public void tick() { super.tick(); if (++pollTicks >= 60) { pollTicks = 0; if (!busy && (tab == 2 || tab == 3) && Foreman.connected()) request("get", new JsonObject(), null); } }
+    @Override public void tick() {
+        super.tick();
+        String key = String.join(",", Foreman.state().agents().keySet());
+        if (!key.equals(rosterKey) && !busy) { rosterKey = key; draft = null; layout(); if (Foreman.connected()) request("get", new JsonObject(), null); }
+        if (++pollTicks >= 60) { pollTicks = 0; if (!busy && (tab == 2 || tab == 3) && Foreman.connected()) request("get", new JsonObject(), null); }
+    }
+    private boolean dynamicTeam() { return data.has("team"); }
+    private boolean loaded() { return data.has("version") || dynamicTeam(); }
+    private List<String> agentIds() { return List.copyOf(Foreman.state().agents().keySet()); }
+    private String roleLabel() {
+        var current = Foreman.state().agent(agent);
+        if (current == null) return "";
+        return current.roles() == null ? current.title() == null ? current.role().wire() : current.title()
+            : String.join(", ", current.roles());
+    }
+    private void updateAgent(String field, com.google.gson.JsonElement value, Runnable after) {
+        if (Foreman.state().agent(agent) == null) throw new IllegalStateException("Выбери агента из текущей команды.");
+        if (!dynamicTeam()) { var next = profile().deepCopy(); next.add(field, value); request("agent", next, after); return; }
+        var patch = new JsonObject(); patch.add(field, value);
+        var payload = new JsonObject(); payload.addProperty("id", agent); payload.add("revision", data.getAsJsonObject("team").get("revision")); payload.add("patch", patch);
+        request("team.update", payload, after);
+    }
+    private void updateAppearance(String color, Runnable after) {
+        if (!dynamicTeam()) { var next = profile().deepCopy(); next.addProperty("skin", draftSkin); next.addProperty("color", color); request("agent", next, after); return; }
+        var appearance = new JsonObject(); appearance.addProperty("skin", draftSkin); appearance.addProperty("color", color); appearance.addProperty("slim", draft.slim);
+        updateAgent("appearance", appearance, after);
+    }
     @Override public void extractBackground(GuiGraphicsExtractor g, int mx, int my, float dt) {}
-    @Override protected void init() { layout(); if (!data.has("version") && !busy) request("get", new JsonObject(), null); }
+    @Override protected void init() { layout(); if (!loaded() && !busy) request("get", new JsonObject(), null); }
     private static String str(JsonObject o, String key) { return o.has(key) && !o.get(key).isJsonNull() ? o.get(key).getAsString() : ""; }
     private static boolean flag(JsonObject o, String key) { return o.has(key) && o.get(key).getAsBoolean(); }
     private JsonArray array(String key) { return data.has(key) ? data.getAsJsonArray(key) : new JsonArray(); }
@@ -84,11 +111,16 @@ public final class StudioScreen extends Screen {
         Foreman.send("studio.action", msg).whenComplete((ack, error) -> Minecraft.getInstance().execute(() -> {
             busy = false;
             if (error != null || !ack.ok()) status = error != null ? error.getMessage() : ack.error();
-            else { data = ack.result() == null ? new JsonObject() : ack.result(); status = action.equals("get") || action.equals("claude-login") ? str(data, "notice") : "Сохранено";
+            else {
+                if (action.startsWith("team.")) {
+                    try { if (after != null) after.run(); } catch (Exception e) { status = e.getMessage(); }
+                    request("get", new JsonObject(), null); return;
+                }
+                data = ack.result() == null ? new JsonObject() : ack.result(); status = action.equals("get") || action.equals("claude-login") ? str(data, "notice") : "Сохранено";
                 try { if (after != null) after.run(); } catch (Exception e) { status = e.getMessage(); }
             }
             if (Minecraft.getInstance().gui.screen() == this) layout();
-            if (openTask != null && data.has("version") && Minecraft.getInstance().gui.screen() == this) {
+            if (openTask != null && loaded() && Minecraft.getInstance().gui.screen() == this) {
                 String id = openTask; openTask = null;
                 for (var value : array("items")) if (str(value.getAsJsonObject(), "id").equals(id)) { taskDetails(value.getAsJsonObject()); break; }
             }
@@ -106,7 +138,11 @@ public final class StudioScreen extends Screen {
         return addRenderableWidget(e);
     }
     private void selectAgent() {
-        button(agent.equals("marlow") ? "Агент: Codex" : "Агент: Claude", x + 12, top, 145, () -> { agent = agent.equals("marlow") ? "wren" : "marlow"; draft = null; layout(); });
+        var ids = agentIds();
+        agent = dev.agentcraft.client.foreman.AgentSelection.keepOrFirst(agent, ids);
+        var current = Foreman.state().agent(agent);
+        button(current == null ? "Нет агентов" : "Агент: " + current.name() + " · " + (ids.indexOf(agent) + 1) + "/" + ids.size(), x + 12, top, 145,
+            () -> { agent = dev.agentcraft.client.foreman.AgentSelection.next(agent, agentIds()); draft = null; layout(); }).active = !busy && ids.size() > 1;
     }
     private void layout() {
         clearWidgets(); labels.clear(); preview = null;
@@ -120,9 +156,13 @@ public final class StudioScreen extends Screen {
             }
         }
         button("Обновить", x + w - 96, y + (planningOnly ? 28 : 51), 84, () -> request("get", new JsonObject(), null));
-        if (!data.has("version")) {
+        if (!loaded()) {
             if (tab == 6) speechChatSetting(x + 12, top, w - 24);
             return;
+        }
+        if (tab == 0 || tab == 1 || tab == 4) {
+            agent = dev.agentcraft.client.foreman.AgentSelection.keepOrFirst(agent, agentIds());
+            if (agent.isEmpty()) { label("Команда пуста. Добавь агента в профиле моста.", x + 12, top, w - 24); return; }
         }
         switch (tab) {
             case 0 -> team(); case 1 -> appearance(); case 2, 3 -> tasks(); case 4 -> places(); case 5 -> memory(); case 6 -> settings();
@@ -130,30 +170,32 @@ public final class StudioScreen extends Screen {
     }
     private void team() {
         selectAgent(); var p = profile();
-        button("Характер и фразы…", x + 163, top, w - 175, () -> minecraft.gui.setScreen(new PersonaScreen(this, agent, str(p, "name"))));
+        button("Характер и фразы…", x + 163, top, w - 175, () -> minecraft.gui.setScreen(new PersonaScreen(this, agent, str(p, "name")))).active = !busy && !dynamicTeam();
         int left = x + 12, cy = top + 28, bw = Math.min(230, (w - 30) / 2);
         label("Имя персонажа", left, cy, bw);
         EditBox name = input("Имя", str(p, "name"), left, cy + 12, bw, 28);
         button("Сохранить имя", left + bw + 6, cy + 12, Math.max(90, w - bw - 30), () -> {
-            JsonObject next = p.deepCopy(); next.addProperty("name", name.getValue()); request("agent", next, null);
+            updateAgent("name", new com.google.gson.JsonPrimitive(name.getValue()), null);
         });
-        button(flag(p, "enabled") ? "Убрать исполнителя из команды" : "Добавить исполнителя в команду", left, cy + 39, w - 24, () -> {
-            JsonObject next = p.deepCopy(); next.addProperty("enabled", !flag(p, "enabled")); request("agent", next, null);
+        button(flag(p, "enabled") ? "Выключить исполнителя" : "Включить исполнителя", left, cy + 39, w - 24, () -> {
+            updateAgent("enabled", new com.google.gson.JsonPrimitive(!flag(p, "enabled")), null);
         });
         button(flag(p, "visible") ? "Персонаж в мире: виден" : "Персонаж в мире: скрыт", left, cy + 63, w - 24, () -> {
-            JsonObject next = p.deepCopy(); next.addProperty("visible", !flag(p, "visible")); request("agent", next, null);
+            updateAgent("visible", new com.google.gson.JsonPrimitive(!flag(p, "visible")), null);
         });
         if (cy + 112 < y + h - 22) {
-            label(agent.equals("marlow") ? "Codex выполняет задачи в подключённом чате." : "Claude Code проверяет зафиксированную версию изменений.", left, cy + 90, w - 24);
+            label("Роли: " + roleLabel(), left, cy + 90, w - 24);
             label("Скрытие персонажа не отключает исполнителя.", left, cy + 103, w - 24);
         }
     }
     private void appearance() {
         selectAgent(); var p = profile();
-        if (draft == null) { draft = StudioPreferences.get().look(agent).copy(); draftSkin = str(p, "skin"); draftColor = str(p, "color"); }
+        if (draft == null) { draft = StudioPreferences.get().look(agent).copy(); draftSkin = str(p, "skin"); draftColor = str(p, "color"); if (p.has("slim")) draft.slim = flag(p, "slim"); }
         int left = x + 12, cy = top + 26, bw = Math.max(150, (w - 32) * 2 / 3), row = 23;
         button("Скин: " + Component.translatableWithFallback("skin.agentcraft." + draftSkin, draftSkin).getString(), left, cy, bw, () -> {
-            var skins = array("skins"); int found = 0; for (int i = 0; i < skins.size(); i++) if (skins.get(i).getAsString().equals(draftSkin)) found = i;
+            var skins = array("skins").deepCopy();
+            if (dynamicTeam()) for (String preset : dev.agentcraft.Cast.ids()) { var value = new com.google.gson.JsonPrimitive(preset); if (!skins.contains(value)) skins.add(value); }
+            int found = 0; for (int i = 0; i < skins.size(); i++) if (skins.get(i).getAsString().equals(draftSkin)) found = i;
             if (!skins.isEmpty()) draftSkin = skins.get((found + 1) % skins.size()).getAsString(); draft.png = ""; layout();
         });
         button(draft.slim ? "Руки: тонкие" : "Руки: обычные", left, cy + row, bw / 2 - 2, () -> { draft.slim = !draft.slim; layout(); });
@@ -167,13 +209,12 @@ public final class StudioScreen extends Screen {
         });
         EditBox color = input("Цвет #RRGGBB", draftColor, left, cy + row * 3, bw, 7); color.setResponder(value -> draftColor = value);
         button("Применить", left, cy + row * 4, bw / 2 - 2, () -> {
-            JsonObject next = p.deepCopy(); next.addProperty("skin", draftSkin); next.addProperty("color", color.getValue());
-            request("agent", next, () -> { StudioPreferences.get().looks.put(agent, draft.copy()); StudioPreferences.get().save(); });
+            updateAppearance(color.getValue(), () -> { StudioPreferences.get().looks.put(agent, draft.copy()); StudioPreferences.get().save(); });
         });
-        button("Стандартный вид", left + bw / 2 + 2, cy + row * 4, bw / 2 - 2, () -> { draft = StudioPreferences.defaults(agent); draftSkin = agent; draftColor = agent.equals("marlow") ? "#858ED1" : "#D78E65"; layout(); });
+        button("Стандартный вид", left + bw / 2 + 2, cy + row * 4, bw / 2 - 2, () -> { draft = StudioPreferences.defaults(agent); draftSkin = str(p, "skin"); draftColor = str(p, "color"); if (p.has("slim")) draft.slim = flag(p, "slim"); layout(); });
         if (minecraft.level != null) { preview = new ClientAgentEntity(minecraft.level, agent, AgentSkins.preview(agent, draftSkin, draft)); preview.previewLook = draft;
             preview.view().name = draft.hideName ? "" : str(p, "name");
-            if (!draft.hideRole) preview.view().name += (preview.view().name.isEmpty() ? "" : " · ") + (agent.equals("marlow") ? "Разработчик" : "Ревьюер");
+            if (!draft.hideRole) preview.view().name += (preview.view().name.isEmpty() ? "" : " · ") + roleLabel();
             preview.view().nameColor = 0xFF000000 | dev.agentcraft.Cast.parseColor(draftColor, 0xDFC185);
         }
     }
@@ -183,10 +224,11 @@ public final class StudioScreen extends Screen {
         return out;
     }
     private void tasks() {
+        if (dynamicTeam()) { label(str(data, "notice"), x + 12, top, w - 24); return; }
         int left = x + 12, cy = top, bw = (w - 30) / 4;
         if (tab == 2) {
             button("Новая задача", left, cy, bw * 2, () -> taskForm(null));
-            button("Обсудить план", left + bw * 2 + 4, cy, w - bw * 2 - 28, () -> request("plan", new JsonObject(), () -> minecraft.gui.setScreen(new dev.agentcraft.client.console.ConsoleScreen("@Claude Обсудим план. Помоги уточнить задачи и ожидаемый результат. Когда попрошу добавить их на доску, создай черновики; согласую и запущу их я. Моя идея: "))));
+            button("Обсудить план", left + bw * 2 + 4, cy, w - bw * 2 - 28, () -> request("plan", new JsonObject(), () -> minecraft.gui.setScreen(new dev.agentcraft.client.console.ConsoleScreen("@" + plannerId() + " Обсудим план. Помоги уточнить задачи и ожидаемый результат. Когда попрошу добавить их на доску, создай черновики; согласую и запущу их я. Моя идея: "))));
         } else {
             String[] names = {"Начать / продолжить", "Пауза", "Стоп", "Планирование"}; String[] ops = {"start", "pause", "stop", "plan"};
             for (int n = 0; n < 4; n++) { final String op = ops[n]; button(names[n], left + n * (bw + 2), cy, bw, () -> request(op, new JsonObject(), null)); }
@@ -202,6 +244,14 @@ public final class StudioScreen extends Screen {
         int questions = Foreman.state().openDecisions().size();
         button("Вопросы: " + questions, x + w - 154, y + h - 44, 142, () -> minecraft.gui.setScreen(new dev.agentcraft.client.decisions.DecisionScreen(null, this)));
     }
+    private String plannerId() {
+        var candidates = Foreman.state().agents().values().stream().filter(a -> a.roles() != null && a.roles().contains("planner")).toList();
+        // Legacy profiles expose a reviewer title, but no provider/roles fields.
+        if (candidates.isEmpty() && !dynamicTeam()) candidates = Foreman.state().agents().values().stream()
+            .filter(a -> "Ревьюер".equals(a.title())).toList();
+        if (candidates.size() != 1) throw new IllegalStateException("Выбери планировщика в консоли через @имя.");
+        return candidates.getFirst().id();
+    }
     private static String stage(String s) { return switch (s) { case "plan" -> "План"; case "queued" -> "В очереди"; case "coding" -> "В работе"; case "review" -> "Ревью"; case "question" -> "Нужно решение"; case "done" -> "Готово"; case "cancelled" -> "Отменена"; default -> s; }; }
     private void taskForm(JsonObject item) {
         String deps = item == null ? "" : item.getAsJsonArray("deps").toString().replaceAll("[\\[\\]\"]", "");
@@ -215,7 +265,7 @@ public final class StudioScreen extends Screen {
     }
     private void taskDetails(JsonObject item) {
         String content = str(item, "title") + "\n\n" + stage(str(item, "stage")) + " · " + str(item, "project") + "\n\n" + str(item, "description") + "\n\nОжидается:\n" + str(item, "expected")
-            + "\n\nПроверки:\n" + str(item, "checks") + "\n\nРезультат:\n" + str(item, "summary") + "\n\nРевью Claude:\n" + str(item, "review") + "\n\n" + str(item, "blockedReason");
+            + "\n\nПроверки:\n" + str(item, "checks") + "\n\nРезультат:\n" + str(item, "summary") + "\n\nРевью:\n" + str(item, "review") + "\n\n" + str(item, "blockedReason");
         minecraft.gui.setScreen(new TaskDetails(this, item, content));
     }
     private void places() {
@@ -255,11 +305,12 @@ public final class StudioScreen extends Screen {
     private void memory() {
         int left = x + 12;
         button("Открыть библиотеку", left, top, w - 24, () -> minecraft.gui.setScreen(new dev.agentcraft.client.library.LibraryScreen(null, null)));
+        if (dynamicTeam()) { label("Память команды доступна в библиотеке.", left, top + 28, w - 24); return; }
         button("Сохранить общую заметку", left, top + 28, w - 24, () -> minecraft.gui.setScreen(new Form(this, "Общая заметка проекта", List.of("Название", "Текст"), List.of("", ""), values -> {
             JsonObject p = new JsonObject(); p.addProperty("title", values.get(0)); p.addProperty("body", values.get(1)); p.addProperty("scope", "shared"); minecraft.gui.setScreen(this); request("note", p, null);
         })));
         label("Общие записи передаются разработчику и ревьюеру.", left, top + 62, w - 24);
-        label("Заключения Claude сохраняются в библиотеке с версией кода.", left, top + 76, w - 24);
+        label("Заключения ревьюера сохраняются в библиотеке с версией кода.", left, top + 76, w - 24);
     }
     private void speechChatSetting(int left, int cy, int width) {
         var preferences = StudioPreferences.get();
@@ -271,6 +322,7 @@ public final class StudioScreen extends Screen {
         toggle.active = true; // a local option also works without a bridge connection
     }
     private void settings() {
+        if (dynamicTeam()) { speechChatSetting(x + 12, top, w - 24); label("Подключения задаются отдельно для каждого агента в профиле моста.", x + 12, top + 28, w - 24); return; }
         int left = x + 12; String mode = str(data, "reviewMode");
         int half = (w - 28) / 2;
         button("Ревью: " + (mode.equals("auto") ? "автоматически" : mode.equals("manual") ? "по кнопке" : "выключено"), left, top, half, () -> {

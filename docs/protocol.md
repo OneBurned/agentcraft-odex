@@ -38,6 +38,7 @@ Exact option labels: merge decisions use `Merge`, `Request changes`, `Reject`; p
 
 | field | type | required | notes |
 | --- | --- | --- | --- |
+| `reviewerId` | agent id ([a-z0-9_-]{1,64}) | no | Agent assigned to this review attempt; absent in historical reviews. Never infer a fixed reviewer. |
 | `head` | string | yes | Exact commit submitted to the reviewer; clients may show its first 8 characters. |
 | `phase` | `running` \| `finished` \| `paused` \| `error` | yes |  |
 | `startedAt` | integer | yes | Start of this review attempt; use this, not task.updatedAt, to select the latest review. |

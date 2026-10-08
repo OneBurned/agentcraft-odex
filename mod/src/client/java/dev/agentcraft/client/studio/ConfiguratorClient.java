@@ -40,7 +40,9 @@ public final class ConfiguratorClient implements ConfiguratorItem.ClientActions 
         var mc = Minecraft.getInstance();
         if (mc.player == null || !mc.player.isCreative() || mc.getSingleplayerServer() == null)
             throw new IllegalStateException("Нужен творческий режим одиночной игры.");
-        INSTANCE.checkWorld(); INSTANCE.agent = id; INSTANCE.name = id;
+        INSTANCE.checkWorld();
+        if (Foreman.state().agent(id) == null) throw new IllegalStateException("Агент больше не в команде. Выбери другого.");
+        INSTANCE.agent = id; INSTANCE.name = id;
         INSTANCE.role = WorkspaceRole.LOUNGE; INSTANCE.dance = dance; INSTANCE.replaceRestId = replaceId;
         mc.gui.setScreen(null);
         message(Component.literal(INSTANCE.label() + ". Возьми Настройщик и нажми ПКМ "
@@ -74,7 +76,12 @@ public final class ConfiguratorClient implements ConfiguratorItem.ClientActions 
 
     @Override public InteractionResult use(Player player, @Nullable BlockPos clicked) {
         checkWorld();
-        // Preserve the original server-owned workflow until an NPC is selected.
+        if (agent != null && Foreman.state().agent(agent) == null) {
+            agent = null; replaceRestId = null;
+            message(Component.literal("Агент больше не в команде. Выбери другого или повтори для общего места."), false);
+            return InteractionResult.FAIL;
+        }
+        // Preserve the server-owned workflow until an NPC is selected.
         if (agent == null) return InteractionResult.SUCCESS;
         try {
             if (Minecraft.getInstance().getSingleplayerServer() == null || !player.isCreative())
@@ -104,7 +111,7 @@ public final class ConfiguratorClient implements ConfiguratorItem.ClientActions 
         } catch (RuntimeException e) {
             message(Component.literal(e.getMessage() == null ? "Не удалось назначить место" : e.getMessage()), false);
         }
-        // Do not send a second click to the server: it would reassign the shared Codex workspace.
+        // Do not send a second click to the server: it would reassign the shared workspace.
         return InteractionResult.FAIL;
     }
 

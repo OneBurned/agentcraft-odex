@@ -1,5 +1,39 @@
 # Codex chat observer for TradeRecord
 
+## Client roster (A8 / t40)
+
+The mod uses the bridge snapshot/agent.upsert roster, including arbitrary IDs and multiple agents
+with the same provider. agent.remove removes current selection/NPC membership; historical tasks,
+logs and memory remain history and cannot select an archived agent as the reply target.
+Cast is a cosmetic preset catalog only; a missing catalog produces no fallback team.
+
+The command desk cycles over the current roster (including hidden/disabled members). New team
+profiles support name, enabled/visible and appearance updates with team.update and revision checks.
+Empty teams show an explanation. The current bridge has no new-team queue/persona editor yet:
+those legacy-only controls are unavailable rather than targeting a fixed developer/reviewer.
+The memory library remains readable. Local places/looks are keyed by stable agent ID.
+
+New HQ builds and the manual configurator publish shared_desk/shared_desk_2… and
+shared_monitor/shared_monitor_2… instead of six named owners. Equipment bindings slot:1, slot:2…
+(lamps: agent:slot:1…) follow bridge roster order, including hidden agents. Empty slots stay off.
+A personal desk/role overrides the common place; excess occupants get the usual adjacent overflow
+positions. The configurator rejects a removed selection. Existing explicit personal bindings are
+preserved; old generated worlds need a newly assigned common desk or a newly built layout to
+offer common desks. There is no automatic rewrite of saved worlds in this stage.
+
+Console mentions accept current ID or a unique name (including spaces); completion/chips insert
+IDs so two identical names/providers cannot redirect a message. Plain text and parameterless
+pause/resume/stop use the last current correspondent; no history requires an explicit target.
+There are no fixed Codex/Claude aliases or observer @all fallback. The roster header pages when
+it cannot fit. ReviewProgress.reviewerId identifies the reviewer of each attempt; historical
+reviews without it show an unassigned reviewer, never a presumed Wren. AgentLife peer selection
+already uses nearby real coworkers and remains provider-independent.
+
+Automated coverage: Java DynamicRosterTest covers three agents (two Codex, one Claude), names,
+duplicate-name rejection, archive/restore, common/personal places, hidden slots, overflow, and
+actual reviewer identity. A live three-agent Minecraft check is still pending. This source change
+does not install a mod, restart the personal bridge, or migrate the user's profile.
+
 ## Team model (A2 / t38)
 
 New observer profiles start with an empty `<profile>/team.json` (schema 1), without

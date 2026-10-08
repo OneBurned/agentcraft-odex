@@ -655,6 +655,11 @@ public final class AgentLife {
 		}
 		if (v.station.equals("desk") && (posture == Posture.SIT_TYPE || posture == Posture.SIT_IDLE || posture == Posture.TYPE_STAND)) {
 			Anchor mon = Anchors.get(AnchorNames.monitor(v.id));
+            if (mon == null) {
+                mon = Anchors.current().anchors().values().stream()
+                    .filter(a -> a.name().startsWith(AnchorNames.SHARED_MONITOR))
+                    .min(java.util.Comparator.comparingDouble(a -> a.pos().distanceToSqr(e.position()))).orElse(null);
+            }
 			if (mon != null && mon.pos().distanceToSqr(e.position()) < 9) {
 				return new Vec3(mon.x(), mon.y() - 0.12, mon.z());
 			}

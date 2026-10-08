@@ -159,8 +159,8 @@ public class MergeStationRenderer extends StationRenderer<MergeStationBlockEntit
 			Task task = card.task();
 			var review = task.studioReview();
 			s.studioReview = true;
-			s.worker = "wren";
-			s.name = ReviewKit.agentName(s.worker);
+			s.worker = card.reviewerId();
+			s.name = s.worker.isEmpty() ? "Ревьюер не указан" : ReviewKit.agentName(s.worker);
 			s.nameColor = ReviewKit.agentInk(s.worker);
 			s.taskId = task.id();
 			s.title = ReviewKit.plain(task.title());

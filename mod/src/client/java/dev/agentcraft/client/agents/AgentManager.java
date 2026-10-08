@@ -157,12 +157,12 @@ public final class AgentManager {
 			userSpots.clear();
 		}
 		List<Agent> agents = new ArrayList<>(st.agents().values());
-		// Observer mode represents one real external coder. Off-shift cast members are not NPCs.
+		// Visibility affects NPCs only; the complete bridge roster owns the common equipment slots.
 		if (st.status() != null && st.status().backend() == Protocol.BackendName.OBSERVER) {
 			agents.removeIf(a -> !a.isVisible());
 			if (layout.isEmpty()) agents.clear();
 		}
-		Map<String, Anchor> targets = layout.isEmpty() ? fallbackTargets(agents, lvl) : assigner.assign(agents, layout);
+		Map<String, Anchor> targets = layout.isEmpty() ? fallbackTargets(agents, lvl) : assigner.assign(agents, layout, List.copyOf(st.agents().keySet()));
 		boolean stale = st.isStale();
 		updateAwaiting(st);
 		GridPathfinder pf = layout.isEmpty() ? null : new GridPathfinder(lvl, layout.bounds());

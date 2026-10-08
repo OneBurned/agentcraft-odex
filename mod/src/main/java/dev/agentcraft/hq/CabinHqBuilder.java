@@ -1,6 +1,5 @@
 package dev.agentcraft.hq;
 
-import dev.agentcraft.Cast;
 import dev.agentcraft.block.*;
 import dev.agentcraft.layout.AnchorNames;
 import dev.agentcraft.layout.Anchors;
@@ -51,13 +50,11 @@ public final class CabinHqBuilder implements HqBuilder {
 		// Desk at the back, with one monitor and a seat.
 		p.fill(-2,66,-6,2,66,-6,St.slab(Blocks.DARK_OAK_SLAB,true));
 		p.set(0,67,-6,ModBlocks.MONITOR.defaultBlockState().setValue(PanelBlock.FACING,Direction.SOUTH).setValue(MonitorBlock.LIT,true));
-		p.bind(0,67,-6,"marlow");
+		p.bind(0,67,-6,"slot:1");
 		p.set(0,66,-4,St.stairs(Blocks.DARK_OAK_STAIRS,Direction.SOUTH,false));
 		p.set(-2,67,-6,Blocks.POTTED_FERN); p.set(2,67,-6,Blocks.LANTERN);
-		for(String id : Cast.ids()) {
-			a.spot(AnchorNames.desk(id),0,66,-4,180);
-			a.put(AnchorNames.monitor(id),.5,67.5,-5.75,0,0);
-		}
+		a.spot(AnchorNames.SHARED_DESK,0,66,-4,180);
+		a.put(AnchorNames.SHARED_MONITOR,.5,67.5,-5.75,0,0);
 		for(int z=-6;z<=-3;z++) {
 			p.fill(-9,66,z,-9,68,z,Blocks.BOOKSHELF);
 			p.set(-9,66,z,ModBlocks.MEMORY_ARCHIVE.defaultBlockState().setValue(FacingEntityBlock.FACING,Direction.EAST));
@@ -71,7 +68,7 @@ public final class CabinHqBuilder implements HqBuilder {
 		a.spot(AnchorNames.TERMINAL,7,66,-5,-90);
 		p.set(9,66,-2,Blocks.CRAFTING_TABLE);
 		p.set(9,67,-2,ModBlocks.STATUS_LAMP.defaultBlockState().setValue(StatusLampBlock.STATUS,LampStatus.IDLE));
-		p.bind(9,67,-2,"agent:marlow");
+		p.bind(9,67,-2,"agent:slot:1");
 		a.spot(AnchorNames.TESTBENCH,7,66,-2,-90);
 		p.set(9,66,1,ModBlocks.MERGE_STATION.defaultBlockState().setValue(FacingEntityBlock.FACING,Direction.WEST));
 		a.spot(AnchorNames.MERGESTATION,7,66,1,-90);

@@ -119,12 +119,12 @@ public final class ConsoleCommands {
 	public static List<Command> commands(ForemanState s) {
 		if (!observer(s)) return COMMANDS;
 		return List.of(new Command("help", "/help", "команды; /help blocks — назначение блоков"),
-			new Command("pause", "/pause [@имя]", "приостановить работу выбранного агента; без имени — Codex"),
+			new Command("pause", "/pause [@имя]", "приостановить работу выбранного агента; без имени — текущий собеседник"),
 			new Command("resume", "/resume [@имя]", "продолжить свою работу или снять личную паузу"),
 			new Command("stop", "/stop [@имя]", "остановить работу выбранного агента"),
 			new Command("blocks", "/blocks", "справка по оборудованию и мебели"),
 			new Command("chat", "/chat", "подключённый чат и состояние связи"),
-			new Command("status", "/status", "задачи и состояние Codex"),
+			new Command("status", "/status", "задачи и состояние команды"),
 			new Command("sound", "/sound on|off", "звуки уведомлений"),
 			new Command("clear", "/clear", "очистить локальные строки консоли"),
 			new Command("repos", "/repos", "показать подключённые проекты"));
@@ -145,7 +145,8 @@ public final class ConsoleCommands {
 		if (trimmed.startsWith("/")) {
 			return parseCommand(trimmed, s);
 		}
-		return observer(s) ? new Message(s.replyAgentId(), trimmed, true) : goal(trimmed, s);
+		if (observer(s) && s.replyAgentId().isEmpty()) return new Invalid("Выбери адресата: @имя сообщение (Tab — список агентов).");
+        return observer(s) ? new Message(s.replyAgentId(), trimmed, true) : goal(trimmed, s);
 	}
 
 	private static Intent goal(String text, ForemanState s) {
@@ -170,15 +171,21 @@ public final class ConsoleCommands {
 	}
 
 	private static Intent parseMessage(String trimmed, ForemanState s) {
-		int sp = indexOfSpace(trimmed);
-		String who = sp < 0 ? trimmed.substring(1) : trimmed.substring(1, sp);
+		// Longest exact display name wins, including spaces; duplicate names require the stable ID.
+        String lower = trimmed.substring(1).toLowerCase(Locale.ROOT);
+        String matched = null;
+        for (Agent a : s.agents().values()) {
+            String name = a.name().toLowerCase(Locale.ROOT);
+            if (lower.startsWith(name) && lower.length() > name.length() && Character.isWhitespace(lower.charAt(name.length()))
+                && (matched == null || name.length() > matched.length())) matched = name;
+        }
+        int sp = matched == null ? indexOfSpace(trimmed) : matched.length() + 1;
+        String who = sp < 0 ? trimmed.substring(1) : trimmed.substring(1, sp);
 		String text = sp < 0 ? "" : trimmed.substring(sp + 1).strip();
 		if (who.isEmpty()) {
 			return new Invalid("type an agent name after @ (Tab completes)");
 		}
-		String id = resolveAgent(who, s, true);
-		if (observer(s) && id == null && who.equalsIgnoreCase("codex")) id = "marlow";
-		if (observer(s) && id == null && who.equalsIgnoreCase("claude")) id = "wren";
+		String id = resolveAgent(who, s, !observer(s));
 		if (id == null) {
 			return new Invalid("no agent named @" + who + agentListSuffix(s));
 		}
@@ -195,13 +202,10 @@ public final class ConsoleCommands {
 		String rest = sp < 0 ? "" : trimmed.substring(sp + 1).strip();
 		List<String> args = splitArgs(rest);
 		if (observer(s) && List.of("pause", "resume", "stop").contains(cmd)) {
-			if (args.size() > 1) return new Invalid("Укажи одного агента: /" + cmd + " @имя");
-			String who = args.isEmpty() ? "marlow" : args.get(0).replaceFirst("^@", "");
-			String id = resolveAgent(who, s, false);
-			if (id == null && who.equalsIgnoreCase("codex")) id = "marlow";
-			if (id == null && who.equalsIgnoreCase("claude")) id = "wren";
-			if (!List.of("marlow", "wren").contains(id == null ? "" : id)) return new Invalid("Выбери Codex или Claude по имени персонажа.");
-			return new AgentAction(List.of(id), cmd, null);
+            String who = rest.isEmpty() ? s.replyAgentId() : rest.replaceFirst("^@", "");
+            String id = resolveAgent(who, s, false);
+            if (id == null) return new Invalid("Выбери агента по ID или уникальному имени: /" + cmd + " @имя");
+            return new AgentAction(List.of(id), cmd, null);
 		}
 		if (observer(s) && List.of("spawn", "task", "t", "answer", "a", "repo").contains(cmd)) {
 			return new Invalid("Управление агентами недоступно. Напиши задачу или ответ обычным текстом; /help — справка.");
@@ -512,8 +516,8 @@ public final class ConsoleCommands {
 	/** One short line for the right side of the input: what Enter will do. Null = nothing to say. */
 	public static @Nullable String describe(Intent in, ForemanState s) {
 		if (observer(s) && in instanceof Message m && m.reply()) return replyHint(m.to(), s);
-		if (observer(s) && in instanceof Goal) return "отправить в чат Codex";
-		if (observer(s) && in instanceof Message m) return "отправить: " + displayName(m.to().equals("all") ? "marlow" : m.to(), s);
+		if (observer(s) && in instanceof Goal) return "отправить задачу";
+		if (observer(s) && in instanceof Message m) return "отправить: " + displayName(m.to(), s);
 		return switch (in) {
 			case Goal g -> g.repoId() == null ? "new goal" : "new goal → " + repoName(g.repoId(), s);
 			case Message m -> m.to().equals("all") ? "message everyone" : "message " + displayName(m.to(), s);
@@ -535,7 +539,8 @@ public final class ConsoleCommands {
 
 	/** Recipient is frozen in the intent, including if another agent speaks during delivery. */
 	public static String replyHint(String id, ForemanState s) {
-		String name = displayName(id, s);
+		if (id.isEmpty()) return "Выбери @имя";
+        String name = displayName(id, s);
 		return "ответ: " + name;
 	}
 
@@ -681,11 +686,11 @@ public final class ConsoleCommands {
 		for (Agent a : s.agents().values()) {
 			if (a.id().startsWith(prefix) || a.name().toLowerCase(Locale.ROOT).startsWith(prefix)) {
 				String detail = a.isActive() ? (a.isPaused() ? "paused" : a.activity()) : "off shift";
-				out.add(new Completion(start, end, "@" + a.name().toLowerCase(Locale.ROOT) + suffix, a.name(), detail, a.id(), a.isPaused() ? "idle"
+				out.add(new Completion(start, end, "@" + a.id() + suffix, a.name(), detail, a.id(), a.isPaused() ? "idle"
 					: a.state().family()));
 			}
 		}
-		if (withAll && "all".startsWith(prefix) && !prefix.isEmpty()) {
+		if (withAll && !observer(s) && "all".startsWith(prefix) && !prefix.isEmpty()) {
 			out.add(new Completion(start, end, "@all" + suffix, "all", "everyone on shift", null, null));
 		}
 	}
@@ -712,11 +717,15 @@ public final class ConsoleCommands {
 		if (allowAll && (t.equals("all") || t.equals("everyone") || t.equals("team"))) {
 			return "all";
 		}
-		for (Agent a : s.agents().values()) {
-			if (a.id().equals(t) || a.name().toLowerCase(Locale.ROOT).equals(t)) {
-				return a.id();
-			}
-		}
+		if (s.agent(t) != null) return t;
+        String exact = null;
+        for (Agent a : s.agents().values()) {
+            if (a.name().equalsIgnoreCase(t)) {
+                if (exact != null) return null;
+                exact = a.id();
+            }
+        }
+        if (exact != null) return exact;
 		String found = null;
 		for (Agent a : s.agents().values()) {
 			if (a.id().startsWith(t) || a.name().toLowerCase(Locale.ROOT).startsWith(t)) {

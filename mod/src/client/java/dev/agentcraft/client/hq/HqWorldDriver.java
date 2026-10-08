@@ -165,9 +165,12 @@ public final class HqWorldDriver {
 		Map<String, LampStatus> lamps = new HashMap<>();
 		Map<String, Boolean> lit = new HashMap<>();
 		Map<String, String> waitingOn = awaiting(st);
-		for (Agent a : st.agents().values()) {
+		int slot = 0;
+        for (Agent a : st.agents().values()) {
 			lamps.put("agent:" + a.id(), agentLamp(a, waitingOn.containsKey(a.id())));
 			lit.put(a.id(), a.isActive());
+            lamps.put("agent:slot:" + (++slot), lamps.get("agent:" + a.id()));
+            lit.put("slot:" + slot, a.isActive());
 		}
 		int n = 0;
 		for (Repo r : st.repos().values()) {
@@ -306,11 +309,12 @@ public final class HqWorldDriver {
 
 	private static @Nullable BlockState wantedState(BlockEntity be, BlockState s, Wanted w) {
 		if (be instanceof StatusLampBlockEntity lamp && s.getBlock() instanceof StatusLampBlock) {
-			LampStatus want = w.lamps().get(lamp.binding());
+			String key = lamp.binding().isEmpty() ? "agent:slot:1" : lamp.binding();
+            LampStatus want = w.lamps().get(key);
 			if (want == null) {
 				// bound to something the Foreman does not have: an agent that left goes dark, an unused CI
 				// slot (no second repo yet) shows idle grey rather than a dead lamp
-				want = lamp.binding().startsWith("ci:") ? LampStatus.IDLE : lamp.binding().startsWith("agent:") ? LampStatus.OFF : null;
+				want = lamp.binding().startsWith("ci:") ? LampStatus.IDLE : key.startsWith("agent:") ? LampStatus.OFF : null;
 			}
 			return want == null ? null : s.setValue(StatusLampBlock.STATUS, want);
 		}

@@ -199,9 +199,9 @@ public final class ConsoleActions {
 		lastSent = raw.strip();
 		switch (in) {
 			case Goal g -> track(Foreman.submitGoal(g.text(), g.repoId()), raw, restore, ack -> {
-				if (ack.result() != null && ack.result().has("chatDelivered")) return "Доставлено в чат Codex " + UiBits.CHECK;
+				if (ack.result() != null && ack.result().has("chatDelivered")) return "Задача доставлена " + UiBits.CHECK;
 				String gid = ack.result() != null && ack.result().has("goalId") ? ack.result().get("goalId").getAsString() : null;
-				return "goal " + (gid != null ? gid + " " : "") + "sent to Marlow" + (g.repoId() != null && s.repos().size() > 1 ? " \u2192 "
+				return "goal " + (gid != null ? gid + " " : "") + "sent to the team" + (g.repoId() != null && s.repos().size() > 1 ? " \u2192 "
 					+ ConsoleCommands.repoName(g.repoId(), s) : "") + " " + UiBits.CHECK;
 			}, "sending the goal\u2026");
 			case Message m -> track(Foreman.message(m.to(), m.text()), raw, restore,
@@ -301,7 +301,7 @@ public final class ConsoleActions {
 		if ("blocks".equals(topic)) { blocks(); return; }
 		if (ConsoleCommands.observer(Foreman.state())) {
 			ConsoleLog.add(Tone.HEADER, "Консоль AgentCraft");
-			ConsoleLog.add(Tone.INFO, "Обычный текст — последнему написавшему агенту; без истории — Codex. Получатель виден до Enter и сохраняется после перезапуска. @Codex, @Claude или @имя — явно выбранному агенту; @all — Codex. Если получатель недоступен, текст остаётся в поле.");
+			ConsoleLog.add(Tone.INFO, "Обычный текст — последнему ответившему агенту из текущей команды. Без собеседника укажи @имя или @ID; Tab и портреты подставляют точный ID. Имена могут содержать пробелы. При одинаковых именах используй ID. Получатель виден до Enter; недоступный адресат не заменяется другим.");
 			for (Command c : ConsoleCommands.commands(Foreman.state())) {
 				if (topic == null || c.name().startsWith(topic)) ConsoleLog.add(Tone.HELP, c.usage() + "\t" + c.help());
 			}
@@ -310,8 +310,8 @@ public final class ConsoleActions {
 			return;
 		}
 		ConsoleLog.add(Tone.HEADER, "Console");
-		ConsoleLog.add(Tone.HELP, "plain text\ta new goal for Marlow (several repos: you pick one)");
-		ConsoleLog.add(Tone.HELP, "@juniper text\tmessage an agent (Tab completes, @all = everyone)");
+		ConsoleLog.add(Tone.HELP, "plain text\ta new goal for the team (several repos: you pick one)");
+		ConsoleLog.add(Tone.HELP, "@agent text\tmessage an agent (Tab completes, @all = everyone)");
 		for (Command c : ConsoleCommands.COMMANDS) {
 			if (topic == null || c.name().startsWith(topic)) {
 				ConsoleLog.add(Tone.HELP, c.usage() + "\t" + c.help());
@@ -372,11 +372,11 @@ public final class ConsoleActions {
 		ConsoleLog.add(Tone.HEADER, "Блоки AgentCraft");
 		String[][] guide = {
 			{"Настройщик / Configurator", "ПКМ по агенту — выбрать его; ПКМ по полу/ступеньке — назначить ему место; Shift+ПКМ — следующая зона. Shift+ПКМ по агенту — общие места. Сначала отметь основной участок."},
-			{"Пульт / Command Desk", "ПКМ: команда Codex + Claude, внешность, план задач, очередь, рабочие места и память. В Настройках можно войти в Claude Code."},
-			{"Монитор / Monitor", "Журнал и последние переданные ответы Codex. В ручном рабочем месте подключается автоматически."},
+			{"Пульт / Command Desk", "ПКМ: состав команды, внешность, план задач, очередь, рабочие места и память. В Настройках можно войти в Claude Code."},
+			{"Монитор / Monitor", "Журнал и последние переданные ответы назначенного агента. В ручном рабочем месте подключается автоматически."},
 			{"Доска задач / Task Board", "Показывает задачи по состояниям. ПКМ — карточка задачи. Соседние панели одного направления объединяются."},
 			{"Консоль / Console Terminal", "ПКМ или клавиша ` открывает ввод задач и журнал сообщений. /chat показывает подключение."},
-			{"Индикатор / Status Lamp", "Цвет отражает состояние Codex. ПКМ включает/выключает голограмму; выбор сохраняется. Настройщик назначает место, Shift+ПКМ оставляет обычное размещение блоков."},
+			{"Индикатор / Status Lamp", "Цвет отражает состояние назначенного агента. ПКМ включает/выключает голограмму; выбор сохраняется. Настройщик назначает место, Shift+ПКМ оставляет обычное размещение блоков."},
 			{"Кафедра / Decision Podium", "Вопросы по задачам пула (ПКМ или J): напиши ответ или отмени задачу. Разрешения инструментов подтверждаются в Codex."},
 			{"Архив / Memory Archive", "ПКМ открывает записи памяти AgentCraft. Это не память и не история этого чата Codex."},
 			{"Каталог / Memory Catalog", "Открывает общий список той же памяти. В наблюдателе список может быть пустым."},
@@ -387,7 +387,7 @@ public final class ConsoleActions {
 			{"Terracotta Tile / Oak Parquet", "Декоративная плитка и дубовый паркет."}
 		};
 		for (String[] row : guide) ConsoleLog.add(Tone.HELP, row[0] + "\t" + row[1]);
-		ConsoleLog.add(Tone.INFO, "Для начала достаточно места Codex, монитора и консоли. Стол и кресло строй из обычных блоков; остальные станции необязательны.");
+		ConsoleLog.add(Tone.INFO, "Для начала достаточно общего рабочего места, монитора и консоли. Стол и кресло строй из обычных блоков; остальные станции необязательны.");
 	}
 
 	/** "$2.46" for the claude backend once something was spent, else null. */

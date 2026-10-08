@@ -173,7 +173,9 @@ public final class MonitorFeature {
 	 */
 	static String resolveAgent(MonitorBlockEntity be, String binding, Direction facing, int w, int h) {
 		if (!binding.isEmpty()) {
-			return binding;
+			if ("feed".equals(binding)) return binding;
+            String resolved = dev.agentcraft.client.foreman.AgentSelection.binding(binding, Foreman.state());
+            return resolved == null ? "" : resolved;
 		}
 		Anchors.Layout layout = Anchors.current();
 		if (layout.revision() != resolvedLayoutRevision || !layout.name().equals(resolvedLayoutName)) {

@@ -223,7 +223,7 @@ public final class ForemanState {
 
 	private void rememberReplyAuthor(FeedItem item) {
 		if ("user".equals(item.to()) && (item.kind() == Protocol.FeedKind.MESSAGE || item.kind() == Protocol.FeedKind.DECISION)
-			&& (item.agentId() != null && item.agentId().matches("[a-z0-9_-]{1,64}")) && item.text() != null && !item.text().isBlank()) {
+			&& (item.agentId() != null && agents.containsKey(item.agentId())) && item.text() != null && !item.text().isBlank()) {
 			replyAgentId = item.agentId();
 		}
 	}
@@ -529,7 +529,7 @@ public final class ForemanState {
 				bounded(feed, f, FEED_TAIL);
 			}
 		}
-		if (s.replyAgentId() != null && s.replyAgentId().matches("[a-z0-9_-]{1,64}")) replyAgentId = s.replyAgentId();
+		if (s.replyAgentId() != null && agents.containsKey(s.replyAgentId())) replyAgentId = s.replyAgentId();
 		for (AgentLogs l : s.logs()) {
 			if (l != null && l.agentId() != null) {
 				appendLogs(l.agentId(), l.entries());

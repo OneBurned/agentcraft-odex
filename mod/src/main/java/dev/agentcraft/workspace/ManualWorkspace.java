@@ -83,7 +83,7 @@ public final class ManualWorkspace {
 			WorkspaceData base=data.active()?data:new WorkspaceData(false,Map.of());
 			commit(level.getServer(),base.with(role,spot));
 			selected.put(player.getUUID(),role);
-			player.sendSystemMessage(Component.literal(role.label+": "+feet.toShortString()+". Codex подключён; мониторы и индикаторы в пределах 32 блоков подключаются автоматически."),false);
+			player.sendSystemMessage(Component.literal(role.label+": "+feet.toShortString()+". Агенты подключены; мониторы и индикаторы в пределах 32 блоков подключаются автоматически."),false);
 			return true;
 		} catch (Exception e) { player.sendSystemMessage(Component.literal(e.getMessage()==null?"Не удалось настроить рабочее место":e.getMessage()),false); return false; }
 	}
@@ -116,7 +116,7 @@ public final class ManualWorkspace {
 		var a=Anchors.builder("manual"); var desk=data.spot(WorkspaceRole.DESK);
 		for(var role:WorkspaceRole.values()) {
 			var p=data.spot(role);
-			a.spot(role==WorkspaceRole.DESK?AnchorNames.desk("marlow"):role.key,p.x(),p.y(),p.z(),p.yaw());
+			a.spot(role==WorkspaceRole.DESK?AnchorNames.SHARED_DESK:role.key,p.x(),p.y(),p.z(),p.yaw());
 		}
 		a.spot(AnchorNames.SPAWN,desk.x(),desk.y(),desk.z(),desk.yaw());
 		a.bounds(desk.x()-32,desk.y()-16,desk.z()-32,desk.x()+32,desk.y()+16,desk.z()+32);
@@ -132,8 +132,8 @@ public final class ManualWorkspace {
 			for(var be:chunk.getBlockEntities().values()) {
 				var p=be.getBlockPos();
 				if(Math.abs(p.getX()-desk.x())>32 || Math.abs(p.getZ()-desk.z())>32 || Math.abs(p.getY()-desk.y())>16) continue;
-				if(be instanceof MonitorBlockEntity monitor && monitor.binding().isEmpty()) monitor.setBinding("marlow");
-				if(be instanceof StatusLampBlockEntity lamp && lamp.binding().isEmpty()) lamp.setBinding("agent:marlow");
+				if(be instanceof MonitorBlockEntity monitor && monitor.binding().isEmpty()) monitor.setBinding("slot:1");
+				if(be instanceof StatusLampBlockEntity lamp && lamp.binding().isEmpty()) lamp.setBinding("agent:slot:1");
 			}
 		}
 	}

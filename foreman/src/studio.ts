@@ -10,7 +10,7 @@ export class TeamStudio {
   constructor(private fm: Foreman, readonly runtime: AgentRuntime) {}
   async action(action: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     const idle = (id: string) => this.fm.assertTeamAgentIdle(id);
-    if (action === 'get') return { team: this.fm.team!.snapshot(), profiles: this.fm.agents(), mode: 'planning', items: [],
+    if (action === 'get') return { team: this.fm.team!.snapshot(), profiles: this.fm.agents(), mode: 'planning', items: [], skins: this.fm.agents().map(a => a.skin),
       notice: 'Подключения адресуются по ID агента. Автоматическая очередь команды — отдельный этап.' };
     if (action === 'connection.get') return this.runtime.view(selected.parse(payload).id);
     let team;

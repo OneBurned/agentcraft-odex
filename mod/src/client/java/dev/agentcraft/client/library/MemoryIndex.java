@@ -1,6 +1,5 @@
 package dev.agentcraft.client.library;
 
-import dev.agentcraft.Cast;
 import dev.agentcraft.client.diff.ReviewKit;
 import dev.agentcraft.client.foreman.Foreman;
 import dev.agentcraft.client.foreman.ForemanState;
@@ -83,7 +82,7 @@ public final class MemoryIndex {
 		all = List.copyOf(list);
 		Map<String, Integer> c = new LinkedHashMap<>();
 		c.put("shared", 0);
-		for (String id : Cast.ids()) {
+		for (String id : s.agents().keySet()) {
 			c.put(id, 0);
 		}
 		for (MemoryEntry e : list) {
@@ -110,7 +109,7 @@ public final class MemoryIndex {
 		}
 		ForemanState s = Foreman.state();
 		Protocol.Agent a = s == null || e.author() == null ? null : s.agent(e.author());
-		return a != null && a.role() == Protocol.AgentRole.LEAD;
+		return a != null && (a.role() == Protocol.AgentRole.LEAD || a.roles() != null && a.roles().contains("planner"));
 	}
 
 	/** Entries of a scope ({@link #ALL} = every scope), plan first, then newest first. */
