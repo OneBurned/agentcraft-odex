@@ -28,6 +28,10 @@ export class LegacyObserverBackend implements Backend {
   private detail?: { at: number; turnKey?: string; state: AgentState; station: Station; activity: string };
   constructor(protected fm: Foreman, private chatFile = chatConfigPath()) {}
   onTeamChanged() { this.studio?.syncRoster(); }
+  assertProfileChange(enabled?: boolean) {
+    if (!this.studio) throw new ClientError('Пульт ещё запускается.');
+    this.studio.assertProfileChange(enabled);
+  }
 
   async start(): Promise<void> {
     const lead = this.fm.requireAgent('marlow');

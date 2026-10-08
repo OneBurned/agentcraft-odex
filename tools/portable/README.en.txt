@@ -83,13 +83,21 @@ settings/skins/world metadata. It keeps the original two IDs, history, pending r
 paused cards, personas and furniture assignments; unused default NPCs are not added.
 Provider-owned native conversation history and login stay in place and are not copied.
 The migrated pair retains its original queue, initially paused. Changes to composition/roles
-await the general role queue; names and appearance remain editable. Fresh teams are unaffected.
+await the general role queue; names, appearance and visibility remain editable even with unfinished
+cards, open questions or a running dialog. Disabling waits for the active queue task or Claude reply
+to stop. Existing codex/claude aliases and all-to-Codex routing are retained. Fresh teams are unaffected.
 Repeating a successful apply does not change files. To restore, stop work/game/bridge and
 return Claude again; run the same command with restore instead of apply and the SAME paths.
 Current managed data is backed up under before-restore-<UUID> before restoring original bytes.
 New files in managed profile/workspace/skin folders are removed there, but kept in that backup.
 Restore compatible old bridge/mod binaries separately if reverting to an older release.
 If interrupted, use restore before starting the bridge; its maintenance guard blocks partial data.
+The normal conversation Return command also releases a dead game owner's lock, after verifying
+both recorded processes have exited. PID guards remain conservative on access errors/reused IDs.
+Never kill a process based only on a saved PID. With work stopped, verify image/path/start time;
+only if it is confirmed unrelated, copy and rename the stale foreman.json/portable.json or adjacent
+<profile>.migration-lock.json with a .stale suffix, then retry restore. Do not change state/team files.
+If ownership cannot be verified, keep the guard until you can inspect the process.
 This is not a full Minecraft world or account backup. Never distribute used data or backups.
 
 SETTINGS AND TEMPLATES

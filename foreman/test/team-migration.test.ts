@@ -12,9 +12,9 @@ import { Foreman } from '../src/foreman.js';
 import { ObserverBackend } from '../src/agents/observer.js';
 import { DesktopChat } from '../src/codex-desktop.js';
 import { ClaudeDialog } from '../src/claude-dialog.js';
-import { acquireConversation, conversationLease } from '../src/claude-conversation.js';
+import { acquireConversation, conversationLease, returnConversation } from '../src/claude-conversation.js';
 import { silentLogger } from '../src/context.js';
-import { tempDir, rmrf, testConfig } from './helpers.js';
+import { tempDir, rmrf, testConfig, until } from './helpers.js';
 import { writeJsonAtomic } from '../src/util/fsx.js';
 
 const cleanup: string[] = [];
@@ -165,6 +165,28 @@ it('retains playable queue, paused cards, pending reply, personas and notes on m
     expect(view.notes).toHaveLength(1); expect(fm.snapshot().replyAgentId).toBe('wren');
     expect((await backend.onStudioAction('persona.get', { agentId: 'wren' })).description).toBeTruthy();
     expect(() => fm.teamAction('team.create', {})).toThrow('прежних исполнителей');
+    const saved: any = fm.store.data.backend.studio;
+    for (const stage of ['plan', 'queued', 'question']) {
+      saved.items[0].stage = stage;
+      const profile = saved.profiles.find((p: any) => p.id === 'marlow');
+      await backend.onStudioAction('agent', { ...profile, name: 'Coder ' + stage, skin: 'wren', color: '#ABCDEF', visible: false });
+      expect(fm.team!.get('marlow')).toMatchObject({ name: 'Coder ' + stage, visible: false, appearance: { skin: 'wren', color: '#ABCDEF' } });
+      expect(fm.agent('marlow')).toMatchObject({ name: 'Coder ' + stage, skin: 'wren', visible: false });
+      expect(new TeamRegistry(f.profile).get('marlow')?.name).toBe('Coder ' + stage);
+    }
+    const question = fm.decisions.create({ agentId: 'wren', kind: 'question', question: 'Review question', options: ['Continue'], tool: 'studio', taskId: 't1' });
+    await backend.onStudioAction('agent', { ...saved.profiles[1], name: 'Reviewer renamed', visible: false });
+    expect(fm.agent('wren')).toMatchObject({ name: 'Reviewer renamed', visible: false });
+    expect(fm.decisions.get(question.id)?.status).toBe('open');
+    expect(fm.tasks.require('t1').assigneeIdentity?.name).toBe('Coder');
+    saved.active = 't1';
+    await backend.onStudioAction('agent', { ...saved.profiles[0], visible: true });
+    expect(fm.agent('marlow')?.visible).toBe(true);
+    await expect(backend.onStudioAction('agent', { ...saved.profiles[0], enabled: false })).rejects.toThrow('останови текущую');
+    expect(() => fm.teamAction('team.update', { id: 'marlow', revision: fm.team!.snapshot().revision, patch: { enabled: false } })).toThrow('останови текущую');
+    delete saved.active;
+    await backend.onStudioAction('agent', { ...saved.profiles[0], enabled: false });
+    expect(fm.team!.get('marlow')?.enabled).toBe(false);
     expect(send).not.toHaveBeenCalled(); expect(run).not.toHaveBeenCalled();
   } finally { await fm.close(); }
 });
@@ -233,4 +255,70 @@ it('refuses an extra paused owner even if it is absent from the persisted roster
   const f = fixture(); f.change(s => { s.backend.studio.personalPaused.push('custom_agent'); });
   const before = bytes(f.base);
   await expect(migrateTeam(f.options, f.checks)).rejects.toThrow('custom_agent'); expect(bytes(f.base)).toEqual(before);
+});
+
+it('returns a dead migration-owned game lease through the existing recovery command and then restores', async () => {
+  const f = fixture(), original = bytes(f.profile); await migrateTeam(f.options, f.checks);
+  const deadPid = 999001, session = read(path.join(f.workspace, 'conversation.json'));
+  writeJsonAtomic(path.join(f.workspace, 'conversation-lock.json'), { token: randomUUID(), owner: 'game', pid: deadPid });
+  const kill = process.kill.bind(process);
+  vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+    if (pid === deadPid) throw Object.assign(new Error('gone'), { code: 'ESRCH' });
+    return kill(pid, signal);
+  });
+  await expect(restoreTeam(f.options, f.checks)).rejects.toThrow('Разговор Claude занят');
+  returnConversation(f.workspace, true);
+  expect(conversationLease(f.workspace)).toBeUndefined();
+  await restoreTeam(f.options, f.checks);
+  expect(bytes(f.profile)).toEqual(original);
+  expect(read(path.join(f.workspace, 'conversation.json'))).toEqual(session);
+});
+
+it('preserves legacy wire aliases and all routing for the migrated pair', async () => {
+  const f = fixture(); await migrateTeam(f.options, f.checks);
+  vi.spyOn(DesktopChat.prototype, 'start').mockImplementation(() => {});
+  const fm = new Foreman({ config: f.cfg, logger: silentLogger }), backend = new ObserverBackend(fm);
+  try {
+    await fm.start(backend);
+    const message = vi.spyOn(backend, 'onChatMessage').mockResolvedValue({ chatDelivered: true });
+    const control = vi.spyOn(backend, 'onChatControl').mockResolvedValue({ chatControl: 'stopped' });
+    for (const [alias, id] of [['codex', 'marlow'], ['all', 'marlow'], ['claude', 'wren'], ['wren', 'wren']]) {
+      const replies: any[] = [];
+      await fm.handle({ v: 2, id: 'alias', type: 'user.message', to: alias!, text: 'Synthetic message', reply: true }, m => replies.push(m));
+      expect(replies.find(m => m.type === 'ack')?.ok).toBe(true);
+      expect(message).toHaveBeenLastCalledWith('Synthetic message', id, true);
+    }
+    const replies: any[] = [];
+    await fm.handle({ v: 2, id: 'control', type: 'agent.action', agentId: 'claude', action: 'stop' }, m => replies.push(m));
+    expect(replies.find(m => m.type === 'ack')?.ok).toBe(true); expect(control).toHaveBeenLastCalledWith('stop', 'claude');
+    message.mockRestore(); control.mockRestore();
+    fm.teamAction('team.update', { id: 'wren', revision: fm.team!.snapshot().revision, patch: { enabled: false } });
+    for (const alias of ['claude', 'wren']) {
+      const denied: any[] = [];
+      await fm.handle({ v: 2, id: 'disabled', type: 'agent.action', agentId: alias, action: 'resume' }, m => denied.push(m));
+      expect(denied.find(m => m.type === 'ack')?.ok).toBe(false);
+      expect(denied.find(m => m.type === 'error')?.message).toContain('Исполнитель выключен');
+    }
+  } finally { await fm.close(); }
+});
+
+it('allows appearance edits during a dialog but refuses disabling through both profile APIs', async () => {
+  const f = fixture(); await migrateTeam(f.options, f.checks);
+  vi.spyOn(DesktopChat.prototype, 'start').mockImplementation(() => {});
+  vi.spyOn(ClaudeDialog.prototype, 'shared').mockReturnValue(undefined);
+  let finish: ((text: string) => void) | undefined;
+  const run = vi.spyOn(ClaudeDialog.prototype, 'run').mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const fm = new Foreman({ config: f.cfg, logger: silentLogger }), backend = new ObserverBackend(fm);
+  try {
+    await fm.start(backend);
+    const saved: any = fm.store.data.backend.studio;
+    delete saved.dialog.pending; saved.personalPaused = []; fm.setAgent('wren', { paused: false });
+    await backend.onChatMessage('Synthetic dialog', 'wren'); expect(run).toHaveBeenCalledOnce();
+    await backend.onStudioAction('agent', { ...saved.profiles[1], name: 'During dialog', skin: 'marlow', visible: false });
+    expect(fm.agent('wren')).toMatchObject({ name: 'During dialog', skin: 'marlow', visible: false, state: 'thinking' });
+    await expect(backend.onStudioAction('agent', { ...saved.profiles[1], enabled: false })).rejects.toThrow('останови текущую');
+    expect(() => fm.teamAction('team.update', { id: 'wren', revision: fm.team!.snapshot().revision, patch: { enabled: false } })).toThrow('останови текущую');
+    expect(run.mock.calls[0]![1].aborted).toBe(false);
+    finish!('Synthetic reply'); await until(() => fm.agent('wren')?.state === 'done'); finish = undefined;
+  } finally { finish?.('Synthetic reply'); await fm.close(); }
 });

@@ -313,6 +313,10 @@ export class Studio {
     }
     this.publishControls();
   }
+  assertProfileChange(enabled?: boolean) {
+    if (enabled === false && (this.data.active || this.dialogAbort))
+      throw new Error('Сначала останови текущую задачу или ответ. Скрыть персонажа можно без остановки.');
+  }
   view(): Record<string, unknown> {
     return { ...this.data, items: this.data.items.map(i => { const t = this.fm.tasks.require(i.id); return { ...i, ...t, project: t.repoId ? this.fm.repos.get(t.repoId)?.name : '' }; }), claudeFound: !!findClaude(this.data.claudePath), claudeAuth: this.claudeAuth,
       repo: this.fm.repos.defaultRepo()?.path ?? '', chat: this.activity?.phase ?? 'unavailable',
@@ -340,7 +344,7 @@ export class Studio {
       if (action === 'agent') {
         const p = profileInput.parse(payload);
         if (!this.data.profiles.some(a => a.id === p.id)) throw new Error('Unknown agent');
-        if ((this.data.active || this.dialogAbort) && !p.enabled) throw new Error('Сначала останови текущую задачу или ответ. Скрыть персонажа можно без остановки.');
+        this.assertProfileChange(p.enabled);
         if (!this.availableSkins().includes(p.skin)) throw new Error('Неизвестный встроенный скин. Свой PNG выбирается в клиенте.');
         if (this.fm.migratedPair) {
           const a = this.fm.team!.get(p.id)!;

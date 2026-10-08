@@ -37,6 +37,7 @@ import { assertProfileAvailable } from './profile-maintenance.js';
 
 export interface Backend {
   assertAgentIdle?(id: string): boolean | void;
+  assertProfileChange?(enabled?: boolean): void;
   onTeamChanged?(): void;
   readonly name: 'sim' | 'claude' | 'observer';
   onObserverUpdate?(update: ObserverUpdate): Record<string, unknown>;
@@ -214,7 +215,15 @@ export class Foreman {
     if (action === 'team.get') return { ...this.team.snapshot() };
     if (this.migratedPair && (action !== 'team.update' || !payload.patch || Object.keys(payload.patch as object).some(k => !['name', 'appearance', 'enabled', 'visible'].includes(k))))
       throw new ClientError('Перенесённая очередь сохраняет двух прежних исполнителей. Изменение состава и ролей станет доступно с новой очередью; внешность и имена можно менять сейчас.');
-    const result = this.team.change(action.replace(/^team\./, ''), payload, id => this.assertTeamAgentIdle(id));
+    const result = this.team.change(action.replace(/^team\./, ''), payload, id => {
+      if (!this.migratedPair) return this.assertTeamAgentIdle(id);
+      // The migrated studio still owns execution. Presentation edits must not depend on queue assignments.
+      const enabled = (payload.patch as { enabled?: boolean }).enabled;
+      if (enabled === false) {
+        if (!this.backend?.assertProfileChange) throw new ClientError('Пульт ещё запускается.');
+        this.backend.assertProfileChange(enabled);
+      }
+    });
     this.syncTeam();
     return { ...result };
   }
@@ -577,7 +586,7 @@ export class Foreman {
     if (msg.type === 'studio.action' && msg.action.startsWith('team.')) return this.teamAction(msg.action, msg.payload);
     if (this.team && !this.migratedPair && !['hello', 'repo.add', 'diff.request', 'agent.scene', 'studio.action', 'user.message', 'agent.action', 'observer.update'].includes(msg.type))
       throw new ClientError('Агент не подключён. Выполнение ролей для новой команды будет доступно после настройки подключений.');
-    if (this.team && (msg.type === 'user.message' || msg.type === 'agent.action')) {
+    if (this.team && !this.migratedPair && (msg.type === 'user.message' || msg.type === 'agent.action')) {
       const id = this.resolveAgentId(msg.type === 'user.message' ? msg.to : msg.agentId);
       if (!id || !this.team.get(id)?.enabled) throw new ClientError('Выбери включённого агента по ID или уникальному имени.');
       if (msg.type === 'user.message') return this.backend?.onChatMessage?.(msg.text, id, msg.reply);
