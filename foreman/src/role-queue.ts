@@ -50,7 +50,7 @@ export class RoleQueue {
   }
   start() {
     this.runtime.projectHint = id => {
-      const i = this.data.items.find(i => i.lock && (i.developerId === id || i.reviewerId === id));
+      const i = this.activeAttempt(id) ?? this.data.items.find(i => i.lock && (i.developerId === id || i.reviewerId === id));
       return i ? `Проект занят задачей ${i.id}. Сообщение может повлиять на текущую работу.` : undefined;
     };
     this.runtime.onFinal = (id, value) => {
@@ -96,6 +96,7 @@ export class RoleQueue {
   private cwd(i: Item) { return this.fm.repos.require(this.fm.tasks.require(i.id).repoId!).path; }
   private directory(cwd: string) { const p = fs.realpathSync(cwd); return process.platform === 'win32' ? p.toLowerCase() : p; }
   private phase(i: Item): Phase { return i.stage === 'review' || i.resumePhase === 'reviewer' ? 'reviewer' : 'developer'; }
+  private activeAttempt(id: string) { return this.data.items.find(i => i.id === this.data.active && i.attempt?.agentId === id && ['coding', 'review'].includes(i.stage)); }
   private canAssignReviewer(i: Item) { return !i.attempt && !i.noReview && (i.stage === 'review' || i.stage === 'question' || i.stage === 'queued' && !!i.lock); }
   private canAssignDeveloper(i: Item) { return !i.attempt && (i.stage === 'queued' && !!i.lock || i.stage === 'question' && i.resumePhase === 'developer'); }
   private validate(i: Pick<Item, 'developerId' | 'reviewerId' | 'noReview' | 'developerIds'>, reviewerOnly = false) {
@@ -109,6 +110,8 @@ export class RoleQueue {
     }
   }
   private available(id: string, role: Phase, i: Item): string | undefined {
+    const owner = this.data.items.find(other => other.id !== i.id && other.attempt?.agentId === id);
+    if (owner) return `Агент ждёт завершения или решения по задаче ${owner.id}.`;
     const a = this.fm.team!.get(id);
     if (!a || a.archived || !a.enabled || !a.roles.includes(role)) return `${id}: агент выключен, архивирован или не имеет роли ${role}`;
     if (role === 'developer' && id === i.reviewerId || role === 'reviewer' && (id === i.developerId || i.developerIds?.includes(id))) return 'Самопроверка запрещена';
@@ -304,6 +307,9 @@ export class RoleQueue {
         const recovery = z.enum(['restore-head', 'developer']).default('restore-head').parse(payload.recovery);
         if (action === 'retry' && recovery === 'developer' && i.resumePhase !== 'reviewer') throw new Error('Возврат разработчику доступен для вопроса на этапе ревью.');
         if (action === 'release' && !['done', 'cancelled'].includes(i.stage)) throw new Error('Освободи только завершённый проект.');
+        const activeOwner = i.attempt && this.activeAttempt(i.attempt.agentId);
+        if (activeOwner && activeOwner.id !== i.id)
+          throw new Error(`Агент выполняет задачу ${activeOwner.id}. Сначала заверши её; прежний вопрос не остановит эту работу.`);
         if (i.settlingAgentId && !this.runtime.idle(i.settlingAgentId)) throw new Error('Исполнитель ещё работает. Подтверди его остановку в карточке агента.');
         if (i.attempt) {
           await this.runtime.control(i.attempt.agentId, 'stop'); // confirmed before invalidating run
@@ -340,7 +346,7 @@ export class RoleQueue {
   }
   async control(id: string, action: 'pause' | 'resume' | 'stop') {
     return this.lock(async () => {
-      const i = this.data.items.find(i => i.attempt?.agentId === id && ['coding', 'review', 'question'].includes(i.stage));
+      const i = this.activeAttempt(id) ?? this.data.items.find(i => i.attempt?.agentId === id && ['coding', 'review', 'question'].includes(i.stage));
       if (i?.stage === 'question' && action === 'resume') throw new Error('Продолжи задачу через вопрос на доске после проверки прежнего запуска.');
       const result = await this.runtime.control(id, action);
       if (i?.attempt) {
@@ -375,7 +381,7 @@ export class RoleQueue {
       for (const i of this.data.items) if (i.stage === 'question') {
         const id = i.attempt?.agentId ?? (i.resumePhase === 'reviewer' ? i.reviewerId : i.developerId);
         const agent = id && this.fm.agent(id);
-        if (id && agent && this.runtime.idle(id) && (agent.state !== 'waiting_user' || agent.station !== 'user'))
+        if (id && agent && !this.activeAttempt(id) && this.runtime.idle(id) && (agent.state !== 'waiting_user' || agent.station !== 'user'))
           this.fm.setAgent(id, { state: 'waiting_user', station: 'user', activity: i.reason ?? 'Нужно решение по задаче' });
       }
       for (const i of this.data.items) if (i.settlingAgentId && this.runtime.idle(i.settlingAgentId)) delete i.settlingAgentId;

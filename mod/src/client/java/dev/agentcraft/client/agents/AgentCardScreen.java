@@ -3,6 +3,7 @@ package dev.agentcraft.client.agents;
 import com.mojang.blaze3d.platform.InputConstants;
 import dev.agentcraft.AgentCraft;
 import dev.agentcraft.client.decisions.DecisionScreen;
+import dev.agentcraft.client.decisions.DecisionText;
 import dev.agentcraft.client.console.ConsoleScreen;
 import dev.agentcraft.client.console.ConsoleCommands;
 import dev.agentcraft.client.foreman.Foreman;
@@ -105,7 +106,10 @@ public final class AgentCardScreen extends Screen {
 	// content of this frame (rebuilt in refresh)
 	private @Nullable Decision owned;
 	private final List<String> decisionLines = new ArrayList<>();
-	private @Nullable String decisionContext;
+	private final TextUtil.Scroll decisionScroll = new TextUtil.Scroll();
+	private String decisionTextKey = "";
+	private boolean resetDecisionScroll;
+	private int decisionX, decisionY, decisionW, decisionH;
 	private final List<Decision> filed = new ArrayList<>();
 
 	private static final class Btn {
@@ -232,17 +236,12 @@ public final class AgentCardScreen extends Screen {
 				}
 			}
 			decisionLines.clear();
-			decisionContext = null;
 			if (owned != null) {
 				Font font = this.font;
-				int avail = W - Kit.padding("panel_paper").left() - Kit.padding("panel_paper").right() - 12;
-				List<String> lines = TextUtil.wrapPlain(font, owned.question(), avail);
-				if (lines.size() > 2) {
-					String rest = String.join(" ", lines.subList(1, lines.size()));
-					lines = List.of(lines.get(0), TextUtil.ellipsize(font, rest, avail));
-				}
-				decisionLines.addAll(lines);
-				decisionContext = contextLine(owned);
+				int avail = (int) ((W - Kit.padding("panel_paper").left() - Kit.padding("panel_paper").right() - 22) / TextUtil.MESSAGE_SCALE);
+				String text = DecisionText.content(owned), key = owned.id() + "\n" + text;
+				if (!key.equals(decisionTextKey)) { decisionTextKey = key; resetDecisionScroll = true; }
+				decisionLines.addAll(TextUtil.wrapPlain(font, text, avail));
 			}
 		}
 		if (feedbackFor != null && (st.decision(feedbackFor) == null || !st.decision(feedbackFor).isOpen())) {
@@ -254,36 +253,15 @@ public final class AgentCardScreen extends Screen {
 		}
 	}
 
-	/** One line of context under a decision: the diff stats of a merge, the command of a permission prompt. */
-	private static @Nullable String contextLine(Decision d) {
-		String ctx = d.context();
-		if (ctx == null || ctx.isBlank() || d.kind() == DecisionKind.QUESTION) {
-			return null;
-		}
-		String first = null;
-		for (String line : ctx.split("\n")) {
-			String l = line.trim();
-			if (l.isEmpty()) {
-				continue;
-			}
-			if (first == null) {
-				first = l;
-			}
-			if (d.kind() == DecisionKind.MERGE && l.contains(" | tests:")) {
-				return l;
-			}
-		}
-		return first;
-	}
-
 	private int decisionBlockHeight(boolean hasReview, int options) {
 		if (owned == null) {
 			return 0;
 		}
-		int inner = 4 + 10 + 2 + decisionLines.size() * ROW + (decisionContext != null ? ROW : 0) + 3;
+		int inner = 4 + 10 + 2 + decisionTextHeight() + 3;
 		inner += hasReview ? 20 : options * (OPT_H + 1);
 		return inner + 4 + 6;
 	}
+	private int decisionTextHeight() { return (int) Math.ceil(Math.min(4, decisionLines.size()) * ROW * TextUtil.MESSAGE_SCALE); }
 
 	private void layout() {
 		Font font = this.font;
@@ -397,6 +375,7 @@ public final class AgentCardScreen extends Screen {
 		boolean hasReview = owned != null && hasReviewScreen(owned);
 		optionRows.clear();
 		review.w = 0;
+		decisionW = 0;
 		if (owned != null) {
 			y = drawDecision(g, font, owned, v, ix, y, iw, hasReview, mouseX, mouseY, live);
 		}
@@ -504,20 +483,23 @@ public final class AgentCardScreen extends Screen {
 			Panels.text(g, font, more, bx + bw - font.width(more), by, UiStyle.color("paper.muted"));
 		}
 		by += 10 + 2;
-		for (String line : decisionLines) {
-			Panels.text(g, font, line, bx, by, UiStyle.color("paper.text"));
-			by += ROW;
+		decisionX = bx; decisionY = by; decisionW = bw; decisionH = decisionTextHeight();
+		decisionScroll.update(decisionLines.size(), 4);
+		if (resetDecisionScroll) { decisionScroll.toTop(); resetDecisionScroll = false; }
+		g.enableScissor(bx, by, bx + bw, by + decisionH);
+		g.pose().pushMatrix(); g.pose().translate(bx, by); g.pose().scale(TextUtil.MESSAGE_SCALE, TextUtil.MESSAGE_SCALE);
+		for (int i = decisionScroll.offset(); i < Math.min(decisionLines.size(), decisionScroll.offset() + 4); i++) {
+			Panels.text(g, font, decisionLines.get(i), 0, (i - decisionScroll.offset()) * ROW, UiStyle.color("paper.text"));
 		}
-		if (decisionContext != null) {
-			Panels.text(g, font, TextUtil.ellipsize(font, decisionContext, bw), bx, by, UiStyle.color("paper.muted"));
-			by += ROW;
-		}
+		g.pose().popMatrix(); g.disableScissor();
+		Panels.scrollbar(g, bx + bw - 6, by, decisionH, decisionScroll, false);
+		by += decisionH;
 		by += 3;
 		if (hasReview) {
 			review.label = switch (d.kind()) {
 				case MERGE -> "Проверить изменения";
 				case PERMISSION -> "Решить";
-				default -> "Ответить";
+				default -> "Вопрос целиком / Ответить";
 			};
 			review.primary = true;
 			review.disabled = !live;
@@ -760,6 +742,9 @@ public final class AgentCardScreen extends Screen {
 	// ---------------------------------------------------------------- input
 	@Override
 	public boolean mouseScrolled(double x, double y, double sx, double sy) {
+		if (x >= decisionX && x < decisionX + decisionW && y >= decisionY && y < decisionY + decisionH && sy != 0) {
+			decisionScroll.scrollBy(sy > 0 ? -3 : 3); return true;
+		}
 		if (x >= logX && x < logX + logW && y >= logY && y < logY + logH && sy != 0) {
 			logScroll.scrollBy(sy > 0 ? -3 : 3);
 			return true;

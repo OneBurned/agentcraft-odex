@@ -474,6 +474,14 @@ No installation or restart is performed by this task; in-game visual verificatio
 
 ### Character-card messages and question answers (t33)
 
+Questions in every agent card retain the complete question and context, including the reason
+for a rejected answer. Scroll over the question text with the mouse wheel; its scrollbar is
+independent of the message log. **Вопрос целиком / Ответить** opens the larger answer screen,
+where the full question and context share one scrollable body. Reaching the bottom keeps the
+last lines visible across frames. Answer controls remain outside that body; no question text
+is discarded by the former two-line card or five-line answer-screen limits. Text/scroll tests
+and compilation cover this path; live Minecraft rendering still requires a manual check.
+
 The character card uses Minecraft's `MOUSE_BUTTON_LEFT` constant. The previous handler checked
 literal `0`, while Minecraft 26.3 / SDL sends left clicks as `1`, so a rendered enabled button
 ignored real mouse clicks. The live bridge snapshot during investigation allowed messages for

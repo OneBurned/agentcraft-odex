@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vitest';
 import { Foreman } from '../src/foreman.js';
 import { RoleQueue } from '../src/role-queue.js';
@@ -363,4 +364,45 @@ it('pause on a question reaches the real executor without setting the task pause
   await x.q.control(x.ids[0]!, 'pause');
   expect(x.runtime.control).toHaveBeenCalledWith(x.ids[0], 'pause'); expect(i.attempt!.paused).toBe(before);
   await expect(x.q.control(x.ids[0]!, 'resume')).rejects.toThrow('вопрос');
+});
+it.each(['missing-report', 'question', 'blocked', 'stop'])('%s reserves its developer until resolution instead of dispatching a second project to the same agent', async trigger => {
+  const x = await fixture();
+  const a = await x.create({ noReview: true, reviewerId: null });
+  const b = await x.create({ noReview: true, reviewerId: null, repoId: x.project2.id });
+  await x.action('start');
+  if (trigger === 'stop') await x.q.control(x.ids[0]!, 'stop');
+  else if (trigger !== 'missing-report') await x.action('report', { id: a.id, run: a.attempt!.run, agentId: x.ids[0], status: trigger, summary: 'Need input' });
+  x.busy.delete(x.ids[0]!); await x.q.tick();
+  expect(a.stage).toBe('question'); expect(a.attempt?.agentId).toBe(x.ids[0]);
+  expect(b.stage).toBe('queued'); expect(b.reason).toContain(a.id); expect(x.calls).toHaveLength(1);
+  await x.action('cancel', { id: a.id });
+  expect(b.stage).toBe('coding'); expect(x.calls.at(-1)?.id).toBe(x.ids[0]);
+  await x.q.control(x.ids[0]!, 'pause'); expect(b.attempt?.paused).toBe(true);
+  await x.q.control(x.ids[0]!, 'resume'); expect(b.attempt?.paused).toBe(false);
+  await x.q.control(x.ids[0]!, 'stop'); expect(b.stage).toBe('question'); expect(a.stage).toBe('cancelled');
+});
+it('auto selection skips an idle adapter with an unresolved attempt in another project', async () => {
+  const x = await fixture(), a = await x.create({ noReview: true, reviewerId: null });
+  const b = await x.create({ noReview: true, reviewerId: null, repoId: x.project2.id, developerId: null });
+  x.fm.team!.setAssignment(true, x.fm.team!.snapshot().revision);
+  await x.action('start'); x.busy.delete(x.ids[0]!); await x.q.tick();
+  expect(a.stage).toBe('question'); expect(b.attempt?.agentId).toBe(x.ids[1]);
+});
+it('legacy overlapping attempts route controls and hints to the active task and cannot stop it through an old question', async () => {
+  const x = await fixture(), a = await x.create({ noReview: true, reviewerId: null });
+  const b = await x.create({ noReview: true, reviewerId: null, repoId: x.project2.id });
+  await x.action('start'); await x.q.control(x.ids[0]!, 'stop');
+  // Reproduce the old scheduler's live overlapping state, which new dispatch now rejects.
+  b.attempt = { ...a.attempt!, run: randomUUID(), base: git(x.other, 'rev-parse', 'HEAD') };
+  b.stage = 'coding'; b.lock = fs.realpathSync(x.other); x.q.data.active = b.id; x.busy.add(x.ids[0]!);
+  const previous = structuredClone(a);
+  x.q.start(); expect((x.runtime as unknown as AgentRuntime).projectHint?.(x.ids[0]!)).toContain(b.id);
+  await x.q.control(x.ids[0]!, 'pause'); expect(b.attempt.paused).toBe(true); expect(a).toEqual(previous);
+  await x.q.control(x.ids[0]!, 'resume'); expect(b.attempt.paused).toBe(false);
+  x.runtime.control.mockClear();
+  for (const action of ['retry', 'cancel']) {
+    await expect(x.action(action, { id: a.id, answer: 'Old answer' })).rejects.toThrow(b.id);
+    expect(x.runtime.control).not.toHaveBeenCalled(); expect(a).toEqual(previous); expect(b.stage).toBe('coding');
+  }
+  await x.q.control(x.ids[0]!, 'stop'); expect(b.stage).toBe('question'); expect(a).toEqual(previous);
 });

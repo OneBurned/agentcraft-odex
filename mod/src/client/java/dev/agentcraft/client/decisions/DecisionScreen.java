@@ -75,6 +75,7 @@ public class DecisionScreen extends Screen {
 	private final TextModel answer = new TextModel(4000);
 	private final TextFieldView answerView = new TextFieldView();
 	private final TextUtil.Scroll scroll = new TextUtil.Scroll();
+	private String bodyKey = "";
 	private boolean initialized;
 	private boolean textFocused;
 	private boolean requestChanges;
@@ -855,6 +856,7 @@ public class DecisionScreen extends Screen {
 
 		// ---- measure
 		List<FormattedCharSequence> qLines = font.split(Component.literal(d.question()).withStyle(net.minecraft.ChatFormatting.BOLD), cw);
+		if (d.kind() == DecisionKind.QUESTION) qLines = List.of(); // full question belongs to the scrollable body
 		if (qLines.size() > 5) {
 			qLines = qLines.subList(0, 5);
 		}
@@ -1198,10 +1200,8 @@ public class DecisionScreen extends Screen {
 		Panels.inset(g, x, y, w, h);
 		int view = Math.max(1, (h - 8) / 10);
 		scroll.update(rows.size(), view);
-		if (scroll.following() && rows.size() > view) {
-			// start at the top, not the tail: context reads top-down
-			scroll.toTop();
-		}
+		String key = d.id() + "\n" + DecisionText.content(d);
+		if (!key.equals(bodyKey)) { bodyKey = key; scroll.toTop(); }
 		int ly = y + 4;
 		g.enableScissor(x + 2, y + 2, x + w - 2, y + h - 2);
 		for (int i = scroll.offset(); i < Math.min(rows.size(), scroll.offset() + view); i++) {
@@ -1236,6 +1236,10 @@ public class DecisionScreen extends Screen {
 	private List<Row> bodyRows(Decision d, int w) {
 		List<Row> rows = new ArrayList<>();
 		int ink = UiBits.ink();
+		if (d.kind() == DecisionKind.QUESTION) {
+			for (String line : TextUtil.wrapPlain(font, DecisionText.content(d), w)) rows.add(Row.of(line, ink));
+			return rows;
+		}
 		int muted = UiBits.muted();
 		int path = UiStyle.color("paper.path", 0xFF6C5415);
 		int addFg = UiStyle.color("paper.add_fg", 0xFF455746);
