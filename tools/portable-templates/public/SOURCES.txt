@@ -1,0 +1,13 @@
+AgentCraft public package / Публичный пакет AgentCraft
+
+Original AgentCraft resources retain their MIT license and attribution.
+The six additional user-supplied cosmetic PNGs are NOT included because their
+redistribution rights have not been confirmed. Their labels are removed from this
+package. Import your own authorized 64x64 PNG through the Appearance screen.
+No personal building schematics are included. See THIRD_PARTY_NOTICES.txt and licenses/.
+
+Сохранены оригинальные ресурсы AgentCraft и их атрибуция MIT.
+Шесть дополнительных пользовательских PNG НЕ включены: права на распространение
+не подтверждены. Их пункты отсутствуют в публичном пакете. Загрузку собственных
+PNG 64x64 можно использовать во вкладке «Внешность».
+Личные схемы построек не включены. Лицензии: THIRD_PARTY_NOTICES.txt и licenses/.

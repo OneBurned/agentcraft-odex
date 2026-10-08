@@ -24,6 +24,9 @@ public final class ModItems {
 	}
 
 	public static void init() {
+		ResourceKey<Item> toolKey = ResourceKey.create(Registries.ITEM, AgentCraft.id("configurator"));
+		ITEMS.add(Registry.register(BuiltInRegistries.ITEM, toolKey,
+			new dev.agentcraft.workspace.ConfiguratorItem(new Item.Properties().setId(toolKey).stacksTo(1))));
 		for (Block block : ModBlocks.all()) {
 			ResourceKey<Item> key = ResourceKey.create(Registries.ITEM, BuiltInRegistries.BLOCK.getKey(block));
 			BlockItem item = new BlockItem(block, new Item.Properties().setId(key).useBlockDescriptionPrefix());

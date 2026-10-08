@@ -101,6 +101,8 @@ export class DecisionQueue {
     if (d.status !== 'open') throw new DecisionError(`decision ${id} is already ${d.status}`);
     const opt = this.resolveOption(d, option);
     const freeText = text?.trim() || undefined;
+    if (d.kind === 'question' && ['studio', 'role-queue'].includes(d.tool ?? '') && opt !== 'Отменить задачу' && !freeText)
+      throw new DecisionError('Напиши ответ в поле и нажми «Отправить».');
     if (d.kind === 'question') {
       if (!opt && !freeText) throw new DecisionError('answer needs an option or text');
     } else if (!opt) {

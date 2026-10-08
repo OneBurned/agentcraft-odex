@@ -24,14 +24,14 @@ type NoV<T> = T extends unknown ? Omit<T, 'v'> : never;
 
 async function send(msg: NoV<ClientMessage>): Promise<Outbound[]> {
   const replies: Outbound[] = [];
-  await h.fm.handle({ v: 1, id: 'x', ...msg } as ClientMessage, (m) => replies.push(m));
+  await h.fm.handle({ v: 2, id: 'x', ...msg } as ClientMessage, (m) => replies.push(m));
   return replies;
 }
 const ack = (r: Outbound[]) => r.find((m) => m.type === 'ack') as Extract<Outbound, { type: 'ack' }>;
 
 describe('client intents', () => {
   it('hello replies with a snapshot only to the sender', async () => {
-    const r = await send({ type: 'hello', modVersion: 't', protocol: 1 });
+    const r = await send({ type: 'hello', modVersion: 't', protocol: 2 });
     expect(r[0]!.type).toBe('snapshot');
   });
 

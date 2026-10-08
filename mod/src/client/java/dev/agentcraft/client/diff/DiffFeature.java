@@ -47,6 +47,14 @@ public final class DiffFeature {
 		StationInteractions.onUse(ModBlocks.MERGE_STATION, (player, pos, state, be) -> {
 			List<Decision> queue = MergeStationRenderer.queue();
 			int k = MergeStationRenderer.rowIndex(player.level(), pos, state);
+			ForemanState current = Foreman.state();
+			if (current != null) {
+				ReviewStationCard card = ReviewStationCard.select(current.tasks().values(), queue, k);
+				if (card.kind() == ReviewStationCard.Kind.REVIEW) {
+					Minecraft.getInstance().gui.setScreen(new dev.agentcraft.client.studio.StudioScreen(card.task().id(), null));
+					return;
+				}
+			}
 			DiffScreen.Target t = k < queue.size() ? forDecision(queue.get(k)) : defaultTarget();
 			open(t);
 		});

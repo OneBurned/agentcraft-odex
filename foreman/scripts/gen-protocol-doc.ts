@@ -70,8 +70,13 @@ function render(s: AnySchema): string {
   const d = def(s);
   switch (d.type) {
     case 'string': {
-      const regex = (d.checks ?? []).some((c) => (c as { _zod?: { def?: { format?: string } } })._zod?.def?.format === 'regex');
-      return regex ? 'string (#RRGGBB)' : 'string';
+      const patterns = (d.checks ?? []).flatMap(c => {
+        const check = (c as { _zod?: { def?: { format?: string; pattern?: RegExp } } })._zod?.def;
+        return check?.format === 'regex' && check.pattern ? [check.pattern.source] : [];
+      });
+      if (patterns.includes('^#[0-9A-Fa-f]{6}$')) return 'string (#RRGGBB)';
+      if (patterns.includes('^[a-z0-9_-]{1,64}$')) return 'agent id ([a-z0-9_-]{1,64})';
+      return patterns.length ? 'string (pattern: ' + patterns.map(p => JSON.stringify(p).replaceAll('|', '\\|')).join(', ') + ')' : 'string';
     }
     case 'number': {
       const isInt = (d.checks ?? []).some((c) => {
@@ -133,9 +138,10 @@ function build(): string {
   out.push('## Transport');
   out.push('');
   out.push(`- The Foreman listens on \`ws://127.0.0.1:\${AGENTCRAFT_PORT:-7878}\`. Clients (the mod, CLI tools) connect, send \`hello\`, and receive a full \`snapshot\` followed by incremental messages. Multiple clients may be connected; every client receives every broadcast.`);
-  out.push('- One JSON object per WebSocket **text** frame. Envelope: `{ "v": 1, "type": "<type>", "id"?: "<correlation id>", ...payload }`.');
+  out.push('- One JSON object per WebSocket **text** frame. Envelope: `{ "v": 2, "type": "<type>", "id"?: "<correlation id>", ...payload }`.');
   out.push('- Client messages that carry an `id` are answered with `ack { re: id, ok, error?, result? }`. Invalid messages get `error` (and a failed `ack` if they had an id).');
   out.push('- Timestamps are integer epoch milliseconds. Colors are `"#RRGGBB"`. Optional fields are omitted, never `null`. Receivers must ignore unknown fields.');
+  out.push('- Protocol version must match exactly in `v` and hello.protocol. Version mismatch requires updating both mod and bridge; no state or command is applied across versions. `agent.remove` removes only the live roster entry, preserving task history.');
   out.push('- Upserts replace the whole entity by id. `agent.log` and `feed.add` append.');
   out.push('- Connections that carry any `Origin` header (browsers; also `Origin: null` from sandboxed iframes, `data:` and `file:` pages) or a Host header other than `127.0.0.1` / `localhost` / `[::1]` are rejected with HTTP 401, so a web page cannot drive your agents. Clients (the mod, CLI tools) must not send an Origin header. Heartbeat: the Foreman pings every 15 s.');
   out.push('- The mod should reconnect with backoff and re-send `hello`; the snapshot rebuilds the whole view.');

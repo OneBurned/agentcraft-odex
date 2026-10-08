@@ -15,6 +15,23 @@ function setup(): Harness {
 }
 
 describe('DecisionQueue', () => {
+  it('keeps a studio question open after an empty continue and accepts text or cancellation', async () => {
+    const { fm } = setup();
+    const create = () => fm.createDecision({ agentId: 'wren', kind: 'question', tool: 'studio', question: 'Как продолжить?',
+      options: ['Продолжить с ответом', 'Отменить задачу'] });
+    const d = create();
+    for (const option of ['Продолжить с ответом', 0, undefined]) {
+      await expect(fm.answerDecision(d.id, option, '  ')).rejects.toThrow('Напиши ответ');
+      expect(d.status).toBe('open'); expect(d.answer).toBeUndefined();
+      expect(fm.decisions.open().map(q => q.id)).toEqual([d.id]);
+    }
+    await fm.answerDecision(d.id, 'Продолжить с ответом', '  Исправить кнопки  ');
+    expect(d.answer).toMatchObject({ option: 'Продолжить с ответом', text: 'Исправить кнопки' });
+    const cancel = create(); await fm.answerDecision(cancel.id, 'Отменить задачу');
+    expect(cancel.status).toBe('answered');
+    const free = create(); await fm.answerDecision(free.id, undefined, 'Свободный ответ');
+    expect(free.answer?.text).toBe('Свободный ответ');
+  });
   it('opens a decision, notifies the user and resolves the waiting agent on answer', async () => {
     const { fm, events, toasts, notifier } = setup();
     const d = fm.createDecision({ agentId: 'marlow', kind: 'question', question: 'Case-insensitive tags?', options: ['Yes (recommended)', 'No'] });

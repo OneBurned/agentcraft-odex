@@ -21,6 +21,11 @@ function Read-JsonFile([string]$Path) {
         $raw = [System.IO.File]::ReadAllText($Path)
         if ($raw.Length -gt 0 -and $raw[0] -eq [char]0xFEFF) { $raw = $raw.Substring(1) }
         if (-not $raw.Trim()) { return $null }
+        # PowerShell 7.5+ otherwise turns ISO strings into DateTime. Coercing those back to
+        # [string] loses the timezone, so process-identity checks treat live processes as dead.
+        if ((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) {
+            return $raw | ConvertFrom-Json -DateKind String
+        }
         return $raw | ConvertFrom-Json
     } catch { return $null }
 }

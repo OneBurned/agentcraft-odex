@@ -33,6 +33,10 @@ public interface ForemanListener {
 	default void onAgent(@Nullable Agent previous, Agent agent) {
 	}
 
+	/** The agent has left the live roster; task/log history remains available. */
+	default void onAgentRemoved(Agent previous) {
+	}
+
 	default void onTask(@Nullable Task previous, Task task) {
 	}
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { WebSocketServer } from 'ws';
 import { ForemanClient } from '../lib/foremanclient.mjs';
 
-// A tiny stand-in for the Foreman's WS server (protocol v1 shapes from docs/protocol.md).
+// A tiny stand-in for the Foreman's WS server (protocol v2 shapes from docs/protocol.md).
 function fakeForeman() {
   const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   const seen = { origins: [], messages: [] };
@@ -12,7 +12,7 @@ function fakeForeman() {
     ws.on('message', (data) => {
       const m = JSON.parse(String(data));
       seen.messages.push(m);
-      const send = (o) => ws.send(JSON.stringify({ v: 1, ...o }));
+      const send = (o) => ws.send(JSON.stringify({ v: 2, ...o }));
       if (m.type === 'hello') {
         send({ type: 'snapshot', foreman: { version: '0.1.0', backend: 'sim', auth: 'ok', showcase: false }, agents: [{ id: 'kit', name: 'Kit', active: true }], tasks: [], decisions: [{ id: 'd1', kind: 'merge', status: 'open', repoId: 'r', worktree: 'kit-t1', createdAt: 1 }], repos: [], memory: [], goals: [], feed: [], logs: [] });
         setTimeout(() => send({ type: 'foreman.status', status: { version: '0.1.0', backend: 'sim', auth: 'ok', showcase: true } }), 50);
@@ -35,8 +35,8 @@ test('hello -> snapshot, acks, rejected acks, diff, live state, no Origin header
   const fm = await ForemanClient.connect({ port, timeoutMs: 5000, client: 'test' });
   try {
     assert.equal(seen.messages[0].type, 'hello');
-    assert.equal(seen.messages[0].v, 1);
-    assert.equal(seen.messages[0].protocol, 1);
+    assert.equal(seen.messages[0].v, 2);
+    assert.equal(seen.messages[0].protocol, 2);
     assert.deepEqual(seen.origins, [null]);
     assert.equal(fm.state.agents.get('kit').name, 'Kit');
     assert.deepEqual(fm.openDecisions('merge').map((d) => d.id), ['d1']);

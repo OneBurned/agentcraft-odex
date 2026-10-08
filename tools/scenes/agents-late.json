@@ -1,5 +1,5 @@
 {
-  "description": "Agent life with the late showcase (--showcase late) in the test room (/agentcraft hq test): typing at the terminal, thinking at the meeting table, blocked and editing at desks (seated), done in the lounge, the red error puff at the library.",
+  "description": "Legacy fixture: requires a saved test-room world (the player command to generate it was removed). Agent life with the late showcase (--showcase late): typing at the terminal, thinking at the meeting table, blocked and editing at desks (seated), done in the lounge, the red error puff at the library.",
   "foreman": { "connect": true },
   "defaults": { "time": 12000, "weather": "clear", "hideHud": true, "mode": "spectator", "fov": 70 },
   "setupDev": [{ "type": "dev.agents", "settle": true }],

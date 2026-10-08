@@ -1,6 +1,11 @@
 package dev.agentcraft.block;
 
 import dev.agentcraft.block.entity.StatusLampBlockEntity;
+import dev.agentcraft.workspace.ConfiguratorItem;
+import net.fabricmc.fabric.api.event.player.UseBlockCallback;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.BaseEntityBlock;
 import net.minecraft.world.level.block.Block;
@@ -16,6 +21,22 @@ import net.minecraft.world.level.block.state.properties.EnumProperty;
  */
 public class StatusLampBlock extends BaseEntityBlock {
 	public static final EnumProperty<LampStatus> STATUS = EnumProperty.create("status", LampStatus.class);
+
+	public static void initInteractions() {
+		UseBlockCallback.EVENT.register((player, level, hand, hit) -> {
+			if (player.isSpectator() || player.isSecondaryUseActive() || hand != InteractionHand.MAIN_HAND
+				|| player.getItemInHand(hand).getItem() instanceof ConfiguratorItem
+				|| !(level.getBlockEntity(hit.getBlockPos()) instanceof StatusLampBlockEntity lamp)) {
+				return InteractionResult.PASS;
+			}
+			if (!level.isClientSide()) {
+				lamp.toggleHologram();
+				((net.minecraft.server.level.ServerPlayer) player).sendSystemMessage(
+					Component.literal("Голограмма: " + (lamp.hologramEnabled() ? "вкл." : "выкл.")), true);
+			}
+			return InteractionResult.SUCCESS;
+		});
+	}
 
 	public StatusLampBlock(BlockBehaviour.Properties properties) {
 		super(properties);

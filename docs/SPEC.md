@@ -125,7 +125,11 @@ served **by the mod client**:
 
 ## World & visuals (see docs/visual-bar.md)
 
-HQ built deterministically by `/agentcraft hq` in a void/superflat world: a cohesive, beautiful
+Player-owned Sponge v2/v3 `.schem` files can also be previewed/placed from the local building
+library. Imported buildings keep agent workstations and world spawn unchanged; equipment is
+assigned manually. See [BUILDINGS.md](BUILDINGS.md) for placement, imports and limits.
+
+HQ built deterministically at a player-selected site with `/agentcraft place studio`: a cohesive, beautiful
 building with: central **Goal Atrium** (holographic goal + progress ring), **Task Wall**
 (kanban), **Agent Desks** each with a **Monitor** (multi-block screen showing that agent's live
 log), **Library** (memory archive — lecterns/books open memory), **Test Bench** (CI lamps),

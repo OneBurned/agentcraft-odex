@@ -2,7 +2,10 @@ package dev.agentcraft.client.agents;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import dev.agentcraft.AgentCraft;
-import dev.agentcraft.client.dev.DevBridge;
+import dev.agentcraft.client.decisions.DecisionScreen;
+import dev.agentcraft.client.decisions.DecisionText;
+import dev.agentcraft.client.console.ConsoleScreen;
+import dev.agentcraft.client.console.ConsoleCommands;
 import dev.agentcraft.client.foreman.Foreman;
 import dev.agentcraft.client.foreman.ForemanState;
 import dev.agentcraft.client.foreman.Protocol;
@@ -22,7 +25,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Function;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -41,10 +43,9 @@ import org.jspecify.annotations.Nullable;
  * A compact paper card (brass frame while the agent needs you): portrait, name, title and role;
  * the state dot with a plain-words state and the activity; the current task (id, title, column,
  * branch); <b>the decision it waits on</b> with a way to act on it right there (the decision's
- * review screen when one is registered, otherwise its options as rows: press a row twice to
- * answer; "Request changes" asks for the feedback text); decisions it filed that wait on you
- * through another agent; the last log lines; and three actions: <b>Message</b> (opens the console
- * prefilled with {@code @id }, or a message line in the card), <b>Pause/Resume</b>, <b>Stop</b>
+	 * specialized review screen when registered, otherwise the question queue at its explicit ID);
+	 * decisions it filed that wait on you through another agent; the last log lines; and three
+	 * actions: <b>Message</b> (opens a focused line in the card), <b>Pause/Resume</b>, <b>Stop</b>
  * (off shift; <b>Spawn</b> brings an off-shift agent back).
  *
  * <p>Keys: M message, P pause/resume, 1-4 answer (twice), R review, Esc close. The message line is
@@ -67,7 +68,7 @@ public final class AgentCardScreen extends Screen {
 	private static final Map<String, Boolean> PORTRAITS = new HashMap<>();
 
 	private enum Mode {
-		NONE, MESSAGE, FEEDBACK
+		NONE, MESSAGE, ANSWER
 	}
 
 	private final String agentId;
@@ -86,6 +87,7 @@ public final class AgentCardScreen extends Screen {
 	private Mode mode = Mode.NONE;
 	private @Nullable EditBox field;
 	private @Nullable String feedbackFor;
+	private @Nullable String answerOption;
 	/** The key that opened the message line, swallowed if SDL also delivers it as a character. */
 	private int ignoreChar = -1;
 	private long ignoreCharUntil;
@@ -95,11 +97,19 @@ public final class AgentCardScreen extends Screen {
 	private long revision = -1;
 	private int logCount = -1;
 	private final List<LogEntry> logs = new ArrayList<>();
+	private record LogLine(String text, int color) { }
+	private final List<LogLine> logLines = new ArrayList<>();
+	private final TextUtil.Scroll logScroll = new TextUtil.Scroll();
+	private int logX, logY, logW, logH;
+	private boolean sending;
 
 	// content of this frame (rebuilt in refresh)
 	private @Nullable Decision owned;
 	private final List<String> decisionLines = new ArrayList<>();
-	private @Nullable String decisionContext;
+	private final TextUtil.Scroll decisionScroll = new TextUtil.Scroll();
+	private String decisionTextKey = "";
+	private boolean resetDecisionScroll;
+	private int decisionX, decisionY, decisionW, decisionH;
 	private final List<Decision> filed = new ArrayList<>();
 
 	private static final class Btn {
@@ -120,7 +130,7 @@ public final class AgentCardScreen extends Screen {
 	}
 
 	public AgentCardScreen(String agentId) {
-		super(Component.literal("Agent"));
+		super(Component.literal("Персонаж"));
 		this.agentId = agentId;
 		lastAgent = agentId;
 	}
@@ -194,6 +204,10 @@ public final class AgentCardScreen extends Screen {
 		int n = st.logCount(agentId);
 		AgentView v = view();
 		String want = v != null ? v.awaitingDecision : null;
+		if (want == null) {
+			want = st.openDecisions().stream().filter(d -> AgentManager.owner(st, d).equals(agentId))
+				.map(Decision::id).findFirst().orElse(null);
+		}
 		boolean changed = st.revision() != revision || n != logCount || !java.util.Objects.equals(want, ownedId);
 		if (changed) {
 			revision = st.revision();
@@ -201,7 +215,16 @@ public final class AgentCardScreen extends Screen {
 			ownedId = want;
 			logs.clear();
 			List<LogEntry> all = st.logs(agentId);
-			logs.addAll(all.subList(Math.max(0, all.size() - 6), all.size()));
+			logs.addAll(all);
+			logLines.clear();
+			Kit.Padding pad = Kit.padding("panel_paper");
+			int wrapWidth = (int) ((W - pad.left() - pad.right() - 22) / TextUtil.MESSAGE_SCALE);
+			for (LogEntry entry : logs) {
+				for (String line : TextUtil.wrapPlain(this.font, entry.text(), wrapWidth)) {
+					logLines.add(new LogLine(line, logColor(entry.kind())));
+				}
+				logLines.add(new LogLine("", 0));
+			}
 			owned = want != null ? st.decision(want) : null;
 			if (owned != null && !owned.isOpen()) {
 				owned = null;
@@ -213,20 +236,15 @@ public final class AgentCardScreen extends Screen {
 				}
 			}
 			decisionLines.clear();
-			decisionContext = null;
 			if (owned != null) {
 				Font font = this.font;
-				int avail = W - Kit.padding("panel_paper").left() - Kit.padding("panel_paper").right() - 12;
-				List<String> lines = TextUtil.wrapPlain(font, owned.question(), avail);
-				if (lines.size() > 2) {
-					String rest = String.join(" ", lines.subList(1, lines.size()));
-					lines = List.of(lines.get(0), TextUtil.ellipsize(font, rest, avail));
-				}
-				decisionLines.addAll(lines);
-				decisionContext = contextLine(owned);
+				int avail = (int) ((W - Kit.padding("panel_paper").left() - Kit.padding("panel_paper").right() - 22) / TextUtil.MESSAGE_SCALE);
+				String text = DecisionText.content(owned), key = owned.id() + "\n" + text;
+				if (!key.equals(decisionTextKey)) { decisionTextKey = key; resetDecisionScroll = true; }
+				decisionLines.addAll(TextUtil.wrapPlain(font, text, avail));
 			}
 		}
-		if (feedbackFor != null && (owned == null || !owned.id().equals(feedbackFor))) {
+		if (feedbackFor != null && (st.decision(feedbackFor) == null || !st.decision(feedbackFor).isOpen())) {
 			closeField(); // the decision was answered meanwhile
 		}
 		if (armedDecision != null && (owned == null || !owned.id().equals(armedDecision) || System.currentTimeMillis() > armedUntil)) {
@@ -235,36 +253,15 @@ public final class AgentCardScreen extends Screen {
 		}
 	}
 
-	/** One line of context under a decision: the diff stats of a merge, the command of a permission prompt. */
-	private static @Nullable String contextLine(Decision d) {
-		String ctx = d.context();
-		if (ctx == null || ctx.isBlank() || d.kind() == DecisionKind.QUESTION) {
-			return null;
-		}
-		String first = null;
-		for (String line : ctx.split("\n")) {
-			String l = line.trim();
-			if (l.isEmpty()) {
-				continue;
-			}
-			if (first == null) {
-				first = l;
-			}
-			if (d.kind() == DecisionKind.MERGE && l.contains(" | tests:")) {
-				return l;
-			}
-		}
-		return first;
-	}
-
 	private int decisionBlockHeight(boolean hasReview, int options) {
 		if (owned == null) {
 			return 0;
 		}
-		int inner = 4 + 10 + 2 + decisionLines.size() * ROW + (decisionContext != null ? ROW : 0) + 3;
+		int inner = 4 + 10 + 2 + decisionTextHeight() + 3;
 		inner += hasReview ? 20 : options * (OPT_H + 1);
 		return inner + 4 + 6;
 	}
+	private int decisionTextHeight() { return (int) Math.ceil(Math.min(4, decisionLines.size()) * ROW * TextUtil.MESSAGE_SCALE); }
 
 	private void layout() {
 		Font font = this.font;
@@ -322,14 +319,14 @@ public final class AgentCardScreen extends Screen {
 			g.blit(RenderPipelines.GUI_TEXTURED, portrait, ix, y, 0, 0, 20, 20, 20, 20);
 			textX = ix + 26;
 		}
-		Panels.text(g, font, ag.name(), textX, y + 1, UiStyle.agentOnLight(agentId));
-		String role = ag.role() == Protocol.AgentRole.LEAD ? "lead" : "worker";
-		String sub = (ag.title() != null ? ag.title() + " · " : "") + role;
-		Panels.text(g, font, TextUtil.ellipsize(font, sub, iw - (textX - ix)), textX, y + 12, muted);
-		String fam = v != null ? v.family : ag.state().family();
 		String stateLabel = stateLabel(ag, v);
 		int sw = font.width(stateLabel);
 		int sx = ix + iw - sw;
+		Panels.text(g, font, TextUtil.ellipsize(font, ag.name(), Math.max(8, sx - 15 - textX)), textX, y + 1, UiStyle.agentOnLight(agentId));
+		String role = ag.role() == Protocol.AgentRole.LEAD ? "ведущий" : "исполнитель";
+		String sub = (ag.title() != null ? ag.title() + " · " : "") + role;
+		Panels.text(g, font, TextUtil.ellipsize(font, sub, iw - (textX - ix)), textX, y + 12, muted);
+		String fam = v != null ? v.family : ag.state().family();
 		Panels.text(g, font, stateLabel, sx, y + 1, ink);
 		if (v != null && v.showsPaused()) {
 			int bar = UiStyle.color("status.idle", 0xFF9C9488);
@@ -364,7 +361,7 @@ public final class AgentCardScreen extends Screen {
 			Panels.text(g, font, TextUtil.ellipsize(font, meta, iw - pw - 5), ix + pw + 5, y, UiStyle.color("paper.path"));
 			y += 11;
 		} else {
-			Panels.text(g, font, ag.isActive() ? "No task right now" : "Off shift", ix, y, muted);
+			Panels.text(g, font, ag.isActive() ? "Сейчас нет задачи" : "Вне смены", ix, y, muted);
 			y += 12;
 		}
 		// decisions it filed that wait on you through another agent (the lead's merge requests)
@@ -378,40 +375,38 @@ public final class AgentCardScreen extends Screen {
 		boolean hasReview = owned != null && hasReviewScreen(owned);
 		optionRows.clear();
 		review.w = 0;
+		decisionW = 0;
 		if (owned != null) {
 			y = drawDecision(g, font, owned, v, ix, y, iw, hasReview, mouseX, mouseY, live);
 		}
 
 		// log tail
-		int logH = logRows * ROW + 8;
+		logX = ix; logY = y; logW = iw;
+		logH = logRows * ROW + 8;
 		Panels.inset(g, ix, y, iw, logH);
 		Kit.Padding ip = Kit.padding("panel_inset");
-		int ly = y + ip.top();
-		int start = Math.max(0, logs.size() - logRows);
-		if (logs.isEmpty()) {
-			Panels.text(g, font, "No log yet", ix + ip.left() + 1, ly, muted);
+		int viewRows = Math.max(1, (int) ((logH - 8) / (ROW * TextUtil.MESSAGE_SCALE)));
+		logScroll.update(logLines.size(), viewRows);
+		g.enableScissor(ix + 3, y + 3, ix + iw - 10, y + logH - 3);
+		g.pose().pushMatrix();
+		g.pose().translate(ix + ip.left() + 1, y + ip.top());
+		g.pose().scale(TextUtil.MESSAGE_SCALE, TextUtil.MESSAGE_SCALE);
+		if (logLines.isEmpty()) Panels.text(g, font, "Сообщений пока нет", 0, 0, muted);
+		for (int i = logScroll.offset(); i < Math.min(logLines.size(), logScroll.offset() + viewRows); i++) {
+			LogLine line = logLines.get(i);
+			Panels.text(g, font, line.text(), 0, (i - logScroll.offset()) * ROW, line.color());
 		}
-		for (int i = start; i < logs.size(); i++) {
-			LogEntry le = logs.get(i);
-			int lx = ix + ip.left() + 1;
-			int avail = iw - ip.left() - ip.right() - 2;
-			String text = TextUtil.firstLine(le.text());
-			if (le.kind() == Protocol.LogKind.TOOL) {
-				Panels.sprite(g, Kit.icon(toolIcon(text)), lx, ly - 2, 12, 12);
-				lx += 14;
-				avail -= 14;
-			}
-			Panels.text(g, font, TextUtil.ellipsize(font, text, avail), lx, ly, logColor(le.kind()));
-			ly += ROW;
-		}
+		g.pose().popMatrix();
+		g.disableScissor();
+		Panels.scrollbar(g, ix + iw - 8, y + 3, logH - 6, logScroll, false);
 		y += logH + 6;
 
 		// message / feedback line (a vanilla EditBox in the kit's text field)
 		EditBox f = field;
 		if (f != null) {
 			Panels.sprite(g, Kit.TEXT_FIELD_FOCUSED, ix, y, iw, 18);
-			String tag = mode == Mode.FEEDBACK ? "changes" : "@" + ag.name();
-			int tagColor = mode == Mode.FEEDBACK ? UiStyle.color("paper.link") : UiStyle.agentOnLight(agentId);
+			String tag = mode == Mode.ANSWER ? "Ответ" : "@" + ag.name();
+			int tagColor = mode == Mode.ANSWER ? UiStyle.color("paper.link") : UiStyle.agentOnLight(agentId);
 			int pw = Panels.pill(g, font, tag, ix + 3, y + 3, tagColor);
 			int fx = ix + 3 + pw + 4;
 			f.setX(fx);
@@ -423,35 +418,47 @@ public final class AgentCardScreen extends Screen {
 
 		// actions
 		layoutButtons(ag, ix, y, iw);
+		String disabledHint = null;
 		for (Btn b : buttons) {
 			drawButton(g, font, b, mouseX, mouseY);
+			if (b.disabled && mouseX >= b.x && mouseX < b.x + b.w && mouseY >= b.y && mouseY < b.y + b.h)
+				disabledHint = b.id.equals("message") ? messageError(ag) : ag.controls() != null ? ag.controls().hint() : "Дождись подключения";
+		}
+		if (disabledHint != null) {
+			g.setTooltipForNextFrame(font.split(Component.literal(disabledHint), Math.max(100, Math.min(iw, width - 20))), mouseX, mouseY);
 		}
 		y += 20 + 6;
 
 		// hints or the last action's result
 		if (status != null && System.currentTimeMillis() < statusUntil) {
 			Panels.text(g, font, TextUtil.ellipsize(font, status, iw), ix, y, statusError ? UiStyle.color("paper.del_fg") : UiStyle.color("paper.add_fg"));
+		} else if (disabledHint != null) {
+			Panels.text(g, font, TextUtil.ellipsize(font, disabledHint, iw), ix, y, muted);
 		} else if (!live) {
-			int hx = hint(g, font, ix, y, ix + iw, "Esc", "close");
-			Panels.text(g, font, TextUtil.ellipsize(font, "Foreman offline: read only", ix + iw - hx), hx, y, muted);
+			int hx = hint(g, font, ix, y, ix + iw, "Esc", "закрыть");
+			Panels.text(g, font, TextUtil.ellipsize(font, "Нет связи с мостом: только просмотр", ix + iw - hx), hx, y, muted);
+		} else if (messageError(ag) != null) {
+			Panels.text(g, font, TextUtil.ellipsize(font, messageError(ag), iw), ix, y, muted);
 		} else if (field != null) {
-			int hx = hint(g, font, ix, y, ix + iw, "Enter", "send");
-			hint(g, font, hx, y, ix + iw, "Esc", "cancel");
+			int hx = hint(g, font, ix, y, ix + iw, "Enter", "отправить");
+			hint(g, font, hx, y, ix + iw, "Esc", "отмена");
+		} else if (ag.controls() != null && !ag.controls().pause() && !ag.controls().resume() && !ag.controls().stop()) {
+			Panels.text(g, font, TextUtil.ellipsize(font, ag.controls().hint(), iw), ix, y, muted);
 		} else if (armed >= 0 && armed < optionRows.size()) {
-			int hx = hint(g, font, ix, y, ix + iw, String.valueOf(armed + 1), "again to answer");
-			hint(g, font, hx, y, ix + iw, "Esc", "close");
+			int hx = hint(g, font, ix, y, ix + iw, String.valueOf(armed + 1), "ещё раз — ответить");
+			hint(g, font, hx, y, ix + iw, "Esc", "закрыть");
 		} else {
 			int right = ix + iw;
-			int hx = hint(g, font, ix, y, right, "M", "message");
+			int hx = hint(g, font, ix, y, right, "M", "сообщение");
 			if (ag.isActive()) {
-				hx = hint(g, font, hx, y, right, "P", ag.isPaused() ? "resume" : "pause");
+			hx = hint(g, font, hx, y, right, "P", ag.isPaused() ? "продолжить" : "пауза");
 			}
 			if (!optionRows.isEmpty()) {
-				hx = hint(g, font, hx, y, right, optionRows.size() == 1 ? "1" : "1-" + optionRows.size(), "answer");
+				hx = hint(g, font, hx, y, right, optionRows.size() == 1 ? "1" : "1-" + optionRows.size(), "ответить");
 			} else if (review.w > 0) {
-				hx = hint(g, font, hx, y, right, "R", "review");
+				hx = hint(g, font, hx, y, right, "R", "проверить");
 			}
-			hint(g, font, hx, y, right, "Esc", "close");
+			hint(g, font, hx, y, right, "Esc", "закрыть");
 		}
 	}
 
@@ -465,31 +472,34 @@ public final class AgentCardScreen extends Screen {
 		int bw = iw - 12;
 		int by = y + 4;
 		String kind = switch (d.kind()) {
-			case MERGE -> "Merge review";
-			case PERMISSION -> "Permission";
-			default -> "Question";
+			case MERGE -> "Проверка изменений";
+			case PERMISSION -> "Разрешение";
+			default -> "Вопрос";
 		};
 		String head = kind + " · " + d.id() + (d.taskId() != null ? " · " + d.taskId() : "");
 		Panels.text(g, font, head, bx, by, live ? UiStyle.color("paper.link") : UiStyle.color("paper.muted"));
 		if (v != null && v.awaitingCount > 1) {
-			String more = "+" + (v.awaitingCount - 1) + " more";
+			String more = "ещё " + (v.awaitingCount - 1);
 			Panels.text(g, font, more, bx + bw - font.width(more), by, UiStyle.color("paper.muted"));
 		}
 		by += 10 + 2;
-		for (String line : decisionLines) {
-			Panels.text(g, font, line, bx, by, UiStyle.color("paper.text"));
-			by += ROW;
+		decisionX = bx; decisionY = by; decisionW = bw; decisionH = decisionTextHeight();
+		decisionScroll.update(decisionLines.size(), 4);
+		if (resetDecisionScroll) { decisionScroll.toTop(); resetDecisionScroll = false; }
+		g.enableScissor(bx, by, bx + bw, by + decisionH);
+		g.pose().pushMatrix(); g.pose().translate(bx, by); g.pose().scale(TextUtil.MESSAGE_SCALE, TextUtil.MESSAGE_SCALE);
+		for (int i = decisionScroll.offset(); i < Math.min(decisionLines.size(), decisionScroll.offset() + 4); i++) {
+			Panels.text(g, font, decisionLines.get(i), 0, (i - decisionScroll.offset()) * ROW, UiStyle.color("paper.text"));
 		}
-		if (decisionContext != null) {
-			Panels.text(g, font, TextUtil.ellipsize(font, decisionContext, bw), bx, by, UiStyle.color("paper.muted"));
-			by += ROW;
-		}
+		g.pose().popMatrix(); g.disableScissor();
+		Panels.scrollbar(g, bx + bw - 6, by, decisionH, decisionScroll, false);
+		by += decisionH;
 		by += 3;
 		if (hasReview) {
 			review.label = switch (d.kind()) {
-				case MERGE -> "Review the diff";
-				case PERMISSION -> "Decide";
-				default -> "Answer";
+				case MERGE -> "Проверить изменения";
+				case PERMISSION -> "Решить";
+				default -> "Вопрос целиком / Ответить";
 			};
 			review.primary = true;
 			review.disabled = !live;
@@ -520,7 +530,7 @@ public final class AgentCardScreen extends Screen {
 				Panels.text(g, font, key, row.x + 7, row.y + 4, UiStyle.color("paper.text"));
 				String label = optionLabel(d, opt);
 				if (isArmed) {
-					label = "Answer: " + label;
+					label = "Ответ: " + label;
 				}
 				int labelColor = row.disabled ? UiStyle.color("paper.disabled")
 					: isArmed ? UiStyle.color("palette.ui.panel_hi", UiStyle.CREAM) : UiStyle.color("paper.text");
@@ -532,7 +542,7 @@ public final class AgentCardScreen extends Screen {
 	}
 
 	private static String optionLabel(Decision d, String opt) {
-		return Protocol.REQUEST_CHANGES.equals(opt) ? opt + "…" : opt;
+		return Protocol.REQUEST_CHANGES.equals(opt) ? "Запросить исправления…" : d.requiresText(opt) ? opt + "…" : opt;
 	}
 
 	private void drawButton(GuiGraphicsExtractor g, Font font, Btn b, int mouseX, int mouseY) {
@@ -551,8 +561,9 @@ public final class AgentCardScreen extends Screen {
 		String owner = AgentManager.owner(st, d);
 		Agent o = st.agent(owner);
 		String who = o != null ? o.name() : owner;
-		String what = d.kind() == DecisionKind.MERGE ? "merge of " + (d.taskId() != null ? d.taskId() : d.worktree()) : d.kind().wire();
-		return "Filed " + d.id() + " for you: " + what + " (" + who + "'s work)";
+		String what = d.kind() == DecisionKind.MERGE ? "слияние " + (d.taskId() != null ? d.taskId() : d.worktree())
+			: d.kind() == DecisionKind.PERMISSION ? "разрешение" : "вопрос";
+		return "Ожидает решения " + d.id() + ": " + what + " (" + who + ")";
 	}
 
 	/** Draws a key hint; returns the x after it (stops drawing once it would pass {@code right}). */
@@ -572,17 +583,23 @@ public final class AgentCardScreen extends Screen {
 		Btn msg = buttons[0];
 		Btn pause = buttons[1];
 		Btn stop = buttons[2];
-		boolean on = live();
-		msg.label = field != null ? "Send" : "Message";
+		boolean observer = ConsoleCommands.observer(Foreman.state());
+		boolean on = live() && !sending;
+		msg.label = field != null ? "Отправить" : "Сообщение";
 		// one call to action at a time: the decision block's when there is one
 		msg.primary = field != null || owned == null;
-		msg.disabled = !on;
-		pause.label = ag.isPaused() ? "Resume" : "Pause";
+		msg.disabled = messageError(ag) != null;
+		pause.label = ag.isPaused() ? "Продолжить" : "Пауза";
 		pause.primary = false;
 		pause.disabled = !on || !ag.isActive();
-		stop.label = ag.isActive() ? "Stop" : "Spawn";
+		stop.label = observer || ag.isActive() ? "Стоп" : "Вернуть";
 		stop.primary = false;
 		stop.disabled = !on;
+		if (observer && ag.controls() != null) {
+			var controls = ag.controls();
+			pause.disabled |= !(ag.isPaused() ? controls.resume() : controls.pause());
+			stop.disabled |= !controls.stop();
+		}
 		int gap = 6;
 		int bw = (iw - 2 * gap) / 3;
 		msg.x = ix;
@@ -593,6 +610,10 @@ public final class AgentCardScreen extends Screen {
 			b.w = bw;
 		}
 		stop.w = iw - 2 * (bw + gap);
+	}
+
+	private @Nullable String messageError(Agent ag) {
+		return AgentCardInput.messageError(live(), sending, ConsoleCommands.observer(Foreman.state()), ag.controls(), mode == Mode.ANSWER);
 	}
 
 	private List<String> taskLines(Font font) {
@@ -617,34 +638,39 @@ public final class AgentCardScreen extends Screen {
 
 	private static String stateLabel(Agent a, @Nullable AgentView v) {
 		if (v != null && v.stale) {
-			return "Offline";
+			return "Нет связи";
 		}
 		if (!a.isActive()) {
-			return "Off shift";
+			return "Вне смены";
 		}
 		if (a.isPaused()) {
-			return "Paused";
+			return "Пауза";
 		}
 		if (a.state() == AgentState.WAITING_USER || v != null && "waiting".equals(v.family)) {
-			return "Waiting for you";
+			return "Ждёт ответа";
 		}
 		return switch (a.state()) {
-			case UNKNOWN -> "Idle";
-			default -> {
-				String s = a.state().wire();
-				yield Character.toUpperCase(s.charAt(0)) + s.substring(1);
-			}
+			case IDLE, UNKNOWN -> "Отдыхает";
+			case THINKING -> "Обдумывает";
+			case READING -> "Читает";
+			case EDITING -> "Пишет код";
+			case RUNNING -> "Выполняет";
+			case TESTING -> "Проверяет";
+			case WAITING_USER -> "Ждёт ответа";
+			case BLOCKED -> "Нужна помощь";
+			case DONE -> "Готово";
+			case ERROR -> "Ошибка";
 		};
 	}
 
 	private static String column(Task t) {
 		return switch (t.status()) {
-			case TODO -> "To do";
-			case DOING -> "Doing";
-			case REVIEW -> "In review";
-			case DONE -> "Done";
-			case BLOCKED -> "Blocked";
-			case CANCELLED -> "Cancelled";
+			case TODO -> "К выполнению";
+			case DOING -> "В работе";
+			case REVIEW -> "На проверке";
+			case DONE -> "Готово";
+			case BLOCKED -> "Нужна помощь";
+			case CANCELLED -> "Отменено";
 			default -> "";
 		};
 	}
@@ -695,43 +721,8 @@ public final class AgentCardScreen extends Screen {
 
 	// ---------------------------------------------------------------- review screens
 
-	/** DevBridge screens that can show a decision of this kind (they take no arguments). */
-	private static String[] screenNames(DecisionKind kind) {
-		return switch (kind) {
-			case MERGE -> new String[] {"diff", "decision"};
-			case PERMISSION -> new String[] {"permission", "decision"};
-			default -> new String[] {"decision"};
-		};
-	}
-
 	private boolean hasReviewScreen(Decision d) {
-		return AgentsFeature.decisionScreen(d.kind()) != null || genericScreen(d) != null;
-	}
-
-	/**
-	 * A no-argument DevBridge screen that would show exactly this decision: a kind-specific one
-	 * ("diff", "permission") when it is the oldest open decision of its kind, the generic "decision"
-	 * screen when it is the oldest open decision of all (what such screens open by default).
-	 */
-	private static @Nullable Function<Minecraft, Screen> genericScreen(Decision d) {
-		ForemanState st = Foreman.state();
-		if (st == null) {
-			return null;
-		}
-		Decision oldestOfKind = st.oldestOpen(d.kind());
-		List<Decision> open = st.openDecisions();
-		Decision oldest = open.isEmpty() ? null : open.get(0);
-		for (String name : screenNames(d.kind())) {
-			Function<Minecraft, Screen> f = DevBridge.screens().get(name);
-			if (f == null) {
-				continue;
-			}
-			Decision def = name.equals("decision") ? oldest : oldestOfKind;
-			if (def != null && def.id().equals(d.id())) {
-				return f;
-			}
-		}
-		return null;
+		return d.isOpen();
 	}
 
 	private void openReview(Decision d) {
@@ -741,27 +732,29 @@ public final class AgentCardScreen extends Screen {
 			if (f != null) {
 				s = f.create(this.minecraft, d);
 			}
-			if (s == null) {
-				Function<Minecraft, Screen> gf = genericScreen(d);
-				if (gf != null) {
-					s = gf.apply(this.minecraft);
-				}
-			}
 		} catch (RuntimeException ex) {
 			AgentCraft.LOGGER.warn("decision screen for {} failed to open", d.id(), ex);
 		}
-		if (s != null) {
-			this.minecraft.gui.setScreen(s);
-		} else {
-			setStatus("No review screen for " + d.id(), true);
-		}
+		// The queue screen accepts an explicit ID, including questions behind the queue head.
+		this.minecraft.gui.setScreen(s != null ? s : new DecisionScreen(d.id(), this));
 	}
 
 	// ---------------------------------------------------------------- input
+	@Override
+	public boolean mouseScrolled(double x, double y, double sx, double sy) {
+		if (x >= decisionX && x < decisionX + decisionW && y >= decisionY && y < decisionY + decisionH && sy != 0) {
+			decisionScroll.scrollBy(sy > 0 ? -3 : 3); return true;
+		}
+		if (x >= logX && x < logX + logW && y >= logY && y < logY + logH && sy != 0) {
+			logScroll.scrollBy(sy > 0 ? -3 : 3);
+			return true;
+		}
+		return super.mouseScrolled(x, y, sx, sy);
+	}
 
 	@Override
 	public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-		if (event.button() == 0) {
+		if (AgentCardInput.primaryClick(event)) {
 			for (Btn b : buttons) {
 				if (b.hit(event.x(), event.y())) {
 					press(b.id);
@@ -844,14 +837,14 @@ public final class AgentCardScreen extends Screen {
 
 	private void openField(Mode m, @Nullable String decisionId) {
 		if (field == null) {
-			EditBox f = new EditBox(this.font, x0 + 60, y0, W - 80, 10, Component.literal(m == Mode.FEEDBACK ? "Requested changes" : "Message"));
+			EditBox f = new EditBox(this.font, x0 + 60, y0, W - 80, 10, Component.literal(m == Mode.ANSWER ? "Ответ на вопрос" : "Сообщение"));
 			f.setBordered(false);
 			f.setTextShadow(false);
 			f.setTextColor(UiStyle.color("paper.text"));
 			f.setTextColorUneditable(UiStyle.color("paper.disabled"));
 			f.setMaxLength(2000);
 			f.setCanLoseFocus(false);
-			field = addRenderableWidget(f);
+			field = addWidget(f); // rendered once, inside the card's input row
 		}
 		mode = m;
 		feedbackFor = decisionId;
@@ -870,29 +863,31 @@ public final class AgentCardScreen extends Screen {
 		field = null;
 		mode = Mode.NONE;
 		feedbackFor = null;
+		answerOption = null;
 	}
 
 	/** Press a decision row: the first press arms it, the second answers (or asks for the change request text). */
 	private void option(int i) {
 		Decision d = owned;
-		if (d == null || i >= optionRows.size() || !live()) {
+		if (d == null || i >= optionRows.size() || !live() || sending) {
 			return;
 		}
 		String opt = optionRows.get(i).option;
 		if (opt == null) {
 			return;
 		}
-		if (Protocol.REQUEST_CHANGES.equals(opt)) {
+		if (d.requiresText(opt)) {
 			armed = -1;
 			armedDecision = null;
-			openField(Mode.FEEDBACK, d.id());
+			openField(Mode.ANSWER, d.id());
+			answerOption = opt;
 			return;
 		}
 		long now = System.currentTimeMillis();
 		if (armed == i && d.id().equals(armedDecision) && now <= armedUntil) {
 			armed = -1;
 			armedDecision = null;
-			send(Foreman.answer(d.id(), opt, null), "Answered " + d.id() + ": " + opt);
+			send(Foreman.answer(d.id(), opt, null), "Ответ отправлен " + d.id() + ": " + opt);
 		} else {
 			armed = i;
 			armedDecision = d.id();
@@ -901,13 +896,27 @@ public final class AgentCardScreen extends Screen {
 	}
 
 	private void press(String id) {
+		if (sending) return;
 		Agent ag = agent();
 		if (ag == null) {
 			return;
 		}
 		if (!live()) {
-			setStatus("The Foreman is offline", true);
+			setStatus("Нет связи с мостом", true);
 			return;
+		}
+		var controls = ag.controls();
+		if (id.equals("message") && messageError(ag) != null) {
+			setStatus(messageError(ag), true); return;
+		}
+		if (ConsoleCommands.observer(Foreman.state()) && controls != null) {
+			boolean available = switch (id) {
+				case "message" -> mode == Mode.ANSWER || controls.message();
+				case "pause" -> ag.isPaused() ? controls.resume() : controls.pause();
+				case "stop" -> controls.stop();
+				default -> true;
+			};
+			if (!available) { setStatus(controls.hint(), true); return; }
 		}
 		switch (id) {
 			case "message" -> {
@@ -915,17 +924,16 @@ public final class AgentCardScreen extends Screen {
 				if (f != null) {
 					String text = f.getValue().trim();
 					if (text.isEmpty()) {
+						setStatus("Введи текст перед отправкой", true);
 						return;
 					}
-					if (mode == Mode.FEEDBACK && feedbackFor != null) {
+					if (mode == Mode.ANSWER && feedbackFor != null) {
 						String d = feedbackFor;
-						closeField();
-						send(Foreman.answer(d, Protocol.REQUEST_CHANGES, text), "Requested changes on " + d);
+						send(Foreman.answer(d, answerOption, text), "Ответ отправлен: " + d, this::closeField);
 					} else {
-						closeField();
-						send(Foreman.message(agentId, text), "Sent to " + ag.name());
+						send(Foreman.message(agentId, text), "Отправлено: " + ag.name(), this::closeField);
 					}
-				} else if (!openConsole(this.minecraft, "@" + agentId + " ")) {
+				} else {
 					openField(Mode.MESSAGE, null);
 				}
 			}
@@ -934,11 +942,11 @@ public final class AgentCardScreen extends Screen {
 					return;
 				}
 				boolean resume = ag.isPaused();
-				send(Foreman.agentAction(agentId, resume ? "resume" : "pause", null), ag.name() + (resume ? " resumed" : " paused"));
+				send(Foreman.agentAction(agentId, resume ? "resume" : "pause", null), resume ? "Продолжение запрошено" : "Задача приостановлена");
 			}
 			case "stop" -> {
-				boolean spawn = !ag.isActive();
-				send(Foreman.agentAction(agentId, spawn ? "spawn" : "stop", null), ag.name() + (spawn ? " is back on shift" : " is off shift"));
+				boolean spawn = !ConsoleCommands.observer(Foreman.state()) && !ag.isActive();
+				send(Foreman.agentAction(agentId, spawn ? "spawn" : "stop", null), spawn ? "Агент возвращён" : "Выполнение остановлено");
 			}
 			case "review" -> {
 				if (owned != null) {
@@ -957,14 +965,22 @@ public final class AgentCardScreen extends Screen {
 	}
 
 	private void send(CompletableFuture<Protocol.Ack> f, String ok) {
-		status = "...";
+		send(f, ok, null);
+	}
+	private void send(CompletableFuture<Protocol.Ack> f, String ok, @Nullable Runnable success) {
+		sending = true;
+		if (field != null) field.setEditable(false);
+		status = "Ожидаю подтверждение…";
 		statusError = false;
 		statusUntil = System.currentTimeMillis() + 20_000;
 		f.whenComplete((ack, err) -> Minecraft.getInstance().execute(() -> {
+			sending = false;
+			if (field != null) field.setEditable(true);
 			if (err != null || ack == null || !ack.ok()) {
-				setStatus(err != null ? "Could not reach the Foreman" : ack == null ? "No answer" : "Foreman: " + (ack.error() != null ? ack.error() : "refused"),
+				setStatus(err != null ? "Не удалось связаться с мостом" : ack == null ? "Нет подтверждения" : "Мост: " + (ack.error() != null ? ack.error() : "отказ"),
 					true);
 			} else {
+				if (success != null) success.run();
 				setStatus(ok, false);
 			}
 		}));
@@ -976,26 +992,7 @@ public final class AgentCardScreen extends Screen {
 	 * console screen.
 	 */
 	public static boolean openConsole(Minecraft mc, String prefill) {
-		Function<Minecraft, Screen> f = DevBridge.screens().get("console");
-		if (f == null) {
-			return false;
-		}
-		Screen s;
-		try {
-			s = f.apply(mc);
-		} catch (RuntimeException ex) {
-			AgentCraft.LOGGER.warn("console screen failed to open", ex);
-			return false;
-		}
-		if (s == null) {
-			return false;
-		}
-		mc.gui.setScreen(s);
-		for (int i = 0; i < prefill.length();) {
-			int cp = prefill.codePointAt(i);
-			i += Character.charCount(cp);
-			s.charTyped(new CharacterEvent(cp));
-		}
+		mc.gui.setScreen(new ConsoleScreen(prefill.isEmpty() ? null : prefill));
 		return true;
 	}
 }

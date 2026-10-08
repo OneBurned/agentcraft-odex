@@ -33,6 +33,10 @@ public final class AgentView {
 	public @Nullable String anchor;
 	public boolean active = true;
 	public boolean paused;
+	/** Local presentation overrides; never sent as task/execution state. */
+	public boolean dancing, planningGathering;
+	public float danceBack, danceDip;
+	public @Nullable Float danceFacing;
 	/** The Foreman link is down: show the last known state, dimmed. */
 	public boolean stale;
 	public AgentPose pose = AgentPose.STAND;
@@ -65,7 +69,7 @@ public final class AgentView {
 	void update(Agent a, boolean staleLink, @Nullable String awaitingDecisionId, int awaitingDecisions) {
 		name = a.name();
 		color = 0xFF000000 | dev.agentcraft.Cast.parseColor(a.color(), 0x9C9488);
-		nameColor = UiStyle.agentOnDark(a.id());
+		nameColor = color;
 		state = a.state();
 		awaitingDecision = awaitingDecisionId;
 		awaitingCount = awaitingDecisionId == null ? 0 : Math.max(1, awaitingDecisions);
@@ -73,6 +77,10 @@ public final class AgentView {
 		role = a.role().wire();
 		title = a.title();
 		activity = a.activity();
+		var look = dev.agentcraft.client.studio.StudioPreferences.get().look(id);
+		if (look.hideName) name = "";
+		if (!look.hideRole && a.title() != null) name += (name.isEmpty() ? "" : " · ") + a.title();
+		if (look.hideStatus) activity = "";
 		active = a.isActive();
 		paused = a.isPaused();
 		stale = staleLink;
@@ -97,6 +105,7 @@ public final class AgentView {
 
 	/** One line for the nameplate under the name. */
 	public String activityLine() {
+		if (dev.agentcraft.client.studio.StudioPreferences.get().look(id).hideStatus) return "";
 		if (stale) {
 			return "Foreman offline";
 		}

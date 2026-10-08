@@ -134,7 +134,7 @@ describe('claude backend hand-off with real processes (fake SDK)', () => {
     const fm = h.fm;
     await fm.submitGoal('version flag');
     await until(() => fm.decisions.open().some((d) => d.kind === 'question' && d.agentId === 'kit'));
-    await fm.handle({ v: 1, type: 'agent.action', agentId: 'kit', action: 'stop' }, () => undefined);
+    await fm.handle({ v: 2, type: 'agent.action', agentId: 'kit', action: 'stop' }, () => undefined);
     // no manual tick: the hand-off finishes by itself
     await until(() => fm.decisions.open().some((d) => d.kind === 'merge' && d.taskId === 't1'), 30_000);
     expect(errors).toEqual([]);
@@ -250,7 +250,7 @@ setInterval(() => {}, 1000);`;
     const fm = h.fm;
     await fm.submitGoal('version flag');
     await until(() => fm.tasks.get('t1')?.status === 'review');
-    await fm.handle({ v: 1, type: 'user.message', to: 'kit', text: 'please also mention emoji tags' }, () => undefined);
+    await fm.handle({ v: 2, type: 'user.message', to: 'kit', text: 'please also mention emoji tags' }, () => undefined);
     expect(fm.bus.inbox('kit').length).toBe(1); // not consumed yet: Kit is mid-turn
     release();
     await until(() => calls.some((c) => c.agent === 'kit' && /please also mention emoji tags/.test(c.prompt)), 20_000);

@@ -1,5 +1,45 @@
 # Console, decisions, permissions and HUD
 
+## Codex observer variant (0.3.1)
+
+With the optional desktop chat binding, plain text replies to the last agent who addressed you
+(Codex or Claude); without history it goes to Codex. The input hint shows the actual recipient
+before Enter. `@Codex`, `@Клава`, `@Claude` or a character's name explicitly choose an agent;
+`@all` and `/goal text` still go to the bound Codex chat. Enter sends; Shift+Enter inserts a newline. The acknowledgement
+confirms delivery only. Public assistant commentary and completed final answers return to the
+console feed and monitor, polled every five seconds. The app must remain open. The binding is
+local to this Windows user; after a Codex app restart it may need reconnecting from that chat.
+See `CODEX_OBSERVER.md` and the package `README.txt` for setup and limitations.
+
+The latest speaker is stored by agent ID in the bridge profile and survives game/bridge restarts,
+renaming and `/clear`. Public replies, questions and review updates/results count; user messages
+and background statuses do not. If the recipient is busy, paused, disabled or unavailable, the
+reply is refused with an explanation and stays in the input. It is never redirected to the other
+agent. Automatic replies clear only after confirmed delivery. Explicit mentions keep their
+existing behavior, including Codex steering during work.
+
+Observer `/help` lists supported commands: `/help blocks` (also `/blocks`), `/chat`, `/status`,
+`/sound on|off`, `/clear`, `/repos`, `/pause`, `/resume`, `/stop`. `/chat` includes the connection message and task status.
+`/clear` clears local console lines, not shared server history. Normal answers to Codex questions
+are plain text. Tool approvals remain in the desktop app. Pause interrupts actual Codex work;
+Resume sends an explicit continuation in the same chat; Stop also clears its queued messages.
+Other agent/task controls are refused; `/diff` and the decision/library interfaces do not represent this external chat.
+Minecraft commands belong in vanilla chat (`T`): `/agentcraft help`, `preview <building>`
+and `place <building>`. Tab includes built-in studio/cabin and local schematic names.
+Preview saves the centre and rotation; place requires that selection and does not need aiming.
+The selection survives the temporary outline and clears after successful placement or world close.
+See [imported buildings](BUILDINGS.md) for the asset folder, placement and limits.
+Workplaces are assigned through the Configurator and command desk.
+
+The agent card opens the normal console directly with `Сообщение`, keeping its draft. Its
+`Пауза` / `Продолжить` and `Стоп` buttons use the same real task controls; they wait for confirmed
+desktop state and reject duplicate actions while pending. Message text in both the card and
+console is drawn at 75% of the former size. The card wraps complete log entries and scrolls
+with the mouse wheel over the log; it no longer shows just the first truncated line of six entries.
+
+The sections below describe the upstream autonomous-agent mode; they are not a list of enabled
+Codex observer controls.
+
 The practical core of AgentCraft: how you talk to the team and answer them without leaving the
 game. Code: `mod/src/client/java/dev/agentcraft/client/{console,decisions,permissions,hud}`.
 Shots: `tools/scenes/console.json` (showcase busy state).

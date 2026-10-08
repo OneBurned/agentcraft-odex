@@ -1,8 +1,8 @@
-// AgentCraft wire protocol, version 1.
+// AgentCraft wire protocol, version 2.
 //
 // This file is the single source of truth. docs/protocol.md is GENERATED from it
 // (`npm run gen:protocol-doc`) and the Java mod mirrors it. Every message is one JSON object per
-// WebSocket text frame:  { "v": 1, "type": "<type>", "id"?: "<client correlation id>", ...payload }
+// WebSocket text frame:  { "v": 2, "type": "<type>", "id"?: "<client correlation id>", ...payload }
 //
 // Conventions
 //  - timestamps (`ts`, `createdAt`, `updated`, ...) are integer epoch milliseconds
@@ -10,8 +10,9 @@
 //  - unknown fields must be ignored by receivers (forward compatibility); zod strips them here
 //  - optional fields are omitted (never null)
 import { z } from 'zod';
+import { TeamId, Provider, WorkRole } from './team.js';
 
-export const PROTOCOL_VERSION = 1 as const;
+export const PROTOCOL_VERSION = 2 as const;
 
 // ---------------------------------------------------------------------------------------------
 // Enums
@@ -61,7 +62,7 @@ export type NotifyLevel = z.infer<typeof NotifyLevel>;
 export const WorktreeStatus = z.enum(['active', 'merged', 'abandoned']);
 export type WorktreeStatus = z.infer<typeof WorktreeStatus>;
 
-export const BackendName = z.enum(['sim', 'claude']);
+export const BackendName = z.enum(['sim', 'claude', 'observer']);
 export type BackendName = z.infer<typeof BackendName>;
 
 export const AuthStatus = z
@@ -81,6 +82,11 @@ export const Agent = z.object({
   id: Id.describe('stable lowercase id, e.g. "kit"'),
   name: z.string().describe('display name, e.g. "Kit"'),
   role: AgentRole,
+  provider: Provider.optional(),
+  roles: z.array(WorkRole).optional(),
+  enabled: z.boolean().optional(),
+  visible: z.boolean().optional(),
+  slim: z.boolean().optional(),
   title: z.string().optional().describe('short descriptive role from cast.json, e.g. "Backend tinkerer"'),
   color: HexColor.describe('agent color (scarf/badge/nameplate)'),
   accent: HexColor.optional(),
@@ -92,6 +98,8 @@ export const Agent = z.object({
   repoId: Id.optional(),
   worktree: Id.optional().describe('id of the worktree the agent is working in (see Repo.worktrees)'),
   paused: z.boolean(),
+  controls: z.object({ message: z.boolean(), pause: z.boolean(), resume: z.boolean(), stop: z.boolean(), hint: z.string() }).optional()
+    .describe('Observer card capabilities for this agent, derived from its real owned work.'),
   active: z.boolean().describe('false = off shift (not on the current team, or stopped by the user); render idle in the lounge'),
 });
 export type Agent = z.infer<typeof Agent>;
@@ -103,8 +111,26 @@ export const LogEntry = z.object({
 });
 export type LogEntry = z.infer<typeof LogEntry>;
 
+export const ReviewProgress = z.object({
+  reviewerId: TeamId.optional().describe("Agent assigned to this review attempt; absent in historical reviews. Never infer a fixed reviewer."),
+  head: z.string().describe('Exact commit submitted to the reviewer; clients may show its first 8 characters.'),
+  phase: z.enum(['running', 'finished', 'paused', 'error']),
+  startedAt: Ts.describe('Start of this review attempt; use this, not task.updatedAt, to select the latest review.'),
+  step: z.string().describe('Last safe public step from the review stream; never raw tool output or reasoning.'),
+  verdict: z.enum(['pass', 'changes', 'question']).optional().describe('Only a completed reviewer result has a verdict; interruption/error must not invent one.'),
+  summary: z.string().optional().describe('Review result or interruption/error explanation, compacted to 600 characters.'),
+  waitingForUser: z.boolean().describe('A review-related studio question still needs an answer.'),
+});
+export type ReviewProgress = z.infer<typeof ReviewProgress>;
+
+export const AgentIdentity = z.object({ id: TeamId, name: z.string(), provider: Provider });
 export const Task = z.object({
+  assigneeIdentity: AgentIdentity.optional().describe('Identity at assignment; retained after rename, provider change or archive.'),
+  creatorIdentity: AgentIdentity.optional(),
   id: Id.describe('e.g. "t3"'),
+  observerKey: z.string().optional().describe('Stable external task key for the Codex observer; survives restarts.'),
+  queueStage: z.enum(['plan', 'queued', 'coding', 'review', 'question', 'done', 'cancelled']).optional(),
+  studioReview: ReviewProgress.optional().describe('Latest studio review attempt. Optional field carried by snapshot and task.upsert; historical tasks may omit it. MERGE decisions are unchanged.'),
   title: z.string(),
   description: z.string().optional(),
   status: TaskStatus,
@@ -203,6 +229,7 @@ export const FeedItem = z.object({
   ts: Ts,
   kind: FeedKind,
   text: z.string(),
+  fullText: z.string().optional().describe('Complete conversation text for scrollable readers; text remains the compact preview for world panels.'),
   agentId: Id.optional().describe('who it is about / from'),
   to: z.string().optional().describe('message recipient: agent id, "user" or "all"'),
 });
@@ -267,6 +294,7 @@ const envelope = <T extends string>(type: T) => ({
 
 export const SnapshotMsg = z.object({
   ...envelope('snapshot'),
+  replyAgentId: TeamId.optional().describe('Last observer agent to address the user; persisted across restarts; omitted when no current recipient exists'),
   foreman: ForemanStatus,
   agents: z.array(Agent),
   tasks: z.array(Task),
@@ -278,6 +306,7 @@ export const SnapshotMsg = z.object({
   feed: z.array(FeedItem).describe('most recent feed items, oldest first (<= 200)'),
   logs: z.array(AgentLogs).describe('recent log tail per agent (<= 60 entries each)'),
 });
+export const AgentRemoveMsg = z.object({ ...envelope('agent.remove'), agentId: TeamId });
 export const AgentUpsertMsg = z.object({ ...envelope('agent.upsert'), agent: Agent });
 export const AgentLogMsg = z.object({ ...envelope('agent.log'), agentId: Id, entries: z.array(LogEntry) });
 export const AgentSayMsg = z.object({
@@ -329,6 +358,7 @@ export const ErrorMsg = z.object({
 export const ServerMessage = z.discriminatedUnion('type', [
   SnapshotMsg,
   AgentUpsertMsg,
+  AgentRemoveMsg,
   AgentLogMsg,
   AgentSayMsg,
   TaskUpsertMsg,
@@ -360,6 +390,7 @@ export const GoalSubmitMsg = z.object({
 });
 export const UserMessageMsg = z.object({
   ...envelope('user.message'),
+  reply: z.boolean().optional().describe('Observer plain-text reply: keep the explicit recipient and reject if unavailable; never reroute'),
   to: z.string().min(1).describe('agent id or "all". With "all", a leading "@name" in text routes to that agent.'),
   text: z.string().min(1),
 });
@@ -396,7 +427,27 @@ export const DiffRequestMsg = z.object({
 });
 export const RepoAddMsg = z.object({ ...envelope('repo.add'), path: z.string().min(1) });
 
+export const ObserverUpdateMsg = z.object({
+  ...envelope('observer.update'),
+  agentId: Id.optional(),
+  key: z.string().trim().min(1).max(160),
+  title: z.string().trim().min(1).max(200),
+  state: z.enum(['thinking', 'reading', 'editing', 'running', 'testing', 'waiting_user', 'blocked', 'review', 'done', 'error']),
+  activity: z.string().trim().min(1).max(200),
+  log: z.string().max(2000).optional(),
+  summary: z.string().max(2000).optional(),
+  ci: CiStatus.optional(),
+  repoId: Id.optional(),
+});
+export type ObserverUpdate = z.infer<typeof ObserverUpdateMsg>;
+
+export const StudioActionMsg = z.object({ ...envelope('studio.action'),
+  action: z.string().min(1).max(40), payload: z.record(z.string(), z.unknown()).default({}),
+});
+
+export const AgentSceneMsg = z.object({ ...envelope('agent.scene'), agentId: TeamId, peerAgentId: TeamId.optional(), event: z.enum(['rest', 'dance', 'peer']) });
 export const ClientMessage = z.discriminatedUnion('type', [
+  AgentSceneMsg,
   HelloMsg,
   GoalSubmitMsg,
   UserMessageMsg,
@@ -405,13 +456,15 @@ export const ClientMessage = z.discriminatedUnion('type', [
   AgentActionMsg,
   DiffRequestMsg,
   RepoAddMsg,
+  ObserverUpdateMsg,
+  StudioActionMsg,
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
 // Helper types ----------------------------------------------------------------------------------
 
 /** A server message without the envelope's `v` (added by the sender). */
-export type Outbound = ServerMessage extends infer M ? (M extends { v: 1 } ? Omit<M, 'v'> : never) : never;
+export type Outbound = ServerMessage extends infer M ? (M extends { v: typeof PROTOCOL_VERSION } ? Omit<M, 'v'> : never) : never;
 export type ServerMessageOf<T extends ServerMessage['type']> = Extract<ServerMessage, { type: T }>;
 export type ClientMessageOf<T extends ClientMessage['type']> = Extract<ClientMessage, { type: T }>;
 
@@ -424,6 +477,9 @@ export function parseClientMessage(raw: unknown): { ok: true; msg: ClientMessage
       return { ok: false, error: 'invalid JSON' };
     }
   }
+  const m = data as { v?: unknown; type?: unknown; protocol?: unknown } | null;
+  if (m && typeof m === 'object' && (m.v !== PROTOCOL_VERSION || (m.type === 'hello' && m.protocol !== PROTOCOL_VERSION)))
+    return { ok: false, error: 'Protocol version mismatch: bridge requires v' + PROTOCOL_VERSION + '. Update both AgentCraft mod and bridge.' };
   const r = ClientMessage.safeParse(data);
   if (r.success) return { ok: true, msg: r.data };
   return { ok: false, error: formatZodError(r.error) };
@@ -453,6 +509,7 @@ export function formatZodError(err: z.ZodError): string {
 /** Registry used by the doc generator and tests. Order = documentation order. */
 export const SERVER_MESSAGES = {
   snapshot: { schema: SnapshotMsg, doc: 'Full state. Sent in reply to every `hello`; the mod rebuilds its view from it.' },
+  'agent.remove': { schema: AgentRemoveMsg, doc: 'Remove this agent from the live roster and world. Preserve task and message history. Restoring sends agent.upsert; snapshots include only unarchived agents.' },
   'agent.upsert': { schema: AgentUpsertMsg, doc: 'An agent was created or changed (state, station, activity, task...). Replace by `agent.id`.' },
   'agent.log': { schema: AgentLogMsg, doc: 'New log lines for an agent monitor (append; keep a bounded tail).' },
   'agent.say': { schema: AgentSayMsg, doc: 'Speech bubble above the agent; also mirrored to the feed.' },
@@ -470,17 +527,21 @@ export const SERVER_MESSAGES = {
 } as const;
 
 export const CLIENT_MESSAGES = {
+  'agent.scene': { schema: AgentSceneMsg, doc: 'Local observer NPC entered a rest/dance/nearby-colleague scene. Presentation only; never changes execution state.' },
+  'studio.action': { schema: StudioActionMsg, doc: 'Observer command desk: persistent plan/queue, review, roster and shared notes. get returns studio state in ack.result. persona.get with payload {agentId: team agent ID} returns {agentId, revision, description, events, notice}; persona.save accepts {agentId, revision, description, events}, validates and atomically replaces the persona profile, returning the same editor shape. revision is a SHA-256 file revision or missing for a new profile; stale saves and damaged existing files are rejected without overwriting them. Missing agent entries use neutral defaults; missing files are created only when explicitly saved. Saves use personas.json version 2 with agents keyed by ID; legacy version 1 roles are read without rewriting until an explicit save. Mutations are validated by the studio controller.' },
+  'observer.update': { schema: ObserverUpdateMsg, doc: 'Publish a real external Codex task status. Only accepted by the observer backend; never executes code or merges.' },
   hello: { schema: HelloMsg, doc: 'First message after connecting. The Foreman replies with `snapshot`, then streams upserts.' },
   'goal.submit': { schema: GoalSubmitMsg, doc: 'New goal for the lead (console: plain text).' },
   'user.message': { schema: UserMessageMsg, doc: 'Message an agent (console: `@name text`) or everyone.' },
   'decision.answer': { schema: DecisionAnswerMsg, doc: 'Answer an open decision. Merge decisions: option "Merge" merges, "Request changes" sends `text` back to the worker, "Reject" abandons the branch.' },
   'task.action': { schema: TaskActionMsg, doc: 'Steer a task from the Task Wall.' },
-  'agent.action': { schema: AgentActionMsg, doc: 'Pause/resume/stop an agent, or spawn (activate) an off-shift worker.' },
+  'agent.action': { schema: AgentActionMsg, doc: 'Pause/resume/stop an agent, or spawn an off-shift worker. In observer mode only marlow/codex pause/resume/stop is accepted: controls the bound desktop chat, not NPC visibility; acknowledgement follows real interruption confirmation.' },
   'diff.request': { schema: DiffRequestMsg, doc: 'Ask for the structured diff of a worktree. Answered with `diff` (same requestId).' },
   'repo.add': { schema: RepoAddMsg, doc: 'Register a local git repo (console: `/repo add <path>`).' },
 } as const;
 
 export const ENTITY_SCHEMAS = {
+  ReviewProgress,
   Agent,
   LogEntry,
   Task,

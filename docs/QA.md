@@ -124,6 +124,8 @@ More anchors (`cam_testbench`, `cam_lounge`, ...) are welcome; scenes can use an
 | `{"open": "diff", "decisionId": "d3", "repoId": "sim-demo-showcase", "worktree": "wren-t4"}` | the diff review screen for that worktree (the mod sends `diff.request` itself) |
 | `{"open": "library"}` | the memory library / memory screen (optionally `"memoryId"`) |
 | `{"open": "task"}` | the task detail screen (Task Wall card click); pick the task first with `dev.taskwall {open: "t3"}`, else the first doing task |
+| `{"open": "taskboard"}` | current tasks index: two-line titles, status/assignee, page navigation, full-card click |
+| `{"open": "taskhistory"}` | done/cancelled tasks, newest first; Back from details must preserve the selected tab/page |
 
 `registerScreen` factories currently receive only `mc`, not the request. Either give them the
 request JSON (preferred: an overload `(mc, req) -> Screen`), or make the `diff` screen default to
@@ -272,3 +274,22 @@ node tools/shoot.mjs tools/scenes/qa-selftest.json --port 7889 --foreman 27878 -
 `qa-selftest.json` exercises the scene-anchor fallback table, raw camera + offset, a vanilla
 screen with typing, Foreman diff + message acks through templates, an unresolvable template
 (skip), dev requests and waits against any running game and showcase Foreman.
+
+## A8 dynamic roster validation
+
+Automated Java coverage: DynamicRosterTest exercises a three-agent roster (two Codex, one Claude),
+ID/name mentions and controls, ambiguous names, archive/restore, empty team, shared desk/monitor
+slots with hidden members, personal places, overflow, and reviewer selection independent of provider.
+ConsoleReplyTest also checks current-roster reply routing and historical snapshot restoration.
+
+Validation result: Gradle build and all 82 Java tests passed; TypeScript typecheck and all 725
+Vitest tests passed; generated protocol documentation is current. The final local package
+`artifacts/portable-t40-final` passed the privacy audit during build and the isolated
+`tools/test/studio-package.mjs` integration check (four agents, distinct Codex bindings, two
+Claude histories, restart, archive/restore, legacy queue/memory and bundled tools). No model
+calls or real chat messages were sent by that check.
+
+Pending manual check (not performed by this task): launch a separate Minecraft test profile with
+three configured agents; check NPCs, portrait paging, command desk selection/name/appearance,
+monitors and personal configurator assignments; archive/restore while the card/pult is open.
+The installed personal mod/bridge and its world are not replaced by this validation.

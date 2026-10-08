@@ -9,7 +9,8 @@
 		"ClientLevelAccessor",
 		"EntityRenderDispatcherMixin",
 		"MinecraftMixin",
-		"RenderSystemMixin"
+		"RenderSystemMixin",
+		"SkinTextureDownloaderInvoker"
 	],
 	"injectors": {
 		"defaultRequire": 1

@@ -2,6 +2,7 @@ package dev.agentcraft.client;
 
 import dev.agentcraft.AgentCraft;
 import dev.agentcraft.world.HqWorld;
+import dev.agentcraft.world.WorldSettings;
 import java.util.List;
 import java.util.Optional;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
@@ -30,9 +31,8 @@ import net.minecraft.world.level.levelgen.flat.FlatLevelGeneratorSettings;
 import net.minecraft.world.level.levelgen.presets.WorldPresets;
 
 /**
- * Boots straight into the "AgentCraft HQ" world without any clicks: the first time the title
- * screen appears, the world is loaded if it exists, or created (creative, peaceful, superflat
- * grass meadow with no structures/decoration) if it does not. Disable with AGENTCRAFT_AUTOWORLD=0.
+ * Opens the configured world, or creates it with WorldSettings when the save does not exist.
+ * Without a settings file the legacy flat AgentCraft HQ is used. Disable with AGENTCRAFT_AUTOWORLD=0.
  */
 public final class AutoWorld {
 	private static boolean attempted;
@@ -78,15 +78,23 @@ public final class AutoWorld {
 				mc.createWorldOpenFlows().openWorld(HqWorld.LEVEL_NAME, () -> mc.gui.setScreen(new TitleScreen()));
 			} else {
 				AgentCraft.LOGGER.info("AutoWorld: creating world '{}'", HqWorld.LEVEL_NAME);
+				WorldSettings config = WorldSettings.current();
 				LevelSettings settings = new LevelSettings(
 					HqWorld.LEVEL_NAME,
-					GameType.CREATIVE,
-					new LevelSettings.DifficultySettings(Difficulty.PEACEFUL, false, false),
+					GameType.valueOf(config.gameMode().toUpperCase(java.util.Locale.ROOT)),
+					new LevelSettings.DifficultySettings(Difficulty.valueOf(config.difficulty().toUpperCase(java.util.Locale.ROOT)), false, false),
 					true,
 					WorldDataConfiguration.DEFAULT
 				);
-				WorldOptions options = new WorldOptions("agentcraft-hq".hashCode(), false, false);
-				mc.createWorldOpenFlows().createFreshLevel(HqWorld.LEVEL_NAME, settings, options, AutoWorld::meadowDimensions, new TitleScreen());
+				long seed;
+				if (config.seed().isBlank()) seed = WorldOptions.randomSeed();
+				else {
+					try { seed = Long.parseLong(config.seed()); }
+					catch (NumberFormatException ignored) { seed = config.seed().hashCode(); }
+				}
+				WorldOptions options = new WorldOptions(seed, config.type().equals("normal"), false);
+				mc.createWorldOpenFlows().createFreshLevel(HqWorld.LEVEL_NAME, settings, options,
+					config.type().equals("normal") ? WorldPresets::createNormalWorldDimensions : AutoWorld::meadowDimensions, new TitleScreen());
 			}
 		} catch (Exception e) {
 			AgentCraft.LOGGER.error("AutoWorld failed; staying on the title screen", e);

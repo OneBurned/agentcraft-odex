@@ -1,4 +1,11 @@
 {
+  "skin.agentcraft.girl_swimsuit": "Girl in a swimsuit",
+  "skin.agentcraft.gta_sa_girl": "GTA SA prostitute",
+  "skin.agentcraft.skuf": "Skuf",
+  "skin.agentcraft.ded_vasyan": "Grandpa Vasyan",
+  "skin.agentcraft.girl_no_armor": "Girl without armor",
+  "skin.agentcraft.boy_no_armor": "Boy with bangs",
+  "item.agentcraft.configurator": "Workspace Configurator",
   "block.agentcraft.monitor": "Monitor",
   "block.agentcraft.task_board": "Task Board",
   "block.agentcraft.decision_podium": "Decision Podium",
@@ -35,5 +42,7 @@
   "key.category.agentcraft.agentcraft": "AgentCraft",
   "key.agentcraft.console": "Open the console",
   "key.agentcraft.console_terminal": "Console (looking at a terminal)",
-  "key.agentcraft.decisions": "Answer decisions"
+  "key.agentcraft.decisions": "Answer decisions",
+  "block.agentcraft.command_desk": "AgentCraft Command Desk",
+  "block.agentcraft.planning_desk": "Planning Desk"
 }

@@ -3,6 +3,7 @@ package dev.agentcraft.client.foreman;
 import com.google.gson.JsonObject;
 import dev.agentcraft.AgentCraft;
 import dev.agentcraft.client.foreman.Protocol.Agent;
+import dev.agentcraft.client.foreman.Protocol.AgentRemove;
 import dev.agentcraft.client.foreman.Protocol.AgentLog;
 import dev.agentcraft.client.foreman.Protocol.AgentLogs;
 import dev.agentcraft.client.foreman.Protocol.AgentSay;
@@ -73,6 +74,8 @@ public final class ForemanState {
 	private @Nullable ForemanStatus status;
 	private LinkStatus link;
 	private long revision;
+	private long feedRevision;
+	private String replyAgentId = "";
 	private long snapshotAt;
 	private long lastMessageAt;
 	private int snapshots;
@@ -214,6 +217,15 @@ public final class ForemanState {
 	/** Increments on every change (snapshot, upsert, append, link change). Use it to cache derived data. */
 	public long revision() {
 		return revision;
+	}
+	public long feedRevision() { return feedRevision; }
+	public String replyAgentId() { return replyAgentId; }
+
+	private void rememberReplyAuthor(FeedItem item) {
+		if ("user".equals(item.to()) && (item.kind() == Protocol.FeedKind.MESSAGE || item.kind() == Protocol.FeedKind.DECISION)
+			&& (item.agentId() != null && agents.containsKey(item.agentId())) && item.text() != null && !item.text().isBlank()) {
+			replyAgentId = item.agentId();
+		}
 	}
 
 	public long snapshotAt() {
@@ -369,6 +381,15 @@ public final class ForemanState {
 		lastMessageAt = System.currentTimeMillis();
 		switch (type) {
 			case "snapshot" -> applySnapshot(ForemanJson.read(json, Snapshot.class));
+            case "agent.remove" -> {
+                AgentRemove m = ForemanJson.read(json, AgentRemove.class);
+                if (m.agentId() != null) {
+                    Agent previous = agents.remove(m.agentId());
+                    lastSay.remove(m.agentId());
+                    if (m.agentId().equals(replyAgentId)) replyAgentId = "";
+                    if (previous != null) fire(l -> l.onAgentRemoved(previous));
+                }
+            }
 			case "agent.upsert" -> {
 				Agent a = ForemanJson.read(json, AgentUpsert.class).agent();
 				if (a != null && a.id() != null) {
@@ -432,7 +453,9 @@ public final class ForemanState {
 			case "feed.add" -> {
 				FeedItem item = ForemanJson.read(json, FeedAdd.class).item();
 				if (item != null) {
+					rememberReplyAuthor(item);
 					bounded(feed, item, FEED_TAIL);
+					feedRevision++;
 					fire(l -> l.onFeed(item));
 				}
 			}
@@ -456,6 +479,7 @@ public final class ForemanState {
 	}
 
 	private void applySnapshot(Snapshot s) {
+		feedRevision++;
 		agents.clear();
 		tasks.clear();
 		decisions.clear();
@@ -464,6 +488,7 @@ public final class ForemanState {
 		goals.clear();
 		logs.clear();
 		feed.clear();
+		replyAgentId = "";
 		for (Agent a : s.agents()) {
 			if (a != null && a.id() != null) {
 				agents.put(a.id(), a);
@@ -500,9 +525,11 @@ public final class ForemanState {
 		}
 		for (FeedItem f : s.feed()) {
 			if (f != null) {
+				rememberReplyAuthor(f);
 				bounded(feed, f, FEED_TAIL);
 			}
 		}
+		if (s.replyAgentId() != null && agents.containsKey(s.replyAgentId())) replyAgentId = s.replyAgentId();
 		for (AgentLogs l : s.logs()) {
 			if (l != null && l.agentId() != null) {
 				appendLogs(l.agentId(), l.entries());

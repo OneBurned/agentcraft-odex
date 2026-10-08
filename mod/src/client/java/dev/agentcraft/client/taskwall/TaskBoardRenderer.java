@@ -35,7 +35,7 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * Task Wall BER: a kanban of the Foreman's tasks on the connected task_board panel, drawn once from
- * its origin block on the board plane. Columns Todo / Doing / Review / Done with counts (widths
+ * its origin block on the board plane. Occupied active-stage columns with counts (widths
  * follow the content, see {@link TaskBoard}); kit cards per status (blocked = red card at the top
  * of its column, with the reason); title, assignee face + name, the assignee's live state dot while
  * they work on that card, and one footer hint (blocked reason, CI failing, waiting on deps,
@@ -159,6 +159,7 @@ public class TaskBoardRenderer extends StationRenderer<TaskBoardBlockEntity, Tas
 		// ---- column rules + headers (one rect batch)
 		DisplayDraw.Rects r = b.lanes.clear();
 		int rule = UiStyle.color("board.rule", 0xFFC9A227);
+		r.add(b.ix0, b.footerY, b.ix1, b.footerY + TaskBoard.HEADER_H, 2 * Z, UiStyle.color("board.label", 0xFFF4EFE6), light);
 		for (int i = 0; i < b.columns.size(); i++) {
 			TaskBoard.Column col = b.columns.get(i);
 			if (i > 0) {
@@ -178,6 +179,11 @@ public class TaskBoardRenderer extends StationRenderer<TaskBoardBlockEntity, Tas
 		r.submit(ps, c);
 		ps.pushPose();
 		ps.translate(0, 0, 3 * Z);
+		Font font = Minecraft.getInstance().font;
+		String footer = "ПКМ: список задач · история " + b.historyCount;
+		if (font.width(footer) > b.ix1 - b.ix0 - 8) footer = "ПКМ: список";
+		if (font.width(footer) > b.ix1 - b.ix0 - 8) footer = "ПКМ";
+		WorldUi.submitText(ps, c, footer, b.ix0 + 4, b.footerY + 3, headInk, light);
 		for (TaskBoard.Column col : b.columns) {
 			WorldUi.submitText(ps, c, col.label, col.ax + 4, b.iy0 + 3, headInk, light);
 			WorldUi.submitText(ps, c, col.countSeq, col.countX(), b.iy0 + 3, muted, light);
@@ -226,37 +232,20 @@ public class TaskBoardRenderer extends StationRenderer<TaskBoardBlockEntity, Tas
 		DisplayStats.add(DisplayStats.Kind.BOARD, System.nanoTime() - t0);
 	}
 
-	/** No tasks yet: a paper note pinned in the middle that says how to start, with the console key as a keycap. */
+	/** An empty current pool is not an empty history. Wrap within even a single-block board. */
 	private static void drawEmpty(PoseStack ps, SubmitNodeCollector c, TaskBoard b, int light) {
 		Font font = Minecraft.getInstance().font;
-		String l1 = "No tasks yet";
-		String key = TaskWallFeature.startKey();
-		String pre = key.isEmpty() ? "Open the console, type a goal" : "Press ";
-		String post = key.isEmpty() ? "" : " and type a goal";
-		float kw = key.isEmpty() ? 0 : font.width(key) + 8;
-		float w2 = font.width(pre) + kw + font.width(post);
-		float w = Math.max(font.width(l1), w2) + 18, h = 33;
-		float x = (b.pw - w) / 2f, y = (b.iy0 + TaskBoard.HEADER_H + b.iy1 - h) / 2f;
-		TextureAtlasSprite sprite = WorldUi.sprite(Kit.card("todo"));
-		TextureAtlasSprite cap = WorldUi.sprite(Kit.KEYCAP);
-		float kx = x + 9 + font.width(pre);
-		float ky = y + 16;
-		c.order(0).submitCustomGeometry(ps, WorldUi.guiAtlasSolid(), (pose, vc) -> {
-			DisplayDraw.nineSlice(pose, vc, sprite, x, y, w, h - 1, 2 * Z, 0xFFFFFFFF, light, 1);
-			if (kw > 0) {
-				DisplayDraw.nineSlice(pose, vc, cap, kx, ky - 1, kw, 12, 2.5f * Z, 0xFFFFFFFF, light);
-			}
-		});
+		String text = b.historyCount > 0 ? "Текущих задач нет. Завершённые — в истории." : "Текущих задач нет. Добавь задачу в план.";
+		var lines = dev.agentcraft.client.ui.TextUtil.wrapPlain(font, text, Math.max(16, Math.round(b.ix1 - b.ix0 - 12)));
+		int count = Math.min(lines.size(), Math.max(0, (int) ((b.iy1 - b.iy0 - 12) / 10)));
+		float y = (b.iy0 + b.iy1 - count * 10) / 2f;
+		DisplayDraw.Rects note = b.emptyNote.clear();
+		note.add(b.ix0, y - 4, b.ix1, y + count * 10 + 3, 2 * Z, UiStyle.color("board.label", 0xFFF4EFE6), light);
+		note.submit(ps, c);
 		ps.pushPose();
 		ps.translate(0, 0, 3 * Z);
 		int ink = UiStyle.color("paper.text", 0xFF1F1E1D);
-		int muted = UiStyle.color("paper.muted", 0xFF655E55);
-		WorldUi.submitText(ps, c, l1, x + 9, y + 5, ink, light);
-		WorldUi.submitText(ps, c, pre, x + 9, ky + 1, muted, light);
-		if (kw > 0) {
-			WorldUi.submitText(ps, c, key, kx + 4, ky + 1, ink, light);
-			WorldUi.submitText(ps, c, post, kx + kw, ky + 1, muted, light);
-		}
+		for (int i = 0; i < count; i++) WorldUi.submitText(ps, c, lines.get(i), b.ix0 + 6, y + i * 10, ink, light);
 		ps.popPose();
 	}
 
@@ -305,7 +294,8 @@ public class TaskBoardRenderer extends StationRenderer<TaskBoardBlockEntity, Tas
 
 	private static String family(TaskBoard.Col col) {
 		return switch (col) {
-			case TODO -> "idle";
+			case PLAN, TODO -> "idle";
+			case QUESTION -> "waiting";
 			case DOING -> "working";
 			case REVIEW -> "thinking";
 			case DONE -> "done";

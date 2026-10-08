@@ -39,6 +39,7 @@ interface Client {
   hello: boolean;
   name: string;
   alive: boolean;
+  planner: boolean;
 }
 
 export class ForemanServer {
@@ -65,6 +66,7 @@ export class ForemanServer {
         port: this.opts.port,
         maxPayload: 4 * 1024 * 1024,
         verifyClient: (info: { origin?: string; req: IncomingMessage }) => {
+          if (info.req.url !== '/' && info.req.url !== '/planner') return false;
           const why = refuseReason(info.req, !!this.opts.allowBrowserOrigins);
           if (!why) return true;
           this.opts.log.warn(`rejected WebSocket: ${why}`);
@@ -100,7 +102,7 @@ export class ForemanServer {
   }
 
   private onConnection(ws: WebSocket, req: IncomingMessage): void {
-    const client: Client = { ws, id: this.nextId++, hello: false, name: `client${this.nextId - 1}`, alive: true };
+    const client: Client = { ws, id: this.nextId++, hello: false, name: `client${this.nextId - 1}`, alive: true, planner: req.url === '/planner' };
     this.clients.add(client);
     this.opts.log.info(`client #${client.id} connected from ${req.socket.remoteAddress ?? '?'}`);
     ws.on('pong', () => {
@@ -126,6 +128,23 @@ export class ForemanServer {
         return;
       }
       const msg = parsed.msg;
+      // Scope is sticky for the lifetime of this connection, including repeated hello.
+      if ((msg.type === 'hello' && msg.client === 'studio-planner') || (msg.type === 'studio.action' && 'token' in msg.payload)) client.planner = true;
+      if (client.planner) {
+        client.hello = true;
+        if (msg.type === 'hello') {
+          this.send(client, { type: 'snapshot', foreman: { ...this.foreman.snapshot().foreman, message: 'Планировщик: доступ только к черновикам.' },
+            agents: [], tasks: [], decisions: [], repos: [], memory: [], goals: [], feed: [], logs: [] });
+          if (msg.id) this.send(client, { type: 'ack', re: msg.id, ok: true });
+          return;
+        }
+        if (msg.type !== 'studio.action' || !['draft.list', 'draft.create'].includes(msg.action) || typeof msg.payload.token !== 'string') {
+          const error = 'Планировщику доступны только draft.list и draft.create с разрешением.';
+          if (msg.id) this.send(client, { type: 'ack', re: msg.id, ok: false, error });
+          else this.send(client, { type: 'error', message: error });
+          return;
+        }
+      }
       if (msg.type === 'hello') {
         client.hello = true;
         client.name = `${msg.client ?? 'client'}#${client.id} (${msg.modVersion})`;
@@ -164,7 +183,7 @@ export class ForemanServer {
   broadcast(m: Outbound): void {
     let s: string | undefined;
     for (const c of this.clients) {
-      if (!c.hello || c.ws.readyState !== c.ws.OPEN) continue;
+      if (!c.hello || c.planner || c.ws.readyState !== c.ws.OPEN) continue;
       s ??= this.serialize(m);
       if (s) c.ws.send(s);
     }

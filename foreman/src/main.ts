@@ -4,6 +4,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ClaudeBackend } from './agents/claude/index.js';
 import { SimBackend } from './agents/sim/index.js';
+import { ObserverBackend } from './agents/observer.js';
 import { DEFAULT_SIM_GOAL } from './agents/sim/scenario.js';
 import { FOREMAN_VERSION, HELP, loadConfig, type Config } from './config.js';
 import { consoleLogger } from './context.js';
@@ -11,6 +12,7 @@ import { Foreman } from './foreman.js';
 import { ForemanServer } from './server.js';
 import { claimRunFiles, homeRunFile, liveOwner, profileRunFile, releaseRunFiles } from './runfile.js';
 import { isInsideOrEqual } from './util/fsx.js';
+import { assertProfileAvailable } from './profile-maintenance.js';
 
 async function createDemoRepo(cfg: Config, dir: string): Promise<void> {
   const mod = (await import(pathToFileURL(path.join(cfg.projectRoot, 'sandbox', 'create-demo.mjs')).href)) as {
@@ -33,6 +35,7 @@ export async function main(argv: string[]): Promise<void> {
     return;
   }
   const cfg = loadConfig(argv);
+  assertProfileAvailable(cfg.dataDir);
   const log = consoleLogger('foreman', { debug: cfg.debug, quiet: cfg.quiet });
 
   // one Foreman per profile (two would both write its state.json) - checked before --reset wipes it
@@ -61,7 +64,7 @@ export async function main(argv: string[]): Promise<void> {
   }
 
   const foreman = new Foreman({ config: cfg, logger: log });
-  const backend = cfg.backend === 'sim' ? new SimBackend(foreman, cfg.sim) : new ClaudeBackend(foreman, cfg.claude);
+  const backend = cfg.backend === 'observer' ? new ObserverBackend(foreman) : cfg.backend === 'sim' ? new SimBackend(foreman, cfg.sim) : new ClaudeBackend(foreman, cfg.claude);
   const server = new ForemanServer(foreman, { host: cfg.host, port: cfg.port, allowBrowserOrigins: cfg.allowBrowserOrigins, validateOutbound: cfg.debug, log });
 
   try {

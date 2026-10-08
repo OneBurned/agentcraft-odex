@@ -12,7 +12,7 @@ import org.jspecify.annotations.Nullable;
  * to {@code UNKNOWN}, so a newer Foreman never breaks the mod.
  */
 public final class Protocol {
-	public static final int VERSION = 1;
+	public static final int VERSION = 2;
 
 	private Protocol() {
 	}
@@ -87,7 +87,7 @@ public final class Protocol {
 	}
 
 	public enum BackendName implements Wire {
-		SIM, CLAUDE, UNKNOWN
+		SIM, CLAUDE, OBSERVER, UNKNOWN
 	}
 
 	public enum AuthStatus implements Wire {
@@ -114,7 +114,8 @@ public final class Protocol {
 
 	public record Agent(String id, String name, AgentRole role, @Nullable String title, String color, @Nullable String accent, String skin,
 		AgentState state, String activity, Station station, @Nullable String taskId, @Nullable String repoId, @Nullable String worktree,
-		@Nullable Boolean paused, @Nullable Boolean active) {
+		@Nullable Boolean paused, @Nullable Boolean active, @Nullable AgentControls controls,
+        @Nullable String provider, @Nullable List<String> roles, @Nullable Boolean enabled, @Nullable Boolean visible, @Nullable Boolean slim) {
 		public Agent {
 			name = name == null ? id : name;
 			role = role == null ? AgentRole.UNKNOWN : role;
@@ -130,10 +131,14 @@ public final class Protocol {
 			return active == null || active;
 		}
 
+		public boolean isVisible() { return visible == null ? isActive() : visible; }
+
 		public boolean isPaused() {
 			return paused != null && paused;
 		}
 	}
+
+	public record AgentControls(boolean message, boolean pause, boolean resume, boolean stop, String hint) {}
 
 	public record LogEntry(long ts, LogKind kind, String text) {
 		public LogEntry {
@@ -142,9 +147,22 @@ public final class Protocol {
 		}
 	}
 
+	/** Optional v1 studio-review projection; legacy task messages omit it. */
+	public record ReviewProgress(String head, String phase, long startedAt, String step, @Nullable String verdict,
+		@Nullable String summary, boolean waitingForUser, @Nullable String reviewerId) {
+        public ReviewProgress(String head, String phase, long startedAt, String step, @Nullable String verdict,
+            @Nullable String summary, boolean waitingForUser) {
+            this(head, phase, startedAt, step, verdict, summary, waitingForUser, null);
+        }
+    }
+
+	public record AgentIdentity(String id, String name, String provider) {}
+
 	public record Task(String id, String title, @Nullable String description, TaskStatus status, @Nullable String assignee, List<String> deps,
 		@Nullable String repoId, @Nullable String goalId, int priority, @Nullable String branch, @Nullable String worktree, CiStatus ci,
-		@Nullable String blockedReason, @Nullable String summary, @Nullable String createdBy, long createdAt, long updatedAt) {
+		@Nullable String blockedReason, @Nullable String summary, @Nullable String createdBy, long createdAt, long updatedAt, @Nullable String queueStage,
+		@Nullable ReviewProgress studioReview, @Nullable AgentIdentity assigneeIdentity, @Nullable AgentIdentity creatorIdentity) {
+        public String assigneeLabel() { return assigneeIdentity != null ? assigneeIdentity.name() + " · " + assigneeIdentity.provider() : assignee; }
 		public Task {
 			title = title == null ? id : title;
 			status = status == null ? TaskStatus.UNKNOWN : status;
@@ -168,6 +186,11 @@ public final class Protocol {
 
 		public boolean isOpen() {
 			return status == DecisionStatus.OPEN;
+		}
+
+		public boolean requiresText(@Nullable String option) {
+			return REQUEST_CHANGES.equals(option)
+				|| (kind == DecisionKind.QUESTION && "studio".equals(tool) && "Продолжить с ответом".equals(option));
 		}
 	}
 
@@ -202,7 +225,7 @@ public final class Protocol {
 		}
 	}
 
-	public record FeedItem(long ts, FeedKind kind, String text, @Nullable String agentId, @Nullable String to) {
+	public record FeedItem(long ts, FeedKind kind, String text, @Nullable String agentId, @Nullable String to, @Nullable String fullText) {
 		public FeedItem {
 			kind = kind == null ? FeedKind.UNKNOWN : kind;
 			text = text == null ? "" : text;
@@ -252,7 +275,7 @@ public final class Protocol {
 	// ------------------------------------------------------------------ Foreman -> mod messages
 
 	public record Snapshot(ForemanStatus foreman, List<Agent> agents, List<Task> tasks, List<Decision> decisions, List<Repo> repos,
-		List<MemoryEntry> memory, @Nullable Goal goal, List<Goal> goals, List<FeedItem> feed, List<AgentLogs> logs) {
+		List<MemoryEntry> memory, @Nullable Goal goal, List<Goal> goals, List<FeedItem> feed, List<AgentLogs> logs, @Nullable String replyAgentId) {
 		public Snapshot {
 			agents = agents == null ? List.of() : List.copyOf(agents);
 			tasks = tasks == null ? List.of() : List.copyOf(tasks);
@@ -264,6 +287,8 @@ public final class Protocol {
 			logs = logs == null ? List.of() : List.copyOf(logs);
 		}
 	}
+
+	public record AgentRemove(String agentId) {}
 
 	public record AgentUpsert(Agent agent) {
 	}

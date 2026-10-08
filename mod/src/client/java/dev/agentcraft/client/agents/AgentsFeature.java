@@ -114,6 +114,10 @@ public final class AgentsFeature {
 		});
 		UseEntityCallback.EVENT.register((player, level, hand, entity, hit) -> {
 			if (level.isClientSide() && entity instanceof ClientAgentEntity agent) {
+				if (player.getItemInHand(hand).getItem() instanceof dev.agentcraft.workspace.ConfiguratorItem) {
+					dev.agentcraft.client.studio.ConfiguratorClient.select(player, agent);
+					return InteractionResult.FAIL;
+				}
 				if (hand == InteractionHand.MAIN_HAND) {
 					CLICK_HANDLERS.forEach(h -> h.clicked(player, agent));
 				}

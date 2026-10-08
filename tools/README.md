@@ -1,5 +1,11 @@
 # tools/
 
+## Codex observer (TradeRecord)
+
+`traderecord.ps1` starts the `observer` backend and Minecraft using the local portable JDK 25;
+`traderecord.ps1 -Stop` stops them. `codex-progress.mjs` sends explicit, real task summaries from
+the existing Codex chat. See [CODEX_OBSERVER.md](../docs/CODEX_OBSERVER.md) for the workflow and limitations.
+
 ## macOS
 
 Requires Node 22+, git, and Java 25. Install Java with `brew install openjdk@25`;

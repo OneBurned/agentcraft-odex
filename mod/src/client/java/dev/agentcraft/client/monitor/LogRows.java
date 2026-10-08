@@ -7,6 +7,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
@@ -16,16 +19,17 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * Turns {@code agent.log} entries into screen rows (assets-src/ui-style.md "Monitor text"): prose
- * wraps, tool lines get a kit icon + tool name + argument and never wrap, results/errors show their
- * first lines, diffs show the path and tinted +/- rows. Pure layout: no drawing, built on the client
+ * wraps with paragraph gaps and per-message headings, tool lines get a kit icon + tool name +
+ * argument and never wrap, diffs show the path and tinted +/- rows. Pure layout: no drawing, built on the client
  * thread and cached per screen until the log or the screen size changes.
  */
 public final class LogRows {
 	public static final int LINE = 10;
 	public static final int TOOL_LINE = 13;
 	public static final int ICON = 12;
-	private static final int MAX_TEXT_LINES = 4;
-	private static final int MAX_RESULT_LINES = 3;
+	private static final int MESSAGE_LINE = 12;
+	private static final int MESSAGE_INDENT = 6;
+	private static final DateTimeFormatter MESSAGE_TIME = DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault());
 	private static final int MAX_DIFF_LINES = 6;
 	private static final Pattern TEST_CMD = Pattern.compile("\\b(npm|pnpm|yarn|bun)( run)? test\\b|\\bvitest\\b|\\bjest\\b|\\bpytest\\b|\\bcargo test\\b"
 		+ "|\\bgo test\\b|\\bgradlew\\S* (test|check)\\b|\\bnode --test\\b");
@@ -45,10 +49,22 @@ public final class LogRows {
 	public static List<Row> of(Font font, LogEntry e, int width, ScreenStyle st) {
 		List<Row> out = new ArrayList<>(4);
 		String text = e.text().replace("\r", "").replace("\t", "  ");
+		out.add(gap(8));
+		String label = switch (e.kind()) {
+			case RESULT -> "Ответ";
+			case ERROR -> "Ошибка";
+			case TOOL -> "Действие";
+			case DIFF -> "Изменения";
+			default -> "Ход работы";
+		};
+		int headingColor = e.kind() == dev.agentcraft.client.foreman.Protocol.LogKind.ERROR ? st.error()
+			: e.kind() == dev.agentcraft.client.foreman.Protocol.LogKind.RESULT ? st.result() : st.muted();
+		String heading = label + " · " + MESSAGE_TIME.format(Instant.ofEpochMilli(e.ts()));
+		out.add(new Row(15, seq(TextUtil.ellipsize(font, heading, width)), headingColor, 0, null, 0));
 		switch (e.kind()) {
 			case TOOL -> out.add(tool(font, text, width, st));
-			case RESULT -> lines(font, out, text, width, st.result(), st, MAX_RESULT_LINES);
-			case ERROR -> lines(font, out, text, width, st.error(), st, MAX_RESULT_LINES);
+			case RESULT -> prose(font, out, plainProse(text), width, st.result());
+			case ERROR -> prose(font, out, plainProse(text), width, st.error());
 			case DIFF -> diff(font, out, text, width, st);
 			default -> prose(font, out, plainProse(text), width, st.text());
 		}
@@ -56,35 +72,13 @@ public final class LogRows {
 	}
 
 	private static void prose(Font font, List<Row> out, String text, int width, int color) {
-		List<String> lines = TextUtil.wrapPlain(font, text.strip(), width);
-		int n = Math.min(lines.size(), MAX_TEXT_LINES);
-		for (int i = 0; i < n; i++) {
-			String l = lines.get(i);
-			if (i == n - 1 && lines.size() > n) {
-				l = TextUtil.ellipsize(font, l + " " + TextUtil.ELLIPSIS, width);
-			}
-			out.add(plain(l, color));
+		for (String line : TextUtil.wrapPlain(font, text.strip(), Math.max(1, width - MESSAGE_INDENT))) {
+			out.add(line.isBlank() ? gap(6) : new Row(MESSAGE_LINE, seq(line), color, MESSAGE_INDENT, null, 0));
 		}
 	}
 
-	/** Result / error: the first lines as they are (lists, paths), a long single line wraps once. */
-	private static void lines(Font font, List<Row> out, String text, int width, int color, ScreenStyle st, int max) {
-		String[] ls = text.strip().split("\n");
-		if (ls.length == 1) {
-			List<String> w = TextUtil.wrapPlain(font, ls[0], width);
-			for (int i = 0; i < Math.min(2, w.size()); i++) {
-				String l = w.get(i);
-				out.add(plain(i == 1 && w.size() > 2 ? TextUtil.ellipsize(font, l + " " + TextUtil.ELLIPSIS, width) : l, color));
-			}
-			return;
-		}
-		int shown = ls.length > max ? max - 1 : ls.length;
-		for (int i = 0; i < shown; i++) {
-			out.add(plain(TextUtil.ellipsize(font, ls[i], width), color));
-		}
-		if (ls.length > shown) {
-			out.add(plain("+" + (ls.length - shown) + " more", st.muted()));
-		}
+	private static Row gap(int height) {
+		return new Row(height, FormattedCharSequence.EMPTY, 0, 0, null, 0);
 	}
 
 	private static void diff(Font font, List<Row> out, String text, int width, ScreenStyle st) {

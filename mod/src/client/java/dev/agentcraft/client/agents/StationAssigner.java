@@ -36,7 +36,10 @@ public final class StationAssigner {
 
 	/** Assign every agent (in order) and return agentId -> anchor (absent when the layout has nothing usable). */
 	public Map<String, Anchor> assign(List<Agent> agents, Anchors.Layout layout) {
-		Map<String, Anchor> out = new LinkedHashMap<>();
+		return assign(agents, layout, agents.stream().map(Agent::id).toList());
+    }
+    public Map<String, Anchor> assign(List<Agent> agents, Anchors.Layout layout, List<String> roster) {
+        Map<String, Anchor> out = new LinkedHashMap<>();
 		Map<String, List<Agent>> byStation = new LinkedHashMap<>();
 		for (Agent a : agents) {
 			String key = stationKey(a);
@@ -47,7 +50,13 @@ public final class StationAssigner {
 					assigned.put(a.id(), desk.name());
 					continue;
 				}
-				key = AnchorNames.LOUNGE; // no desk for this agent in the layout
+				List<Anchor> common = slots(layout, AnchorNames.SHARED_DESK);
+                if (!common.isEmpty()) {
+                    int index = Math.max(0, roster.indexOf(a.id()));
+                    Anchor pick = index < common.size() ? common.get(index) : overflowSpot(common.getFirst(), index - common.size() + 1);
+                    out.put(a.id(), pick); assigned.put(a.id(), pick.name()); continue;
+                }
+                key = AnchorNames.LOUNGE; // no personal or common desk in this layout
 			}
 			byStation.computeIfAbsent(key, k -> new ArrayList<>()).add(a);
 		}

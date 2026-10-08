@@ -2,6 +2,7 @@
 // primitives backends (sim / claude) use to drive agents. Transport-agnostic: the WS server feeds
 // it ClientMessages and subscribes to outbound protocol messages.
 import fs from 'node:fs';
+import { TeamRegistry, TeamError } from './team.js';
 import path from 'node:path';
 import { MessageBus } from './bus.js';
 import { loadCast, type CastMember } from './cast.js';
@@ -24,15 +25,25 @@ import type {
   Outbound,
   Station,
   Task,
+  ObserverUpdate,
 } from './protocol.js';
 import { RepoError, RepoManager } from './repos.js';
 import { Store } from './store.js';
 import { TaskError, TaskGraph } from './taskgraph.js';
 import { setUserName, userName } from './user.js';
 import { truncate } from './util/text.js';
+import { PersonaSpeech } from './personas.js';
+import { assertProfileAvailable } from './profile-maintenance.js';
 
 export interface Backend {
-  readonly name: 'sim' | 'claude';
+  assertAgentIdle?(id: string): boolean | void;
+  assertProfileChange?(enabled?: boolean): void;
+  onTeamChanged?(): void;
+  readonly name: 'sim' | 'claude' | 'observer';
+  onObserverUpdate?(update: ObserverUpdate): Record<string, unknown>;
+  onChatMessage?(text: string, agentId?: string, reply?: boolean): Promise<Record<string, unknown>>;
+  onChatControl?(action: 'pause' | 'resume' | 'stop', agentId?: string): Promise<Record<string, unknown>>;
+  onStudioAction?(action: string, payload: Record<string, unknown>): Promise<Record<string, unknown>>;
   /** Called once after the core is ready (and after restart: resume work). */
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -75,6 +86,8 @@ export class Foreman {
   readonly notifier: Notifier;
   readonly log: Logger;
   readonly cast: CastMember[];
+  readonly team?: TeamRegistry;
+  readonly personas?: PersonaSpeech;
   backend: Backend | undefined;
   status: ForemanStatus;
 
@@ -85,12 +98,16 @@ export class Foreman {
   private closed = false;
 
   constructor(opts: ForemanOptions) {
+    assertProfileAvailable(opts.config.dataDir);
     this.config = opts.config;
     this.log = opts.logger ?? consoleLogger('foreman', { debug: opts.config.debug, quiet: opts.config.quiet });
+    // Capture provenance before Store can quarantine an unreadable state and return an empty model.
+    const stateExisted = fs.existsSync(path.join(opts.config.dataDir, 'state.json')) ||
+      (fs.existsSync(opts.config.dataDir) && fs.readdirSync(opts.config.dataDir).some(name => name.startsWith('state.json.corrupt-')));
     this.store = new Store(opts.config.dataDir);
     const now = opts.now ?? Date.now;
     this.ctx = { store: this.store, emit: (m) => this.emit(m), now, log: this.log };
-    this.tasks = new TaskGraph(this.ctx);
+    this.tasks = new TaskGraph(this.ctx, id => !this.team || !!this.team.get(id)?.enabled && !this.team.get(id)?.archived);
     this.bus = new MessageBus(this.ctx);
     this.memory = new Memory(this.ctx, path.join(opts.config.dataDir, 'memory'));
     this.decisions = new DecisionQueue(this.ctx);
@@ -98,13 +115,23 @@ export class Foreman {
     this.notifier =
       opts.notifier ??
       new Notifier({ enabled: opts.config.notify, silent: opts.config.toastSilent, log: this.log, now });
-    const { cast, source } = loadCast(opts.config.projectRoot);
+    const dynamicTeam = opts.config.backend === 'observer' && (fs.existsSync(path.join(opts.config.dataDir, 'team.json')) || !stateExisted);
+    const { cast, source } = dynamicTeam ? { cast: [], source: 'team.json' } : loadCast(opts.config.projectRoot);
     this.cast = cast;
     this.log.debug(`cast from ${source}`);
     setUserName(opts.config.userName);
     this.status = { version: FOREMAN_VERSION, backend: opts.config.backend, auth: opts.config.backend === 'sim' ? 'ok' : 'unknown', userName: userName() };
     if (opts.config.backend === 'sim') this.status.message = 'Simulated team (sim backend)';
-    this.initRoster();
+    // Existing profiles remain legacy until the explicit A4 migration. Never infer a team from cast.
+    if (dynamicTeam) {
+      this.team = new TeamRegistry(opts.config.dataDir);
+      this.syncTeam();
+    } else this.initRoster();
+    if (opts.config.backend === 'observer') this.personas = new PersonaSpeech({
+      file: path.join(opts.config.dataDir, 'personas.json'), now, emit: message => this.emit(message),
+      knownAgent: id => this.team ? !!this.team.get(id) && !this.team.get(id)!.archived : !!this.agent(id),
+      warn: message => { this.log.warn(message); this.bus.feed('system', message); },
+    });
     this.decisions.onCreated((d) => this.onDecisionCreated(d));
   }
 
@@ -160,6 +187,58 @@ export class Foreman {
     this.store.markDirty();
   }
 
+  get migratedPair(): boolean {
+    const marker = this.store.data.backend.teamMigration as { version?: number; kind?: string } | undefined;
+    return !!this.team && marker?.version === 1 && marker.kind === 'legacy-pair' && !this.store.data.backend.roleQueue;
+  }
+
+  syncTeam(): void {
+    if (!this.team) return;
+    const previous = this.agents();
+    const next = this.team.snapshot().agents.filter(a => !a.archived).map(a => ({
+      ...(previous.find(p => p.id === a.id) ?? {}),
+      id: a.id, name: a.name, provider: a.provider, roles: a.roles, role: 'worker' as const,
+      title: a.roles.join(', '), color: a.appearance.color, skin: a.appearance.skin, slim: a.appearance.slim,
+      enabled: a.enabled, visible: a.visible, active: a.enabled, paused: previous.find(p => p.id === a.id)?.paused ?? false,
+      state: previous.find(p => p.id === a.id)?.state ?? 'idle' as const, station: previous.find(p => p.id === a.id)?.station ?? 'lounge' as const, activity: a.enabled ? previous.find(p => p.id === a.id)?.activity ?? 'Не подключён' : 'Выключен',
+      controls: { message: false, pause: false, resume: false, stop: false, hint: 'Подключение агента ещё не настроено' },
+    }));
+    this.store.data.agents = next;
+    for (const a of previous) if (!next.some(n => n.id === a.id)) this.emit({ type: 'agent.remove', agentId: a.id });
+    for (const a of next) this.emit({ type: 'agent.upsert', agent: a });
+    if (!this.migratedPair && !next.some(a => a.id === this.store.data.replyAgentId && a.enabled)) delete this.store.data.replyAgentId;
+    this.store.markDirty();
+    this.backend?.onTeamChanged?.();
+  }
+
+  teamAction(action: string, payload: Record<string, unknown>): Record<string, unknown> {
+    if (!this.team) throw new ClientError('Этот профиль ещё использует прежнюю команду. Сначала нужен перенос A4.');
+    if (action === 'team.get') return { ...this.team.snapshot() };
+    if (this.migratedPair && (action !== 'team.update' || !payload.patch || Object.keys(payload.patch as object).some(k => !['name', 'appearance', 'enabled', 'visible'].includes(k))))
+      throw new ClientError('Перенесённая очередь сохраняет двух прежних исполнителей. Изменение состава и ролей станет доступно с новой очередью; внешность и имена можно менять сейчас.');
+    const result = this.team.change(action.replace(/^team\./, ''), payload, id => {
+      if (!this.migratedPair) return this.assertTeamAgentIdle(id);
+      // The migrated studio still owns execution. Presentation edits must not depend on queue assignments.
+      const enabled = (payload.patch as { enabled?: boolean }).enabled;
+      if (enabled === false) {
+        if (!this.backend?.assertProfileChange) throw new ClientError('Пульт ещё запускается.');
+        this.backend.assertProfileChange(enabled);
+      }
+    });
+    this.syncTeam();
+    return { ...result };
+  }
+
+  assertTeamAgentIdle(id: string): void {
+      let runtimeIdle;
+      try { runtimeIdle = this.backend?.assertAgentIdle?.(id); } catch (e) { throw new TeamError((e as Error).message); }
+      const a = this.agent(id);
+      if (a && (runtimeIdle !== true && !['idle', 'done'].includes(a.state) || a.taskId && !['done', 'cancelled'].includes(this.tasks.get(a.taskId)?.status ?? '')) ||
+        this.tasks.list().some(t => t.assignee === id && !['done', 'cancelled'].includes(t.status)) ||
+        this.decisions.open().some(d => d.agentId === id))
+        throw new TeamError('Агент занят или назначен на незавершённую задачу. Заверши или переназначь работу перед изменением.');
+  }
+
   agents(): Agent[] {
     return this.store.data.agents;
   }
@@ -177,7 +256,10 @@ export class Foreman {
   /** Resolve "@Kit", "kit", "Kit" -> "kit". */
   resolveAgentId(nameOrId: string): string | undefined {
     const n = nameOrId.replace(/^@/, '').trim().toLowerCase();
-    return this.agents().find((a) => a.id === n || a.name.toLowerCase() === n)?.id;
+    const exact = this.agents().find(a => a.id === n);
+    if (exact) return exact.id;
+    const matches = this.agents().filter(a => a.name.toLowerCase() === n);
+    return matches.length === 1 ? matches[0]!.id : undefined;
   }
 
   nameOf(id: string): string {
@@ -188,7 +270,7 @@ export class Foreman {
   /** Patch an agent and broadcast if anything changed. */
   setAgent(
     id: string,
-    patch: Partial<Pick<Agent, 'state' | 'station' | 'activity' | 'paused' | 'active'>> & {
+    patch: Partial<Pick<Agent, 'state' | 'station' | 'activity' | 'paused' | 'active' | 'controls'>> & {
       taskId?: string | null;
       repoId?: string | null;
       worktree?: string | null;
@@ -196,7 +278,7 @@ export class Foreman {
   ): Agent {
     const a = this.requireAgent(id);
     let changed = false;
-    const set = <K extends 'state' | 'station' | 'activity' | 'paused' | 'active'>(k: K, v: Agent[K] | undefined) => {
+    const set = <K extends 'state' | 'station' | 'activity' | 'paused' | 'active' | 'controls'>(k: K, v: Agent[K] | undefined) => {
       if (v !== undefined && a[k] !== v) {
         a[k] = v;
         changed = true;
@@ -207,6 +289,7 @@ export class Foreman {
     if (patch.activity !== undefined) set('activity', truncate(patch.activity.replace(/\s+/g, ' ').trim(), 48));
     set('paused', patch.paused);
     set('active', patch.active);
+    if (patch.controls !== undefined && JSON.stringify(a.controls) !== JSON.stringify(patch.controls)) set('controls', patch.controls);
     for (const k of ['taskId', 'repoId', 'worktree'] as const) {
       const v = patch[k];
       if (v === undefined) continue;
@@ -344,6 +427,7 @@ export class Foreman {
   }
 
   private onDecisionCreated(d: Decision): void {
+    this.personas?.say(d.agentId, 'question');
     const who = this.nameOf(d.agentId);
     const label = d.kind === 'merge' ? 'merge review' : d.kind === 'permission' ? 'permission' : 'question';
     this.bus.feed('decision', `${who} needs you (${label}): ${d.question}`, { agentId: d.agentId, to: 'user' });
@@ -458,7 +542,7 @@ export class Foreman {
 
   // ---- snapshot -----------------------------------------------------------------------------
 
-  snapshot(): Outbound {
+  snapshot(): Extract<Outbound, { type: 'snapshot' }> {
     this.flushLogs();
     const decisions = this.store.data.decisions;
     const open = decisions.filter((d) => d.status === 'open');
@@ -466,6 +550,7 @@ export class Foreman {
     const goal = this.currentGoal();
     return {
       type: 'snapshot',
+      ...(this.store.data.replyAgentId ? { replyAgentId: this.store.data.replyAgentId } : this.team ? {} : { replyAgentId: 'marlow' }),
       foreman: { ...this.status },
       agents: this.agents().map((a) => ({ ...a })),
       tasks: this.tasks.list().map((t) => ({ ...t, deps: [...t.deps] })),
@@ -490,7 +575,7 @@ export class Foreman {
       const result = await this.dispatch(msg, reply);
       ack(true, result ? { result } : {});
     } catch (e) {
-      const known = e instanceof ClientError || e instanceof TaskError || e instanceof RepoError || e instanceof DecisionError || e instanceof MemoryError;
+      const known = e instanceof TeamError || e instanceof ClientError || e instanceof TaskError || e instanceof RepoError || e instanceof DecisionError || e instanceof MemoryError;
       const message = known ? (e as Error).message : `internal error: ${(e as Error).message}`;
       if (!known) this.log.error(`${msg.type}: ${(e as Error).stack ?? e}`);
       reply({ type: 'error', message, ...(msg.id ? { re: msg.id } : {}) });
@@ -499,7 +584,61 @@ export class Foreman {
   }
 
   private async dispatch(msg: ClientMessage, reply: Reply): Promise<Record<string, unknown> | undefined> {
+    if (msg.type === 'studio.action' && 'token' in msg.payload && !['draft.list', 'draft.create'].includes(msg.action))
+      throw new ClientError('Разрешение планировщика позволяет только draft.list и draft.create.');
+    if (msg.type === 'studio.action' && msg.action.startsWith('team.')) return this.teamAction(msg.action, msg.payload);
+    if (this.team && !this.migratedPair && !['hello', 'repo.add', 'diff.request', 'agent.scene', 'studio.action', 'user.message', 'agent.action', 'observer.update', 'decision.answer'].includes(msg.type))
+      throw new ClientError('Агент не подключён. Выполнение ролей для новой команды будет доступно после настройки подключений.');
+    if (this.team && !this.migratedPair && (msg.type === 'user.message' || msg.type === 'agent.action')) {
+      const id = this.resolveAgentId(msg.type === 'user.message' ? msg.to : msg.agentId);
+      if (!id || !this.team.get(id)?.enabled) throw new ClientError('Выбери включённого агента по ID или уникальному имени.');
+      if (msg.type === 'user.message') return this.backend?.onChatMessage?.(msg.text, id, msg.reply);
+      if (!['pause', 'resume', 'stop'].includes(msg.action)) throw new ClientError('Доступны pause, resume, stop.');
+      return this.backend?.onChatControl?.(msg.action as 'pause' | 'resume' | 'stop', id);
+    }
+    if (msg.type === 'agent.scene') {
+      if (!this.personas) throw new ClientError('Реплики сцен доступны в режиме наблюдения.');
+      const resting = (id: string) => {
+        const a = this.requireAgent(id);
+        return a.active && a.visible !== false && !a.paused && a.station === 'lounge' && ['idle', 'done'].includes(a.state)
+          && !this.decisions.open().some(d => d.agentId === id);
+      };
+      if (!resting(msg.agentId) || (msg.event === 'peer' && (!msg.peerAgentId || msg.peerAgentId === msg.agentId || !resting(msg.peerAgentId))))
+        return { spoken: false };
+      return { spoken: msg.event === 'peer' ? this.personas.say(msg.agentId, msg.event, msg.peerAgentId) : this.personas.say(msg.agentId, msg.event) };
+    }
+    if (msg.type === 'studio.action') {
+      if (!this.backend?.onStudioAction) throw new ClientError('Пульт доступен в режиме Codex.');
+      return this.backend.onStudioAction(msg.action, msg.payload);
+    }
+    if (this.config.backend === 'observer' && msg.type === 'agent.action') {
+      if (!['marlow', 'codex', 'wren', 'claude'].includes(msg.agentId.toLowerCase()) ||
+        !['pause', 'resume', 'stop'].includes(msg.action) || !this.backend?.onChatControl) {
+        throw new ClientError('Для Codex доступны только пауза, продолжение и остановка подключённой задачи.');
+      }
+      return this.backend.onChatControl(msg.action as 'pause' | 'resume' | 'stop', msg.agentId);
+    }
+    if (this.config.backend === 'observer' && (msg.type === 'goal.submit' || msg.type === 'user.message')) {
+      if (!this.backend?.onChatMessage) throw new ClientError('Чат Codex не подключён.');
+      if (msg.type === 'user.message' && !['all', 'marlow', 'codex', 'wren', 'claude'].includes(msg.to.toLowerCase())) {
+        throw new ClientError('Выбери Codex или Claude.');
+      }
+      return this.backend.onChatMessage(msg.text, msg.type === 'user.message' && ['wren', 'claude'].includes(msg.to.toLowerCase()) ? 'wren' : 'marlow',
+        msg.type === 'user.message' && msg.reply === true);
+    }
+    if (this.config.backend === 'observer' && msg.type === 'decision.answer' &&
+      (['studio', 'role-queue'].includes(this.decisions.get(msg.decisionId)?.tool ?? '') ||
+        this.team && !this.migratedPair && this.decisions.get(msg.decisionId)?.kind === 'permission')) {
+      await this.answerDecision(msg.decisionId, msg.option, msg.text);
+      return { decisionId: msg.decisionId };
+    }
+    if (this.config.backend === 'observer' && !['hello', 'observer.update', 'repo.add', 'diff.request'].includes(msg.type)) {
+      throw new ClientError('Режим наблюдения: задачи, сообщения и согласования — в чате Codex. Игра только показывает ход работы.');
+    }
     switch (msg.type) {
+      case 'observer.update':
+        if (this.backend?.name !== 'observer' || !this.backend.onObserverUpdate) throw new ClientError('observer.update requires the observer backend');
+        return this.backend.onObserverUpdate(msg);
       case 'hello':
         reply(this.snapshot());
         return undefined;
@@ -539,6 +678,7 @@ export class Foreman {
   }
 
   async submitGoal(text: string, repoId?: string): Promise<Goal> {
+    if (this.config.backend === 'observer') throw new ClientError('Observer mode: submit development tasks in the Codex chat.');
     const repo = repoId ? this.repos.get(repoId) : this.repos.defaultRepo();
     if (repoId && !repo) throw new ClientError(`no repo "${repoId}"`);
     if (!repo) throw new ClientError('no repo connected yet — add one with /repo add <path>');

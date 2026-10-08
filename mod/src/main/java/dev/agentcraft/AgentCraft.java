@@ -30,9 +30,11 @@ public class AgentCraft implements ModInitializer {
 		ModEntities.init();
 		HqWorld.init();
 		Anchors.init();
+		dev.agentcraft.workspace.ManualWorkspace.init();
+		dev.agentcraft.block.StatusLampBlock.initInteractions();
 		AgentCraftCommands.init();
 		HqFeature.init();
-		LOGGER.info("AgentCraft common init done ({} blocks, cast {})", ModBlocks.all().size(), Cast.ids());
+		LOGGER.info("AgentCraft common init done ({} blocks, cosmetic presets {})", ModBlocks.all().size(), Cast.ids());
 	}
 
 	public static Identifier id(String path) {

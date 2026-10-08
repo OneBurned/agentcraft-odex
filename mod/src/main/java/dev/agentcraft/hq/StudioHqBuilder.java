@@ -1,7 +1,6 @@
 package dev.agentcraft.hq;
 
 import dev.agentcraft.AgentCraft;
-import dev.agentcraft.Cast;
 import dev.agentcraft.block.DecisionPodiumBlock;
 import dev.agentcraft.block.FacingEntityBlock;
 import dev.agentcraft.block.LampStatus;
@@ -77,12 +76,7 @@ public final class StudioHqBuilder implements HqBuilder {
 
 	/** Desk bay centres (x), west to east. */
 	static final int[] DESK_X = {-15, -11, -7, 7, 11, 15};
-	/**
-	 * Who works in which bay (west to east): the archivist and the researcher next to the library,
-	 * the lead next to the atrium, the designer and the reviewer, the tester next to the test bench.
-	 * Cast members not listed here (a changed cast) fill the remaining bays in cast order.
-	 */
-	static final List<String> DESK_ORDER = List.of("tove", "juniper", "marlow", "wren", "rowan", "kit");
+
 	/**
 	 * Chair column of a desk relative to the bay centre: the agent sits at the left third of its
 	 * 3-wide screen, so a camera from the right sees the agent, its nameplate and the whole log side
@@ -159,7 +153,8 @@ public final class StudioHqBuilder implements HqBuilder {
 	@Override
 	public @Nullable String build(ServerLevel level, Anchors.Builder a, Options options) {
 		long t0 = System.nanoTime();
-		Plan p = new Plan(SITE[0], SITE[1], SITE[2], SITE[3], SITE[4], SITE[5], GROUND, y -> y > GROUND ? AIR
+		HqPlacement site = options.placement() == null ? HqPlacement.resolve(level, SITE[4]) : options.placement();
+		Plan p = new Plan(SITE[0], site.bottom(), SITE[2], SITE[3], SITE[4], SITE[5], GROUND, y -> y > GROUND ? AIR
 			: y == GROUND ? Blocks.GRASS_BLOCK.defaultBlockState() : y >= GROUND - 3 ? Blocks.DIRT.defaultBlockState() : Blocks.STONE.defaultBlockState());
 		long tPlan0 = System.nanoTime();
 		HqLandscape.ground(p);
@@ -178,13 +173,16 @@ public final class StudioHqBuilder implements HqBuilder {
 		HqLandscape.exterior(p);
 		cameras(a);
 		p.settleGrass();
+		p = p.transformed(site.transform());
 		long tPlan = System.nanoTime() - tPlan0;
-		BlockState[] previous = PlanStore.load(level.getServer(), ID, SITE, p.size());
+		BlockState[] previous = PlanStore.load(level.getServer(), ID, p.box(), p.size());
 		Plan.Stats st = p.apply(level, previous, options.force());
-		PlanStore.save(level.getServer(), ID, SITE, p.cells());
+		PlanStore.save(level.getServer(), ID, p.box(), p.cells());
 		a.bounds(-HX + 1, FLOOR, HZN + 1, HX - 1, FLOOR + 16, AZ + 8);
 		a.spot(AnchorNames.ENTRANCE, AX, FEET, AZ + 7, 180);
 		a.put(AnchorNames.SPAWN, AX + 0.5, FEET, AZ + 7.5, 180, 0);
+		a.transform(site.transform());
+		site.save(level);
 		AgentCraft.LOGGER.info(
 			"Studio HQ: planned in {} ms, applied {} cells in {} ms ({} changed, {} connections, {} bindings, {} kept, {} foreign replaced, {} drops removed, previous plan {}); total {} ms",
 			tPlan / 1_000_000, st.cells(), st.micros() / 1000, st.changed(), st.connected(), st.bound(), st.kept(), st.foreign(), st.items(),
@@ -197,7 +195,7 @@ public final class StudioHqBuilder implements HqBuilder {
 		}
 		StringBuilder r = new StringBuilder(String.format(Locale.ROOT, "%d blocks updated", st.changed() + st.connected()));
 		if (st.kept() > 0) {
-			r.append(String.format(Locale.ROOT, "; kept %d block%s you changed since the last build (/agentcraft hq force resets them)", st.kept(),
+			r.append(String.format(Locale.ROOT, "; kept %d block%s you changed since the last build", st.kept(),
 				st.kept() == 1 ? "" : "s"));
 		}
 		if (st.foreign() > 0) {
@@ -208,26 +206,6 @@ public final class StudioHqBuilder implements HqBuilder {
 			r.append(String.format(Locale.ROOT, "; removed %d dropped item%s", st.items(), st.items() == 1 ? "" : "s"));
 		}
 		return r.toString();
-	}
-
-	/** Desk bay owners, west to east (see {@link #DESK_ORDER}). */
-	static List<String> deskIds() {
-		List<String> cast = Cast.ids();
-		List<String> out = new ArrayList<>();
-		for (String id : DESK_ORDER) {
-			if (cast.contains(id)) {
-				out.add(id);
-			}
-		}
-		for (String id : cast) {
-			if (!out.contains(id)) {
-				out.add(id);
-			}
-		}
-		while (out.size() < DESK_X.length) {
-			out.add("agent" + out.size());
-		}
-		return out;
 	}
 
 	// ================================================================== geometry helpers
@@ -852,12 +830,11 @@ public final class StudioHqBuilder implements HqBuilder {
 	// ================================================================== stations
 
 	private static void desks(Plan p, Anchors.Builder a) {
-		List<String> ids = deskIds();
 		BlockState desk = St.slab(Blocks.DARK_OAK_SLAB, true);
 		int zd = HZN + 1; // -9: desk + monitor row against the north wall
 		for (int i = 0; i < DESK_X.length; i++) {
 			int bx = DESK_X[i];
-			String id = ids.get(i);
+			String id = "slot:" + (i + 1);
 			for (int x = bx - 1; x <= bx + 1; x++) {
 				p.set(x, FEET, zd, desk);
 				for (int y = FEET + 1; y <= FEET + 2; y++) {
@@ -874,11 +851,11 @@ public final class StudioHqBuilder implements HqBuilder {
 			// side cell stays free so the agent can step in
 			int cx = bx + CHAIR_DX;
 			p.set(cx, FEET, zd + 1, St.stairs(Blocks.DARK_OAK_STAIRS, S, false));
-			a.put(AnchorNames.desk(id), cx + 0.5, FEET, zd + 1.5, 180, 0);
-			a.put("seat_" + id, cx + 0.5, FEET, zd + 1.5, 180, 0);
-			a.put(AnchorNames.monitor(id), bx + 0.5, FEET + 2.0, zd + 0.25 + 0.002, 0, 0);
+			a.put(AnchorNames.slot(AnchorNames.SHARED_DESK, i + 1), cx + 0.5, FEET, zd + 1.5, 180, 0);
+			a.put("shared_seat_" + (i + 1), cx + 0.5, FEET, zd + 1.5, 180, 0);
+			a.put(AnchorNames.slot(AnchorNames.SHARED_MONITOR, i + 1), bx + 0.5, FEET + 2.0, zd + 0.25 + 0.002, 0, 0);
 			// over the agent's right shoulder: plate beside the log, not on it (seat at the left third)
-			a.cameraLookAt("desk_" + id, bx + 2.0, FEET + 2.2, zd + 3.8, bx + 0.2, FEET + 1.8, zd + 0.25);
+			a.cameraLookAt("shared_desk_" + (i + 1), bx + 2.0, FEET + 2.2, zd + 3.8, bx + 0.2, FEET + 1.8, zd + 0.25);
 		}
 		// between the bays: walnut cabinets with a desk lantern (light pools between the desks at
 		// night) and plants at the ends
@@ -1321,10 +1298,8 @@ public final class StudioHqBuilder implements HqBuilder {
 		a.cameraLookAt("testbench", 16.0, FEET + 2.6, -0.5, 23, FEET + 1.0, -4.5);
 		a.cameraLookAt("lounge", -4.0, FEET + 3.0, -5.5, -11, FEET + 0.5, 1.0);
 		a.cameraLookAt("hall", 0.5, FEET + 2.2, HZS + 2.0, 0.5, FEET + 2.0, HZN);
-		// QA: the editing agent's desk in the showcase is Juniper's
-		int jx = DESK_X[Math.max(0, deskIds().indexOf("juniper"))];
-		// 3/4 front from beside the monitor (east of it, in front of the screen plane): Juniper's face,
-		// turned to her screen, and the screen itself, both at about 45 degrees
+		// QA: the second common desk, seen from beside its monitor.
+		int jx = DESK_X[1];
 		a.cameraLookAt("agent_desk", jx + 3.0, FEET + 1.9, HZN + 3.0, jx - 0.2, FEET + 1.6, HZN + 1.6);
 	}
 }

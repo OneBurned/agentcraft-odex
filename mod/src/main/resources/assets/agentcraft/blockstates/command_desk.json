@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "agentcraft:block/command_desk"
+    },
+    "facing=east": {
+      "model": "agentcraft:block/command_desk",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "agentcraft:block/command_desk",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "agentcraft:block/command_desk",
+      "y": 270
+    }
+  }
+}

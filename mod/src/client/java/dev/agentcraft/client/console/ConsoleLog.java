@@ -73,13 +73,13 @@ public final class ConsoleLog {
 
 	public static long revision() {
 		ForemanState s = Foreman.state();
-		return localRevision * 1_000_003L + (s == null ? 0 : s.revision());
+		return localRevision * 1_000_003L + (s == null ? 0 : s.feedRevision());
 	}
 
 	/** Feed + local lines, oldest first (client thread; cached). */
 	public static List<Line> lines() {
 		ForemanState s = Foreman.state();
-		long fr = s == null ? -1 : s.revision();
+		long fr = s == null ? -1 : s.feedRevision();
 		if (fr == cachedFeedRev && localRevision == cachedLocalRev) {
 			return cached;
 		}
@@ -87,7 +87,7 @@ public final class ConsoleLog {
 		if (s != null) {
 			for (FeedItem f : s.feed()) {
 				if (f.ts() >= clearedAt) {
-					feed.add(new Line(f.ts(), f.agentId(), f.to(), f.kind(), f.text(), f.kind() == FeedKind.ERROR ? Tone.ERROR : Tone.INFO, false));
+					feed.add(new Line(f.ts(), f.agentId(), f.to(), f.kind(), f.fullText() == null ? f.text() : f.fullText(), f.kind() == FeedKind.ERROR ? Tone.ERROR : Tone.INFO, false));
 				}
 			}
 		}

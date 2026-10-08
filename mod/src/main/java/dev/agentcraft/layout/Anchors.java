@@ -5,7 +5,6 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dev.agentcraft.AgentCraft;
-import dev.agentcraft.world.HqWorld;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -26,7 +25,7 @@ import org.jspecify.annotations.Nullable;
  * The single source of named world positions (see {@link AnchorNames} for the naming contract).
  *
  * <p>An HQ builder computes a {@link Layout} and {@link #publish publishes} it on the server thread;
- * it is saved as {@code agentcraft-anchors.json} in the world folder and loaded again whenever the HQ
+ * it is saved as {@code agentcraft-anchors.json} in the world folder and loaded again whenever that
  * world starts, so the layout survives restarts without rebuilding. Readers on any thread get an
  * immutable snapshot ({@link #current()}); the client (same JVM in singleplayer) reads it directly.
  * Listeners are told about every new layout (on the thread that published it).
@@ -63,7 +62,7 @@ public final class Anchors {
 
 	public static void init() {
 		ServerLifecycleEvents.SERVER_STARTED.register(server -> {
-			if (HqWorld.isHq(server)) {
+			if (!server.isDedicatedServer() && Files.exists(server.getWorldPath(LevelResource.ROOT).resolve(FILE))) {
 				load(server);
 			}
 		});
@@ -126,7 +125,7 @@ public final class Anchors {
 	private static void load(MinecraftServer server) {
 		Path f = file(server);
 		if (!Files.exists(f)) {
-			AgentCraft.LOGGER.info("No {} yet (run /agentcraft hq to build the HQ and its anchors)", FILE);
+			AgentCraft.LOGGER.info("No {} yet (use the Configurator or /agentcraft help to choose a building site)", FILE);
 			set(Layout.EMPTY);
 			return;
 		}
@@ -135,7 +134,7 @@ public final class Anchors {
 			set(layout);
 			AgentCraft.LOGGER.info("Loaded layout '{}' rev {} ({} anchors)", layout.name(), layout.revision(), layout.anchors().size());
 		} catch (Exception e) {
-			AgentCraft.LOGGER.warn("Could not read {}; run /agentcraft hq again", f, e);
+			AgentCraft.LOGGER.warn("Could not read {}; restore the saved layout or assign a workspace with the Configurator", f, e);
 			set(Layout.EMPTY);
 		}
 	}
@@ -240,6 +239,23 @@ public final class Anchors {
 
 		public Layout build() {
 			return new Layout(name, 0, bounds, Collections.unmodifiableMap(new LinkedHashMap<>(anchors)));
+		}
+
+		public Builder translate(int dx, int dy, int dz) {
+			anchors.replaceAll((key, a) -> new Anchor(a.name(), a.x() + dx, a.y() + dy, a.z() + dz, a.yaw(), a.pitch()));
+			if (bounds != null) bounds = new Bounds(bounds.minX() + dx, bounds.minY() + dy, bounds.minZ() + dz,
+				bounds.maxX() + dx, bounds.maxY() + dy, bounds.maxZ() + dz);
+			return this;
+		}
+
+		public Builder transform(dev.agentcraft.hq.SiteTransform t) {
+			anchors.replaceAll((key, a) -> new Anchor(a.name(), t.worldX(a.x(), a.z()), a.y() + t.y(),
+				t.worldZ(a.x(), a.z()), a.yaw() + 90 * t.turns(), a.pitch()));
+			if (bounds != null) {
+				int[] b = t.box(new int[] {bounds.minX(),bounds.minY(),bounds.minZ(),bounds.maxX(),bounds.maxY(),bounds.maxZ()});
+				bounds = new Bounds(b[0],b[1],b[2],b[3],b[4],b[5]);
+			}
+			return this;
 		}
 	}
 }

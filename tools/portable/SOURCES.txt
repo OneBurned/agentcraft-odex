@@ -1,0 +1,25 @@
+AgentCraft portable assets / Ресурсы переносимого пакета
+
+The original AgentCraft resources retain their existing license and attribution.
+Licenses for the runtime and dependencies are in licenses and the dependency JARs.
+Do not remove third-party copyright notices when distributing this package.
+
+Six additional user-supplied cosmetic PNG files are included unchanged:
+assets/agentcraft/textures/entity/agent/girl_swimsuit.png
+assets/agentcraft/textures/entity/agent/gta_sa_girl.png
+assets/agentcraft/textures/entity/agent/skuf.png
+assets/agentcraft/textures/entity/agent/ded_vasyan.png
+assets/agentcraft/textures/entity/agent/girl_no_armor.png
+assets/agentcraft/textures/entity/agent/boy_no_armor.png
+
+Their original authors and redistribution permissions have not been verified.
+Public release requires the user's confirmation of the rights to distribute them.
+Inclusion in a local build is not evidence of permission or an MIT license for these PNGs.
+
+Включены шесть дополнительных PNG, предоставленных пользователем, без изменения пикселей.
+Авторы и разрешения на распространение не подтверждены. Перед публичной публикацией
+пользователь должен подтвердить права на распространение этих скинов.
+Наличие файлов в локальной сборке не подтверждает права и не присваивает им лицензию MIT.
+
+No personal building schematics are included by default.
+Личные схемы построек по умолчанию не включены.

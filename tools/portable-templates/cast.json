@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "agents": [
+    {
+      "id": "marlow",
+      "name": "Agent 1",
+      "role": "lead",
+      "title": "Developer",
+      "color": "#3D4580",
+      "accent": "#E9E5DE",
+      "skin": "agentcraft:textures/entity/agent/marlow.png",
+      "portrait": "agentcraft:textures/gui/portrait/marlow.png",
+      "model": "default",
+      "description": "Configurable assistant."
+    },
+    {
+      "id": "juniper",
+      "name": "Agent 2",
+      "role": "worker",
+      "title": "Assistant",
+      "color": "#8E66BF",
+      "accent": "#F4EFE6",
+      "skin": "agentcraft:textures/entity/agent/juniper.png",
+      "portrait": "agentcraft:textures/gui/portrait/juniper.png",
+      "model": "slim",
+      "description": "Configurable assistant."
+    },
+    {
+      "id": "kit",
+      "name": "Agent 3",
+      "role": "worker",
+      "title": "Assistant",
+      "color": "#3C74B3",
+      "accent": "#F4EFE6",
+      "skin": "agentcraft:textures/entity/agent/kit.png",
+      "portrait": "agentcraft:textures/gui/portrait/kit.png",
+      "model": "default",
+      "description": "Configurable assistant."
+    },
+    {
+      "id": "wren",
+      "name": "Agent 4",
+      "role": "worker",
+      "title": "Assistant",
+      "color": "#E0A2BF",
+      "accent": "#1F1E1D",
+      "skin": "agentcraft:textures/entity/agent/wren.png",
+      "portrait": "agentcraft:textures/gui/portrait/wren.png",
+      "model": "slim",
+      "description": "Configurable assistant."
+    },
+    {
+      "id": "rowan",
+      "name": "Agent 5",
+      "role": "worker",
+      "title": "Assistant",
+      "color": "#802F6E",
+      "accent": "#634733",
+      "skin": "agentcraft:textures/entity/agent/rowan.png",
+      "portrait": "agentcraft:textures/gui/portrait/rowan.png",
+      "model": "default",
+      "description": "Configurable assistant."
+    },
+    {
+      "id": "tove",
+      "name": "Agent 6",
+      "role": "worker",
+      "title": "Assistant",
+      "color": "#98B2E2",
+      "accent": "#F4EFE6",
+      "skin": "agentcraft:textures/entity/agent/tove.png",
+      "portrait": "agentcraft:textures/gui/portrait/tove.png",
+      "model": "slim",
+      "description": "Configurable assistant."
+    }
+  ]
+}

@@ -332,6 +332,8 @@ public final class ForemanLink {
 			AgentCraft.LOGGER.warn("Foreman sent invalid JSON ({} chars)", text.length());
 			return;
 		}
+		String mismatch = ForemanJson.protocolError(json);
+		if (mismatch != null) { fail(generation.get(), mismatch, 30_000); return; }
 		String type = json.has("type") && json.get("type").isJsonPrimitive() ? json.get("type").getAsString() : "";
 		try {
 			switch (type) {

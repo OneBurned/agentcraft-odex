@@ -1,5 +1,5 @@
 {
-  "description": "Agent life (Phase 3 agents feature) in the test room (/agentcraft hq test) with the busy showcase: seated typing, thinking, reading with a book, leaning at the test bench, waiting agents with the '!' marker, speech bubbles, the agent card. Cameras are raw positions in the test room (anchors where they exist).",
+  "description": "Legacy fixture: requires a saved test-room world (the player command to generate it was removed). Agent life with the busy showcase: seated typing, thinking, reading with a book, leaning at the test bench, waiting agents with the '!' marker, speech bubbles, the agent card. Cameras are raw positions in the test room (anchors where they exist).",
   "foreman": { "connect": true },
   "defaults": { "time": 12000, "weather": "clear", "hideHud": true, "mode": "spectator", "fov": 70 },
   "setupDev": [{ "type": "dev.agents", "settle": true }],

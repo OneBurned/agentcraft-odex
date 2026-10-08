@@ -1,0 +1,27 @@
+Third-party notices / Лицензии компонентов
+
+AgentCraft: MIT; licenses/AgentCraft-MIT.txt preserves the original notice.
+Fabric API: Apache-2.0; licenses/Fabric-API-Apache-2.0.txt is copied byte-for-byte
+from the bundled Fabric API JAR. Nested modules retain their own notices.
+Node.js: licenses/Node-LICENSE.txt contains its license and bundled third-party notices.
+ws: MIT; licenses/ws-MIT.txt.
+zod: MIT; licenses/zod-MIT.txt.
+Model Context Protocol SDK: MIT; licenses/MCP-SDK-MIT.txt.
+Claude Agent SDK: Anthropic proprietary notice; licenses/Claude-Agent-SDK.txt.
+It is NOT covered by AgentCraft's MIT license. Applicable provider terms:
+https://code.claude.com/docs/en/legal-and-compliance
+Java-WebSocket: retains its license and attribution in the nested dependency JAR.
+Bundled JavaScript .LEGAL.txt files retain additional dependency notices.
+
+Minecraft, Java, Fabric Loader and the user's Codex/Claude applications/accounts
+are separately obtained; their licenses and usage charges are not transferred
+by this package. Claude CLI executables and provider credentials are not bundled.
+The SDK adapter invokes the user's separately installed Claude executable.
+Users authenticate through the provider's own flow with their own entitlement.
+SDK developer authentication requires the user's supported API/cloud configuration;
+do not treat a CLI login or an opt-in setting as a guarantee of permitted SDK use.
+
+Лицензия MIT AgentCraft не распространяется автоматически на зависимости.
+Тексты лицензий сохранены без изменений. Claude Agent SDK имеет отдельные условия
+Anthropic. Пакет не предоставляет подписки, аккаунты или API-кредиты провайдеров.
+Minecraft, Java, Fabric Loader и CLI/приложения пользователь устанавливает отдельно.

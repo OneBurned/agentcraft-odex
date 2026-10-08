@@ -76,10 +76,10 @@ public final class DecisionQueue {
 	/** Human label of a kind: "question", "permission", "merge review". */
 	public static String kindLabel(DecisionKind k) {
 		return switch (k) {
-			case PERMISSION -> "permission";
-			case MERGE -> "merge review";
-			case QUESTION -> "question";
-			default -> "decision";
+			case PERMISSION -> "разрешение";
+			case MERGE -> "проверка изменений";
+			case QUESTION -> "вопрос";
+			default -> "решение";
 		};
 	}
 }

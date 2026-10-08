@@ -1,0 +1,8 @@
+{
+  "port": 7878,
+  "foreman": true,
+  "autoworld": false,
+  "dev": false,
+  "mute": false,
+  "focus": true
+}

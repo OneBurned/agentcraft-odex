@@ -1,4 +1,4 @@
-// Foreman WebSocket client for tools and QA (protocol v1, see docs/protocol.md).
+// Foreman WebSocket client for tools and QA (protocol v2, see docs/protocol.md).
 //
 //   import { ForemanClient } from './lib/foremanclient.mjs';
 //   const fm = await ForemanClient.connect({ port: 7878 });     // hello -> waits for the snapshot
@@ -66,12 +66,12 @@ export class ForemanClient {
 
   /**
    * Connect (retrying while the Foreman starts), send hello and wait for the first snapshot.
-   * @param {{port?:number, host?:string, timeoutMs?:number, retryMs?:number, client?:string, onWait?:(ms:number)=>void}} opts
+   * @param {{port?:number, host?:string, pathname?:string, timeoutMs?:number, retryMs?:number, client?:string, onWait?:(ms:number)=>void}} opts
    */
   static async connect(opts = {}) {
     const port = opts.port ?? DEFAULT_FOREMAN_PORT;
     const host = opts.host ?? '127.0.0.1';
-    const url = `ws://${host}:${port}`;
+    const url = `ws://${host}:${port}${opts.pathname ?? ''}`;
     const timeoutMs = opts.timeoutMs ?? 30_000;
     const start = Date.now();
     let lastErr;
@@ -83,6 +83,7 @@ export class ForemanClient {
         await fm.#hello(Math.max(5_000, timeoutMs - (Date.now() - start)));
         return fm;
       } catch (e) {
+        if (e.code === 'PROTOCOL_VERSION') throw e;
         lastErr = e;
       }
       const elapsed = Date.now() - start;
@@ -115,13 +116,13 @@ export class ForemanClient {
 
   async #hello(timeoutMs) {
     const snap = this.waitFor((m) => m.type === 'snapshot', { timeoutMs, what: 'snapshot after hello' });
-    this.#raw({ type: 'hello', modVersion: 'tools-0.1.0', protocol: 1, client: this.clientName });
+    this.#raw({ type: 'hello', modVersion: 'tools-0.1.0', protocol: 2, client: this.clientName });
     await snap;
   }
 
   #raw(msg) {
     if (this.closed) throw new ForemanError('Foreman connection closed');
-    this.ws.send(JSON.stringify({ v: 1, ...msg }));
+    this.ws.send(JSON.stringify({ v: 2, ...msg }));
   }
 
   #apply(m) {
@@ -141,6 +142,7 @@ export class ForemanClient {
         s.logs = new Map((m.logs ?? []).map((l) => [l.agentId, [...l.entries]]));
         break;
       }
+      case 'agent.remove': s.agents.delete(m.agentId); break;
       case 'agent.upsert': if (m.agent) s.agents.set(m.agent.id, m.agent); break;
       case 'task.upsert': if (m.task) s.tasks.set(m.task.id, m.task); break;
       case 'decision.upsert': if (m.decision) s.decisions.set(m.decision.id, m.decision); break;
@@ -169,6 +171,13 @@ export class ForemanClient {
     let m;
     try { m = JSON.parse(String(data)); } catch { return; }
     if (!m || typeof m !== 'object') return;
+    if (m.v !== 2) {
+      const error = new ForemanError('Protocol version mismatch: tools require v2. Update both mod and bridge.', { code: 'PROTOCOL_VERSION' });
+      for (const w of this.waiters) { clearTimeout(w.timer); w.reject(error); }
+      this.waiters.clear();
+      for (const p of this.pendingAcks.values()) { clearTimeout(p.timer); p.reject(error); }
+      this.pendingAcks.clear(); this.ws.terminate(); return;
+    }
     this.messageCount++;
     this.#apply(m);
     if (m.type === 'ack' && m.re != null) {

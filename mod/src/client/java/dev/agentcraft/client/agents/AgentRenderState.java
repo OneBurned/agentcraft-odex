@@ -41,6 +41,8 @@ public class AgentRenderState extends AvatarRenderState {
 	public float sit;
 	/** Vertical model offset (blocks) applied in setupRotations: the seat drop times {@link #sit}. */
 	public float sitDrop;
+	/** Render-only dance lowering; the entity's feet and path remain on the floor. */
+	public float danceDrop;
 	/** Open book in the hands (0 = none, 1 = open). */
 	public float book;
 	/** Page flip progress 0..1 of the held book. */

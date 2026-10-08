@@ -70,6 +70,12 @@ public final class MonitorFeature {
 			}
 
 			@Override
+			public void onAgentRemoved(Agent previous) {
+				AGENT_SEQ.merge(previous.id(), 1L, Long::sum);
+				AGENT_SEQ.merge("feed", 1L, Long::sum);
+			}
+
+			@Override
 			public void onAgent(@Nullable Agent previous, Agent agent) {
 				AGENT_SEQ.merge(agent.id(), 1L, Long::sum);
 				AGENT_SEQ.merge("feed", 1L, Long::sum);
@@ -167,7 +173,9 @@ public final class MonitorFeature {
 	 */
 	static String resolveAgent(MonitorBlockEntity be, String binding, Direction facing, int w, int h) {
 		if (!binding.isEmpty()) {
-			return binding;
+			if ("feed".equals(binding)) return binding;
+            String resolved = dev.agentcraft.client.foreman.AgentSelection.binding(binding, Foreman.state());
+            return resolved == null ? "" : resolved;
 		}
 		Anchors.Layout layout = Anchors.current();
 		if (layout.revision() != resolvedLayoutRevision || !layout.name().equals(resolvedLayoutName)) {

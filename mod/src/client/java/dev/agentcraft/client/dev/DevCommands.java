@@ -403,7 +403,7 @@ final class DevCommands {
 		dev.agentcraft.layout.Anchor a = dev.agentcraft.layout.Anchors.get(name);
 		if (a == null) {
 			throw new DevException("unknown anchor '" + name + "' (layout '" + dev.agentcraft.layout.Anchors.current().name()
-				+ "' has " + dev.agentcraft.layout.Anchors.current().anchors().size() + " anchors; see dev.anchors; build one with /agentcraft hq)");
+				+ "' has " + dev.agentcraft.layout.Anchors.current().anchors().size() + " anchors; see dev.anchors; choose a site with /agentcraft preview and place)");
 		}
 		JsonObject out = json.deepCopy();
 		out.remove("anchor");

@@ -34,7 +34,7 @@ import org.jspecify.annotations.Nullable;
  *       there is no route, e.g. the HQ was rebuilt around it);</li>
  *   <li>agent gone after a snapshot: removed;</li>
  *   <li>Foreman link down: agents stay where they are with a dimmed "Foreman offline" plate;</li>
- *   <li>layout republished ({@code /agentcraft hq}): everyone is placed at their new anchors.</li>
+ *   <li>layout republished after building placement: everyone is placed at their new anchors.</li>
  * </ul>
  * Without a layout, agents stand in a row near the world spawn so they are still visible.
  *
@@ -57,16 +57,17 @@ public final class AgentManager {
 	static final double USER_DISTANCE = 3.2;
 
 	private final Map<String, ClientAgentEntity> entities = new LinkedHashMap<>();
+	private final SpeechChat speechChat = new SpeechChat();
 	private final Map<Integer, ClientAgentEntity> byEntityId = new HashMap<>();
 	private final StationAssigner assigner = new StationAssigner();
 	private final Seats seats = new Seats();
+	private final dev.agentcraft.client.studio.RestDirector restDirector = new dev.agentcraft.client.studio.RestDirector();
 	private final Map<String, UserSpot> userSpots = new HashMap<>();
 	private final Map<String, String> awaiting = new HashMap<>();
 	private final Map<String, Integer> awaitingCounts = new HashMap<>();
 	private long awaitingRevision = -1;
 	private @Nullable ClientLevel level;
 	private long layoutRevision = -1;
-	private int nextEntityId = -10_000;
 	private int pathFailures;
 	private long ticks;
 
@@ -79,6 +80,16 @@ public final class AgentManager {
 
 	public static AgentManager get() {
 		return INSTANCE;
+	}
+
+	void shownSpeech(Protocol.AgentSay say) {
+		var mc = Minecraft.getInstance();
+		var state = Foreman.state();
+		Agent profile = state == null ? null : state.agent(say.agentId());
+		if (mc.player == null || profile == null) return;
+		// Chat HUD insertion only: no player connection, server packet or Foreman message.
+		speechChat.shown(say, profile, dev.agentcraft.client.studio.StudioPreferences.get().speechInMinecraftChat,
+			line -> mc.gui.hud.getChat().addClientSystemMessage(line));
 	}
 
 	/** Live agent entities by agent id (client thread). */
@@ -128,7 +139,8 @@ public final class AgentManager {
 			level = lvl;
 			layoutRevision = -1;
 		}
-		if (lvl == null) {
+		if (lvl == null || lvl.dimension() != net.minecraft.world.level.Level.OVERWORLD) {
+			removeAll();
 			return;
 		}
 		ticks++;
@@ -145,7 +157,12 @@ public final class AgentManager {
 			userSpots.clear();
 		}
 		List<Agent> agents = new ArrayList<>(st.agents().values());
-		Map<String, Anchor> targets = layout.isEmpty() ? fallbackTargets(agents, lvl) : assigner.assign(agents, layout);
+		// Visibility affects NPCs only; the complete bridge roster owns the common equipment slots.
+		if (st.status() != null && st.status().backend() == Protocol.BackendName.OBSERVER) {
+			agents.removeIf(a -> !a.isVisible());
+			if (layout.isEmpty()) agents.clear();
+		}
+		Map<String, Anchor> targets = layout.isEmpty() ? fallbackTargets(agents, lvl) : assigner.assign(agents, layout, List.copyOf(st.agents().keySet()));
 		boolean stale = st.isStale();
 		updateAwaiting(st);
 		GridPathfinder pf = layout.isEmpty() ? null : new GridPathfinder(lvl, layout.bounds());
@@ -161,8 +178,37 @@ public final class AgentManager {
 		}
 
 		Set<String> keep = new HashSet<>();
+		boolean gathering = dev.agentcraft.client.studio.StudioScreen.gathering();
+		Set<String> resting = new HashSet<>();
+		for (Agent a : agents) if (dev.agentcraft.workspace.RestCoordinator.canRest(a.state().wire(),
+			StationAssigner.stationKey(a), a.isActive(), a.isPaused(), stale, awaiting.containsKey(a.id()), gathering)) resting.add(a.id());
+		restDirector.begin(lvl, resting, agents.stream().map(Agent::id).toList());
+		int meetingIndex = 0;
 		for (Agent a : agents) {
 			Anchor target = targets.get(a.id());
+			if (!StationAssigner.stationKey(a).equals("lounge"))
+				target = dev.agentcraft.client.studio.StudioPreferences.get().target(a.id(), StationAssigner.stationKey(a), target);
+			boolean meeting = gathering && !stale && a.isActive() && !followsPlayer(a) && !awaiting.containsKey(a.id());
+			boolean dancing = false, dancePlace = false;
+			var dancePose = dev.agentcraft.workspace.PoleDance.Pose.NONE;
+			if (meeting) {
+				Anchor shared = layout.get(AnchorNames.slot("meeting", ++meetingIndex));
+				if (shared == null) {
+					shared = layout.get("meeting");
+					if (shared != null && meetingIndex > 1 && pf != null) {
+						Anchor nearby = shared.offset((meetingIndex-1)*1.2, 0, 0); var p = nearby.blockPos();
+						if (layout.bounds() != null && layout.bounds().contains(p.getX(),p.getY(),p.getZ())
+							&& Double.isFinite(pf.floor(p.getX(),p.getY(),p.getZ()))) shared = nearby;
+					}
+				}
+				target = dev.agentcraft.client.studio.StudioPreferences.get().target(a.id(), "meeting", shared == null ? target : shared);
+			} else if (resting.contains(a.id()) && pf != null) {
+				var rest = restDirector.target(a.id(), lvl, pf, entities.get(a.id()), ticks);
+				if (rest != null) {
+					target = rest.anchor(); dancing = rest.dance(); dancePlace = target.name().startsWith("dance_");
+					dancePose = rest.pose();
+				}
+			}
 			if (target == null) {
 				continue;
 			}
@@ -173,12 +219,15 @@ public final class AgentManager {
 				entities.put(a.id(), e);
 				byEntityId.put(e.getId(), e);
 				showRecentSay(st, e);
-			} else if (!e.getSkin().equals(AgentSkins.get(a.id(), a.skin()))) {
-				e.setSkin(AgentSkins.get(a.id(), a.skin()));
+			} else if (!e.getSkin().equals(AgentSkins.get(a))) {
+				e.setSkin(AgentSkins.get(a));
 			}
 			AgentView v = e.view();
 			v.update(a, stale, awaiting.get(a.id()), awaitingCounts.getOrDefault(a.id(), 0));
-			v.station = StationAssigner.stationKey(a);
+			v.dancing = dancing; v.planningGathering = meeting;
+			v.danceBack = dancePose.back(); v.danceDip = dancePose.dip();
+			v.danceFacing = dancing ? target.yaw() + 180f * dancePose.back() : null;
+			v.station = meeting ? "meeting" : StationAssigner.stationKey(a);
 			v.anchor = target.name();
 			if (playerFeet != null && !stale && followsPlayer(a)) {
 				Anchor near = userSpot(a.id(), e, playerFeet, waitingIndex++, waitingCount, pf);
@@ -188,7 +237,7 @@ public final class AgentManager {
 			} else {
 				userSpots.remove(a.id());
 			}
-			Seats.Seat seat = pf == null ? null : seats.at(lvl, target, ticks, pf);
+			Seats.Seat seat = pf == null || dancePlace ? null : seats.at(lvl, target, ticks, pf);
 			Anchor effective = seat != null ? seat.target() : target;
 			if (relayout) {
 				e.life().setSeat(seat);
@@ -346,13 +395,12 @@ public final class AgentManager {
 		long ago = System.currentTimeMillis() - say.ts();
 		if (ago >= 0 && ago < 8000) {
 			e.life().bubble.showLate(say, e.life().age(), (int) (ago / 50));
+			if (e.life().bubble.visible()) get().shownSpeech(say);
 		}
 	}
 
 	private ClientAgentEntity spawn(ClientLevel lvl, Agent a, Anchor target) {
-		ClientAgentEntity e = new ClientAgentEntity(lvl, a.id(), AgentSkins.get(a.id(), a.skin()));
-		// Negative ids never collide with server-assigned entity ids.
-		e.setId(nextEntityId--);
+		ClientAgentEntity e = new ClientAgentEntity(lvl, a.id(), AgentSkins.get(a));
 		Seats.Seat seat = seats.at(lvl, target, ticks, new GridPathfinder(lvl, Anchors.current().bounds()));
 		e.life().setSeat(seat);
 		place(e, seat != null ? seat.target() : target);

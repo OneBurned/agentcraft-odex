@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Agent, Decision, FeedItem, Goal, LogEntry, Repo, Task } from './protocol.js';
 import { ensureDir, readJson, writeJsonAtomic } from './util/fsx.js';
+import { replyAuthor, type ReplyAgent } from './reply-recipient.js';
 
 export interface BusMessage {
   id: string;
@@ -52,6 +53,7 @@ export interface StateData {
   repos: Repo[];
   goals: Goal[];
   feed: FeedItem[];
+  replyAgentId?: ReplyAgent;
   messages: BusMessage[];
   counters: Record<string, number>;
   sessions: Record<string, SessionRecord>;
@@ -128,6 +130,9 @@ export class Store {
     ensureDir(path.join(this.dir, 'logs'));
     const loaded = this.loadFile();
     this.data = loaded ?? emptyState(opts.now ?? Date.now());
+    if (!this.data.replyAgentId || !/^[a-z0-9_-]{1,64}$/.test(this.data.replyAgentId)) {
+      this.data.replyAgentId = this.data.feed.map(replyAuthor).filter(id => id !== undefined).at(-1);
+    }
     if (!loaded) this.flush();
   }
 
@@ -183,8 +188,16 @@ export class Store {
   }
 
   pushFeed(item: FeedItem): void {
+    const author = replyAuthor(item);
+    if (author) this.data.replyAgentId = author;
     this.data.feed.push(item);
     if (this.data.feed.length > FEED_LIMIT) this.data.feed.splice(0, this.data.feed.length - FEED_LIMIT);
+    // Full conversation bodies can be much larger than the world-panel previews.
+    // Evict oldest whole entries; never turn a retained answer into a partial one.
+    const sizes = this.data.feed.map(f => Buffer.byteLength(JSON.stringify(f), 'utf8') + 1);
+    let bytes = sizes.reduce((sum, size) => sum + size, 2), remove = 0;
+    while (bytes > 1_000_000 && remove < sizes.length - 1) bytes -= sizes[remove++]!;
+    if (remove) this.data.feed.splice(0, remove);
     this.markDirty();
   }
 

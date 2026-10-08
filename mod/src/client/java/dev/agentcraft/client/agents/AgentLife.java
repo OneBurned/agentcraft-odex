@@ -5,6 +5,7 @@ import dev.agentcraft.client.foreman.Protocol.AgentState;
 import dev.agentcraft.layout.Anchor;
 import dev.agentcraft.layout.AnchorNames;
 import dev.agentcraft.layout.Anchors;
+import dev.agentcraft.workspace.PoleDance;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.util.Mth;
@@ -25,14 +26,16 @@ import org.jspecify.annotations.Nullable;
  * custom arm pose against the vanilla walk swing, and the held book. {@link AgentModel} applies it.
  */
 public final class AgentLife {
+	private final dev.agentcraft.workspace.PersonaScene personaScene = new dev.agentcraft.workspace.PersonaScene();
 	public static final int P_RAX = 0, P_RAY = 1, P_RAZ = 2, P_LAX = 3, P_LAY = 4, P_LAZ = 5;
 	public static final int P_RLX = 6, P_RLY = 7, P_RLZ = 8, P_LLX = 9, P_LLY = 10, P_LLZ = 11;
 	public static final int P_LEAN = 12, P_ARMW = 13, P_LEGW = 14, P_BOOK = 15;
-	public static final int N = 16;
+	public static final int P_DIP = 16;
+	public static final int N = 17;
 
 	/** What the body is doing (picked every tick). */
 	public enum Posture {
-		WALK, IDLE, SIT_IDLE, SIT_TYPE, SIT_THINK, SIT_SCRATCH, READ, TYPE_STAND, LEAN_BENCH, REVIEW, WAIT, THINK, SCRATCH, RELAX, STRETCH, TALK
+		WALK, IDLE, SIT_IDLE, SIT_TYPE, SIT_THINK, SIT_SCRATCH, READ, TYPE_STAND, LEAN_BENCH, REVIEW, WAIT, THINK, SCRATCH, RELAX, STRETCH, TALK, DANCE
 	}
 
 	/** Eye height of the agent model (player eye 1.62 x model scale 0.9375). */
@@ -178,6 +181,7 @@ public final class AgentLife {
 
 	void onSay(AgentSay say, int tick) {
 		bubble.show(say, age);
+		if (bubble.visible()) AgentManager.get().shownSpeech(say);
 	}
 
 	/** Another agent talks to this one: look at them while they talk. */
@@ -225,6 +229,28 @@ public final class AgentLife {
 	}
 
 	// ---------------------------------------------------------------- tick
+	private boolean atRestTarget() {
+		AgentView v = e.view();
+		Anchor target = e.motion().target();
+		return dev.agentcraft.workspace.RestCoordinator.canRest(v.state.wire(), v.station, v.active, v.paused,
+			v.stale, v.awaitingUser, v.planningGathering) && !e.motion().walking() && target != null
+			&& e.position().distanceToSqr(target.pos()) < 1.25;
+	}
+
+	private void personaCue() {
+		var state = dev.agentcraft.client.foreman.Foreman.state();
+		boolean connected = state != null && !state.isStale() && state.status() != null
+			&& state.status().backend() == dev.agentcraft.client.foreman.Protocol.BackendName.OBSERVER;
+		String peerId = dev.agentcraft.workspace.PersonaScene.closestPeer(e.agentId(), AgentManager.get().entities().values().stream()
+            .map(a -> new dev.agentcraft.workspace.PersonaScene.Peer(a.agentId(), a.life().atRestTarget(), e.position().distanceToSqr(a.position()))).toList());
+		String event = personaScene.update(connected && atRestTarget(), posture == Posture.DANCE,
+			peerId);
+		if (!event.isEmpty()) {
+			var payload = new com.google.gson.JsonObject(); payload.addProperty("agentId", e.agentId()); payload.addProperty("event", event);
+            if (event.equals("peer")) payload.addProperty("peerAgentId", peerId);
+			dev.agentcraft.client.foreman.Foreman.send("agent.scene", payload).exceptionally(error -> null);
+		}
+	}
 
 	void tick(Minecraft mc) {
 		age++;
@@ -264,6 +290,7 @@ public final class AgentLife {
 		}
 
 		posture = choose(v, walking, seatedTarget || sit > 0.5f);
+		personaCue();
 		pose(posture, tgt);
 		if (sit > 0f && !posture.name().startsWith("SIT")) {
 			// standing up / sitting down: legs follow the seat amount
@@ -304,12 +331,14 @@ public final class AgentLife {
 	}
 
 	private Posture choose(AgentView v, boolean walking, boolean seated) {
+		if (v.dancing && !v.stale && !v.paused) return Posture.DANCE;
 		if (walking) {
 			return Posture.WALK;
 		}
 		if (v.stale) {
 			return seated ? Posture.SIT_IDLE : Posture.IDLE;
 		}
+		if (v.planningGathering) return seated ? Posture.SIT_THINK : bubble.visible() ? Posture.TALK : Posture.THINK;
 		String fam = v.dotFamily();
 		boolean paused = v.paused || !v.active;
 		boolean talking = bubble.visible() && !seated;
@@ -378,6 +407,25 @@ public final class AgentLife {
 			case WALK -> {
 				t[P_ARMW] = 0f;
 				t[P_LEAN] = 0.03f;
+			}
+			case DANCE -> {
+				// Alternate the reaching arm while circling the pole; smooth pose channels also blend the exit.
+				float beat = age * 0.16f;
+				float switchHand = (1f + Mth.sin(age * 0.025f)) * 0.5f;
+				arms(t, -1.35f - switchHand * 1.1f, -0.25f, 0.1f,
+					-2.45f + switchHand * 1.1f, 0.25f, -0.1f);
+				t[P_RAZ] += 0.18f * Mth.sin(beat); t[P_LAZ] -= 0.18f * Mth.sin(beat + 0.8f);
+				t[P_LEAN] = 0.05f + 0.07f * Mth.sin(beat * 0.5f);
+				t[P_LEGW] = 0.35f;
+				t[P_RLX] = 0.28f * Mth.sin(beat); t[P_LLX] = -t[P_RLX];
+				float back = e.view().danceBack;
+				t[P_DIP] = e.view().danceDip;
+				// Hold the arms overhead and stop stepping during the turn/dips.
+				t[P_RAX] = Mth.lerp(back, t[P_RAX], -2.65f);
+				t[P_LAX] = Mth.lerp(back, t[P_LAX], -2.65f);
+				t[P_RLX] *= 1 - back; t[P_LLX] *= 1 - back;
+				t[P_LEGW] = Mth.lerp(back, t[P_LEGW], 1f);
+				t[P_LEAN] = Mth.lerp(back, t[P_LEAN], 0.03f) + t[P_DIP] * 0.18f;
 			}
 			case IDLE -> {
 			}
@@ -463,7 +511,7 @@ public final class AgentLife {
 
 	private void look(Minecraft mc, AgentView v, boolean walking, boolean snap) {
 		float body = e.yBodyRot;
-		Vec3 eye = new Vec3(e.getX(), e.getY() + EYE + sitOffset(), e.getZ());
+		Vec3 eye = new Vec3(e.getX(), e.getY() + EYE + sitOffset() - PoleDance.lowering(cur[P_DIP]), e.getZ());
 		float wantYaw = body;
 		float wantPitch = 0f;
 		boolean tracking = false;
@@ -479,7 +527,7 @@ public final class AgentLife {
 			if (n != null) {
 				point = new Vec3(n.x, eye.y - 0.25, n.z);
 			}
-		} else if (!v.stale) {
+		} else if (!v.stale && !v.dancing) {
 			SpeechBubble.Line say = bubble.visible() ? bubble.current() : null;
 			if (say != null && say.to() != null) {
 				point = lookPointFor(say.to(), playerEye, playerDist);
@@ -534,7 +582,10 @@ public final class AgentLife {
 		}
 		float rel = Mth.wrapDegrees(wantYaw - body);
 		boolean canTurnBody = !walking && sit < 0.05f && (faceBody || posture == Posture.IDLE || posture == Posture.TALK || posture == Posture.WAIT);
-		if (tracking && canTurnBody && Math.abs(rel) > (faceBody ? 25 : 70)) {
+		if (v.dancing && !walking && v.danceFacing != null) {
+			// Facing is independent of route targets: turning must not restart pathfinding.
+			e.motion().faceTowards(v.danceFacing);
+		} else if (tracking && canTurnBody && Math.abs(rel) > (faceBody ? 25 : 70)) {
 			// turn towards whoever we look at (waiting agents face you)
 			e.motion().faceTowards(Mth.wrapDegrees(wantYaw));
 		} else {
@@ -603,6 +654,11 @@ public final class AgentLife {
 		}
 		if (v.station.equals("desk") && (posture == Posture.SIT_TYPE || posture == Posture.SIT_IDLE || posture == Posture.TYPE_STAND)) {
 			Anchor mon = Anchors.get(AnchorNames.monitor(v.id));
+            if (mon == null) {
+                mon = Anchors.current().anchors().values().stream()
+                    .filter(a -> a.name().startsWith(AnchorNames.SHARED_MONITOR))
+                    .min(java.util.Comparator.comparingDouble(a -> a.pos().distanceToSqr(e.position()))).orElse(null);
+            }
 			if (mon != null && mon.pos().distanceToSqr(e.position()) < 9) {
 				return new Vec3(mon.x(), mon.y() - 0.12, mon.z());
 			}
@@ -744,7 +800,8 @@ public final class AgentLife {
 		float sitF = sitPrev + (sit - sitPrev) * pt;
 		s.sit = sitF;
 		s.sitDrop = (float) (drop * sitF);
-		s.plateBase = (float) Nameplate.HEIGHT + s.sitDrop;
+		s.danceDrop = -PoleDance.lowering(frame[P_DIP]);
+		s.plateBase = (float) Nameplate.HEIGHT + s.sitDrop + s.danceDrop;
 		s.book = frame[P_BOOK];
 		float flip = (age - pageFlipStart + pt) / 12f;
 		s.pageFlip = flip >= 0 && flip <= 1 ? flip : 0f;

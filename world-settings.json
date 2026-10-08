@@ -1,0 +1,11 @@
+{
+  "name": "AgentCraft World",
+  "type": "normal",
+  "seed": "",
+  "gameMode": "creative",
+  "difficulty": "peaceful",
+  "daylightCycle": true,
+  "weatherCycle": true,
+  "spawnMobs": true,
+  "autoBuild": false
+}

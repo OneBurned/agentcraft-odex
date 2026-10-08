@@ -5,7 +5,7 @@ import net.minecraft.server.level.ServerLevel;
 
 /**
  * Builds an HQ into the world and describes it with anchors. Registered in {@link HqBuilders};
- * {@code /agentcraft hq [id]} runs one and publishes its anchors ({@link Anchors#publish}).
+ * Player-selected placement runs one and publishes its anchors ({@link Anchors#publish}).
  *
  * <p>Contract: write every required anchor from {@link dev.agentcraft.layout.AnchorNames}
  * (desk_/monitor_ per cast agent, the shared stations with enough slots, task_wall,
@@ -25,7 +25,8 @@ public interface HqBuilder {
 	 * How a build was asked for: {@code force} = reset every cell of the site to the plan, even the
 	 * ones the player changed since the last build (builders that keep such cells honour it).
 	 */
-	record Options(boolean force) {
+	record Options(boolean force, @org.jspecify.annotations.Nullable HqPlacement placement) {
+		public Options(boolean force) { this(force, null); }
 		public static final Options DEFAULT = new Options(false);
 	}
 

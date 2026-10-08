@@ -4,6 +4,8 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadConfig, PROJECT_ROOT, type Config } from '../src/config.js';
 import { silentLogger } from '../src/context.js';
+import { loadCast } from '../src/cast.js';
+import { Store } from '../src/store.js';
 import { Foreman } from '../src/foreman.js';
 import { Notifier } from '../src/notifier.js';
 import type { Outbound } from '../src/protocol.js';
@@ -49,6 +51,12 @@ export interface Harness {
 
 export function makeForeman(home: string, args: string[] = []): Harness {
   const cfg = testConfig(home, args);
+  if (cfg.backend === 'observer' && !fs.existsSync(path.join(cfg.dataDir, 'state.json'))) {
+    const legacy = new Store(cfg.dataDir);
+    legacy.data.agents = loadCast(cfg.projectRoot).cast.map(c => ({ id: c.id, name: c.name, role: c.role,
+      title: c.title, color: c.color, skin: c.id, state: 'idle', activity: '', station: 'lounge', paused: false, active: false }));
+    legacy.markDirty(); legacy.flush();
+  }
   const toasts: Array<{ title: string; body: string }> = [];
   const notifier = new Notifier({
     enabled: true,

@@ -3,7 +3,7 @@
 	"id": "agentcraft",
 	"version": "${version}",
 	"name": "AgentCraft",
-	"description": "Minecraft as a spatial UI for real multi-agent Claude work.",
+	"description": "Build your own Minecraft workspace to follow Codex chat progress, with movable displays and configurable agent stations.",
 	"authors": [
 		"Blendi"
 	],
