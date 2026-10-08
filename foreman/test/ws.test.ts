@@ -23,7 +23,7 @@ function connect(port: number, origin?: string): Promise<Client> {
       ws,
       msgs: [],
       invalid: [],
-      send: (o) => ws.send(JSON.stringify({ v: 1, ...o })),
+      send: (o) => ws.send(JSON.stringify({ v: 2, ...o })),
       close: () => ws.close(),
     };
     ws.on('message', (d) => {
@@ -60,13 +60,13 @@ describe('WebSocket server + sim backend', () => {
     let { h, sim, server, port } = await boot(home, repoPath, ['--auto-answer']);
 
     const a = await connect(port);
-    a.send({ type: 'hello', modVersion: 'test', protocol: 1, client: 'test' });
+    a.send({ type: 'hello', modVersion: 'test', protocol: 2, client: 'test' });
     await until(() => a.msgs.some((m) => m.type === 'snapshot'));
     const snap = a.msgs.find((m) => m.type === 'snapshot')!;
     expect(snap.type === 'snapshot' && snap.agents.map((x) => x.id).sort()).toEqual(['juniper', 'kit', 'marlow', 'rowan', 'tove', 'wren']);
 
     // invalid message -> error, with ack when it had an id
-    a.ws.send(JSON.stringify({ v: 1, id: 'bad1', type: 'goal.submit' }));
+    a.ws.send(JSON.stringify({ v: 2, id: 'bad1', type: 'goal.submit' }));
     await until(() => a.msgs.some((m) => m.type === 'ack' && m.re === 'bad1' && !m.ok));
 
     a.send({ type: 'goal.submit', id: 'g', text: 'Add #tags to pocket-notes' });
@@ -77,7 +77,7 @@ describe('WebSocket server + sim backend', () => {
     // a second client joining mid-run gets its own snapshot and the broadcasts
     await until(() => a.msgs.some((m) => m.type === 'decision.upsert'), 60_000);
     const b = await connect(port);
-    b.send({ type: 'hello', modVersion: 'test', protocol: 1, client: 'cli' });
+    b.send({ type: 'hello', modVersion: 'test', protocol: 2, client: 'cli' });
     await until(() => b.msgs.some((m) => m.type === 'snapshot'));
 
     // @routing to an agent
@@ -156,7 +156,7 @@ describe('WebSocket server + sim backend', () => {
     await h.fm.close();
     ({ h, sim, server, port } = await boot(home, repoPath));
     const c = await connect(port);
-    c.send({ type: 'hello', modVersion: 'test', protocol: 1 });
+    c.send({ type: 'hello', modVersion: 'test', protocol: 2 });
     await until(() => c.msgs.some((m) => m.type === 'snapshot'));
     const s2 = c.msgs.find((m) => m.type === 'snapshot')!;
     if (s2.type !== 'snapshot') throw new Error('no snapshot');
@@ -187,7 +187,7 @@ describe('WebSocket server + sim backend', () => {
     ({ h, sim, server, port } = await boot(home, repoPath));
     expect(sim.state.beat).toBeGreaterThanOrEqual(beatBefore);
     const c = await connect(port);
-    c.send({ type: 'hello', modVersion: 'test', protocol: 1 });
+    c.send({ type: 'hello', modVersion: 'test', protocol: 2 });
     await until(() => c.msgs.some((m) => m.type === 'snapshot'));
     const snap = c.msgs.find((m) => m.type === 'snapshot');
     expect(snap?.type === 'snapshot' && snap.decisions.some((d) => d.id === p1.id && d.status === 'open')).toBe(true);

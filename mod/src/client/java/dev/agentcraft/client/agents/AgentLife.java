@@ -238,15 +238,17 @@ public final class AgentLife {
 	}
 
 	private void personaCue() {
-		if (!e.agentId().equals("marlow") && !e.agentId().equals("wren")) return;
 		var state = dev.agentcraft.client.foreman.Foreman.state();
 		boolean connected = state != null && !state.isStale() && state.status() != null
 			&& state.status().backend() == dev.agentcraft.client.foreman.Protocol.BackendName.OBSERVER;
-		ClientAgentEntity other = AgentManager.get().entities().get(e.agentId().equals("marlow") ? "wren" : "marlow");
+		ClientAgentEntity other = AgentManager.get().entities().values().stream()
+            .filter(a -> a != e && a.life().atRestTarget() && e.position().distanceToSqr(a.position()) < 16)
+            .min(java.util.Comparator.comparingDouble(a -> e.position().distanceToSqr(a.position()))).orElse(null);
 		String event = personaScene.update(connected && atRestTarget(), posture == Posture.DANCE,
 			other != null && other.life().atRestTarget() && e.position().distanceToSqr(other.position()) < 16);
 		if (!event.isEmpty()) {
 			var payload = new com.google.gson.JsonObject(); payload.addProperty("agentId", e.agentId()); payload.addProperty("event", event);
+            if (other != null && event.equals("peer")) payload.addProperty("peerAgentId", other.agentId());
 			dev.agentcraft.client.foreman.Foreman.send("agent.scene", payload).exceptionally(error -> null);
 		}
 	}

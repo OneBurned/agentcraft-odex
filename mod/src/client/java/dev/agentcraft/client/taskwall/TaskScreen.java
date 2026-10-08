@@ -256,9 +256,9 @@ public class TaskScreen extends Screen {
 		if (assigned) {
 			Identifier framed = AgentCraft.id("textures/gui/portrait/" + t.assignee() + "_framed.png");
 			g.blit(RenderPipelines.GUI_TEXTURED, framed, x, y, 0, 0, 20, 20, 20, 20);
-			String n = a != null ? a.name() : t.assignee();
+			String n = t.assigneeIdentity() != null ? t.assigneeIdentity().name() : a != null ? a.name() : t.assignee();
 			Panels.text(g, font, n, x + 25, y + 1, UiStyle.agentOnLight(t.assignee()));
-			String role = a != null && a.title() != null ? a.title() : a != null ? a.role().wire() : "";
+			String role = t.assigneeIdentity() != null ? t.assigneeIdentity().provider() : a != null && a.title() != null ? a.title() : a != null ? a.role().wire() : "";
 			Panels.text(g, font, role, x + 25 + font.width(n) + 6, y + 1, muted);
 			if (a != null) {
 				String fam = a.isActive() ? a.state().family() : "idle";

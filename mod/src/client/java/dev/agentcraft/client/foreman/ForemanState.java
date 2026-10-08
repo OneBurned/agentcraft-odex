@@ -3,6 +3,7 @@ package dev.agentcraft.client.foreman;
 import com.google.gson.JsonObject;
 import dev.agentcraft.AgentCraft;
 import dev.agentcraft.client.foreman.Protocol.Agent;
+import dev.agentcraft.client.foreman.Protocol.AgentRemove;
 import dev.agentcraft.client.foreman.Protocol.AgentLog;
 import dev.agentcraft.client.foreman.Protocol.AgentLogs;
 import dev.agentcraft.client.foreman.Protocol.AgentSay;
@@ -74,7 +75,7 @@ public final class ForemanState {
 	private LinkStatus link;
 	private long revision;
 	private long feedRevision;
-	private String replyAgentId = "marlow";
+	private String replyAgentId = "";
 	private long snapshotAt;
 	private long lastMessageAt;
 	private int snapshots;
@@ -222,7 +223,7 @@ public final class ForemanState {
 
 	private void rememberReplyAuthor(FeedItem item) {
 		if ("user".equals(item.to()) && (item.kind() == Protocol.FeedKind.MESSAGE || item.kind() == Protocol.FeedKind.DECISION)
-			&& ("marlow".equals(item.agentId()) || "wren".equals(item.agentId())) && item.text() != null && !item.text().isBlank()) {
+			&& (item.agentId() != null && item.agentId().matches("[a-z0-9_-]{1,64}")) && item.text() != null && !item.text().isBlank()) {
 			replyAgentId = item.agentId();
 		}
 	}
@@ -380,6 +381,14 @@ public final class ForemanState {
 		lastMessageAt = System.currentTimeMillis();
 		switch (type) {
 			case "snapshot" -> applySnapshot(ForemanJson.read(json, Snapshot.class));
+            case "agent.remove" -> {
+                AgentRemove m = ForemanJson.read(json, AgentRemove.class);
+                if (m.agentId() != null) {
+                    agents.remove(m.agentId());
+                    lastSay.remove(m.agentId());
+                    if (m.agentId().equals(replyAgentId)) replyAgentId = "";
+                }
+            }
 			case "agent.upsert" -> {
 				Agent a = ForemanJson.read(json, AgentUpsert.class).agent();
 				if (a != null && a.id() != null) {
@@ -478,7 +487,7 @@ public final class ForemanState {
 		goals.clear();
 		logs.clear();
 		feed.clear();
-		replyAgentId = "marlow";
+		replyAgentId = "";
 		for (Agent a : s.agents()) {
 			if (a != null && a.id() != null) {
 				agents.put(a.id(), a);
@@ -519,7 +528,8 @@ public final class ForemanState {
 				bounded(feed, f, FEED_TAIL);
 			}
 		}
-		if ("marlow".equals(s.replyAgentId()) || "wren".equals(s.replyAgentId())) replyAgentId = s.replyAgentId();
+		if (replyAgentId.isBlank() && !agents.isEmpty()) replyAgentId = agents.keySet().iterator().next();
+		if (s.replyAgentId() != null && s.replyAgentId().matches("[a-z0-9_-]{1,64}")) replyAgentId = s.replyAgentId();
 		for (AgentLogs l : s.logs()) {
 			if (l != null && l.agentId() != null) {
 				appendLogs(l.agentId(), l.entries());

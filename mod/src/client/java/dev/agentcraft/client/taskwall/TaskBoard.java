@@ -912,7 +912,7 @@ final class TaskBoard {
 		float footerLeft = 0;
 		String nameText = null;
 		if (assignee != null) {
-			nameText = a != null ? a.name() : assignee;
+			nameText = t.assigneeIdentity() != null ? t.assigneeLabel() : a != null ? a.name() : assignee;
 			o.face = portrait(assignee);
 			o.nameColor = UiStyle.agentOnLight(assignee);
 			if (!done && a != null && a.isActive() && t.id().equals(a.taskId())) {

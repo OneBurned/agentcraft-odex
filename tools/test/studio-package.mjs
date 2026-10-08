@@ -18,14 +18,15 @@ const sessionId = randomUUID(); let parent = null, transcript;
 async function nativeMessage(role, text) {
   const uuid = randomUUID(); await fs.appendFile(transcript, JSON.stringify({ type: role, uuid, parentUuid: parent, sessionId, cwd: workspace, timestamp: new Date().toISOString(), message: { role, content: [{ type: 'text', text }] } }) + '\n'); parent = uuid; return uuid;
 }
-let child, client;
-async function launch() {
-  child = spawn(path.join(pkg, 'runtime/node.exe'), [path.join(pkg, 'foreman/src/observer-main.mjs'), '--home', home, '--profile', 'smoke', '--port', String(port), '--repo', repo],
+let child, client, currentProfile = 'smoke';
+async function launch(profile = 'smoke') {
+  currentProfile = profile;
+  child = spawn(path.join(pkg, 'runtime/node.exe'), [path.join(pkg, 'foreman/src/observer-main.mjs'), '--home', home, '--profile', currentProfile, '--port', String(port), '--repo', repo],
     { windowsHide: true, stdio: 'ignore', env: { ...process.env, CLAUDE_CONFIG_DIR: claudeHome, AGENTCRAFT_CHAT_CONFIG: path.join(temp, 'no-binding.json') } });
   client = await ForemanClient.connect({ port, timeoutMs: 15000 });
   let owner;
   for (let n = 0; n < 100 && !owner; n++) {
-    try { owner = JSON.parse(await fs.readFile(path.join(home, 'smoke', 'portable.json'), 'utf8')); }
+    try { owner = JSON.parse(await fs.readFile(path.join(home, currentProfile, 'portable.json'), 'utf8')); }
     catch { if (child.exitCode !== null) throw new Error('Isolated bridge exited'); await new Promise(r => setTimeout(r, 100)); }
   }
   assert.ok(owner, 'Isolated bridge initialization must finish');
@@ -33,9 +34,9 @@ async function launch() {
 }
 async function stop() {
   client?.close(); client = undefined;
-  const owner = JSON.parse(await fs.readFile(path.join(home, 'smoke', 'portable.json'), 'utf8'));
+  const owner = JSON.parse(await fs.readFile(path.join(home, currentProfile, 'portable.json'), 'utf8'));
   const exited = new Promise(resolve => child.once('exit', resolve));
-  await fs.writeFile(path.join(home, 'smoke', 'portable-stop.json'), JSON.stringify(owner));
+  await fs.writeFile(path.join(home, currentProfile, 'portable-stop.json'), JSON.stringify(owner));
   await Promise.race([exited, new Promise((_, reject) => setTimeout(() => reject(new Error('Bridge did not stop')), 10000).unref())]);
   child = undefined;
 }
@@ -53,6 +54,30 @@ try {
   const project = path.join(claudeHome, 'projects', workspace.replace(/[^a-zA-Z0-9]/g, '-')); await fs.mkdir(project, { recursive: true });
   transcript = path.join(project, sessionId + '.jsonl');
   await nativeMessage('user', 'Previous message'); const originalCursor = await nativeMessage('assistant', 'Previous reply');
+  await launch('team-smoke');
+  assert.equal(client.state.agents.size, 0, 'A new profile must not create demo agents');
+  let team = (await client.send('studio.action', { action: 'team.get', payload: {} })).result;
+  assert.equal(team.revision, 0);
+  for (const provider of ['codex', 'codex', 'claude']) {
+    team = (await client.send('studio.action', { action: 'team.create', payload: { revision: team.revision, agent: {
+      name: 'Agent', provider, roles: ['developer', 'reviewer'], enabled: true, visible: true,
+      appearance: { skin: 'marlow', color: '#123456', slim: false },
+    } } })).result;
+  }
+  assert.equal(client.state.agents.size, 3);
+  const archivedId = team.agents[0].id;
+  team = (await client.send('studio.action', { action: 'team.archive', payload: { revision: team.revision, id: archivedId } })).result;
+  assert.equal(client.state.agents.has(archivedId), false);
+  await stop(); await launch('team-smoke');
+  assert.equal(client.state.agents.size, 2);
+  await client.send('studio.action', { action: 'team.restore', payload: { revision: team.revision, id: archivedId } });
+  assert.equal(client.state.agents.get(archivedId).enabled, false);
+  await stop();
+  // Explicit pre-A2 profile fixture: compatibility testing must not rely on a new profile having a cast.
+  await fs.writeFile(path.join(home, 'smoke', 'state.json'), JSON.stringify({ version: 1, agents: [{
+    id: 'marlow', name: 'Legacy', role: 'lead', color: '#123456', skin: 'marlow',
+    state: 'idle', activity: '', station: 'lounge', paused: false, active: true,
+  }] }));
   await launch();
   const get = () => client.send('studio.action', { action: 'get' }).then(a => a.result);
   for (let n = 0; n < 80 && (await get()).dialog?.sessionCursor !== originalCursor; n++) await new Promise(r => setTimeout(r, 100));
@@ -94,7 +119,7 @@ try {
     assert.equal((await call()).duplicate, true, 'Bundled planning deduplication must survive restart');
     assert.equal((await get()).items[1].stage, 'plan');
   } finally { await mcp.close(); }
-  await stop(); console.log('Portable studio: protocol, draft approval, memory, native session projection, helper and bundled MCP draft creation/restart passed. No chat messages sent.');
+  await stop(); console.log('Portable studio: empty team, three agents, archive/restore/restart, legacy profile protocol, draft approval, memory, native session projection, helper and bundled MCP draft creation/restart passed. No chat messages sent.');
 } finally {
   client?.close(); if (child && child.exitCode === null) { const exited = new Promise(resolve => child.once('exit', resolve)); child.kill(); await exited; }
   assert.ok(path.resolve(temp).startsWith(path.resolve(os.tmpdir()) + path.sep));

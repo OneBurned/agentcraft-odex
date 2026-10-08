@@ -2,6 +2,7 @@
 // primitives backends (sim / claude) use to drive agents. Transport-agnostic: the WS server feeds
 // it ClientMessages and subscribes to outbound protocol messages.
 import fs from 'node:fs';
+import { TeamRegistry, TeamError } from './team.js';
 import path from 'node:path';
 import { MessageBus } from './bus.js';
 import { loadCast, type CastMember } from './cast.js';
@@ -81,6 +82,7 @@ export class Foreman {
   readonly notifier: Notifier;
   readonly log: Logger;
   readonly cast: CastMember[];
+  readonly team?: TeamRegistry;
   readonly personas?: PersonaSpeech;
   backend: Backend | undefined;
   status: ForemanStatus;
@@ -97,7 +99,7 @@ export class Foreman {
     this.store = new Store(opts.config.dataDir);
     const now = opts.now ?? Date.now;
     this.ctx = { store: this.store, emit: (m) => this.emit(m), now, log: this.log };
-    this.tasks = new TaskGraph(this.ctx);
+    this.tasks = new TaskGraph(this.ctx, id => !this.team || !!this.team.get(id)?.enabled && !this.team.get(id)?.archived);
     this.bus = new MessageBus(this.ctx);
     this.memory = new Memory(this.ctx, path.join(opts.config.dataDir, 'memory'));
     this.decisions = new DecisionQueue(this.ctx);
@@ -105,13 +107,18 @@ export class Foreman {
     this.notifier =
       opts.notifier ??
       new Notifier({ enabled: opts.config.notify, silent: opts.config.toastSilent, log: this.log, now });
-    const { cast, source } = loadCast(opts.config.projectRoot);
+    const dynamicTeam = opts.config.backend === 'observer' && (fs.existsSync(path.join(opts.config.dataDir, 'team.json')) || !this.store.data.agents.length);
+    const { cast, source } = dynamicTeam ? { cast: [], source: 'team.json' } : loadCast(opts.config.projectRoot);
     this.cast = cast;
     this.log.debug(`cast from ${source}`);
     setUserName(opts.config.userName);
     this.status = { version: FOREMAN_VERSION, backend: opts.config.backend, auth: opts.config.backend === 'sim' ? 'ok' : 'unknown', userName: userName() };
     if (opts.config.backend === 'sim') this.status.message = 'Simulated team (sim backend)';
-    this.initRoster();
+    // Existing profiles remain legacy until the explicit A4 migration. Never infer a team from cast.
+    if (dynamicTeam) {
+      this.team = new TeamRegistry(opts.config.dataDir);
+      this.syncTeam();
+    } else this.initRoster();
     if (opts.config.backend === 'observer') this.personas = new PersonaSpeech({
       file: path.join(opts.config.dataDir, 'personas.json'), now, emit: message => this.emit(message),
       warn: message => { this.log.warn(message); this.bus.feed('system', message); },
@@ -171,6 +178,38 @@ export class Foreman {
     this.store.markDirty();
   }
 
+  syncTeam(): void {
+    if (!this.team) return;
+    const previous = this.agents();
+    const next = this.team.snapshot().agents.filter(a => !a.archived).map(a => ({
+      ...(previous.find(p => p.id === a.id) ?? {}),
+      id: a.id, name: a.name, provider: a.provider, roles: a.roles, role: 'worker' as const,
+      title: a.roles.join(', '), color: a.appearance.color, skin: a.appearance.skin, slim: a.appearance.slim,
+      enabled: a.enabled, visible: a.visible, active: a.enabled, paused: previous.find(p => p.id === a.id)?.paused ?? false,
+      state: previous.find(p => p.id === a.id)?.state ?? 'idle' as const, station: previous.find(p => p.id === a.id)?.station ?? 'lounge' as const, activity: a.enabled ? previous.find(p => p.id === a.id)?.activity ?? 'Не подключён' : 'Выключен',
+      controls: { message: false, pause: false, resume: false, stop: false, hint: 'Подключение агента ещё не настроено' },
+    }));
+    this.store.data.agents = next;
+    for (const a of previous) if (!next.some(n => n.id === a.id)) this.emit({ type: 'agent.remove', agentId: a.id });
+    for (const a of next) this.emit({ type: 'agent.upsert', agent: a });
+    if (!next.some(a => a.id === this.store.data.replyAgentId && a.enabled)) delete this.store.data.replyAgentId;
+    this.store.markDirty();
+  }
+
+  teamAction(action: string, payload: Record<string, unknown>): Record<string, unknown> {
+    if (!this.team) throw new ClientError('Этот профиль ещё использует прежнюю команду. Сначала нужен перенос A4.');
+    if (action === 'team.get') return { ...this.team.snapshot() };
+    const result = this.team.change(action.replace(/^team\./, ''), payload, id => {
+      const a = this.agent(id);
+      if (a && (!['idle', 'done'].includes(a.state) || a.taskId && !['done', 'cancelled'].includes(this.tasks.get(a.taskId)?.status ?? '')) ||
+        this.tasks.list().some(t => t.assignee === id && !['done', 'cancelled'].includes(t.status)) ||
+        this.decisions.open().some(d => d.agentId === id))
+        throw new TeamError('Агент занят или назначен на незавершённую задачу. Заверши или переназначь работу перед изменением.');
+    });
+    this.syncTeam();
+    return { ...result };
+  }
+
   agents(): Agent[] {
     return this.store.data.agents;
   }
@@ -188,7 +227,10 @@ export class Foreman {
   /** Resolve "@Kit", "kit", "Kit" -> "kit". */
   resolveAgentId(nameOrId: string): string | undefined {
     const n = nameOrId.replace(/^@/, '').trim().toLowerCase();
-    return this.agents().find((a) => a.id === n || a.name.toLowerCase() === n)?.id;
+    const exact = this.agents().find(a => a.id === n);
+    if (exact) return exact.id;
+    const matches = this.agents().filter(a => a.name.toLowerCase() === n);
+    return matches.length === 1 ? matches[0]!.id : undefined;
   }
 
   nameOf(id: string): string {
@@ -471,7 +513,7 @@ export class Foreman {
 
   // ---- snapshot -----------------------------------------------------------------------------
 
-  snapshot(): Outbound {
+  snapshot(): Extract<Outbound, { type: 'snapshot' }> {
     this.flushLogs();
     const decisions = this.store.data.decisions;
     const open = decisions.filter((d) => d.status === 'open');
@@ -479,7 +521,7 @@ export class Foreman {
     const goal = this.currentGoal();
     return {
       type: 'snapshot',
-      replyAgentId: this.store.data.replyAgentId ?? 'marlow',
+      ...(this.store.data.replyAgentId ? { replyAgentId: this.store.data.replyAgentId } : this.team ? {} : { replyAgentId: 'marlow' }),
       foreman: { ...this.status },
       agents: this.agents().map((a) => ({ ...a })),
       tasks: this.tasks.list().map((t) => ({ ...t, deps: [...t.deps] })),
@@ -504,7 +546,7 @@ export class Foreman {
       const result = await this.dispatch(msg, reply);
       ack(true, result ? { result } : {});
     } catch (e) {
-      const known = e instanceof ClientError || e instanceof TaskError || e instanceof RepoError || e instanceof DecisionError || e instanceof MemoryError;
+      const known = e instanceof TeamError || e instanceof ClientError || e instanceof TaskError || e instanceof RepoError || e instanceof DecisionError || e instanceof MemoryError;
       const message = known ? (e as Error).message : `internal error: ${(e as Error).message}`;
       if (!known) this.log.error(`${msg.type}: ${(e as Error).stack ?? e}`);
       reply({ type: 'error', message, ...(msg.id ? { re: msg.id } : {}) });
@@ -513,6 +555,9 @@ export class Foreman {
   }
 
   private async dispatch(msg: ClientMessage, reply: Reply): Promise<Record<string, unknown> | undefined> {
+    if (msg.type === 'studio.action' && msg.action.startsWith('team.')) return this.teamAction(msg.action, msg.payload);
+    if (this.team && !['hello', 'repo.add', 'diff.request', 'agent.scene', 'studio.action'].includes(msg.type))
+      throw new ClientError('Агент не подключён. Выполнение ролей для новой команды будет доступно после настройки подключений.');
     if (msg.type === 'agent.scene') {
       if (!this.personas) throw new ClientError('Реплики сцен доступны в режиме наблюдения.');
       const resting = (id: string) => {
@@ -520,7 +565,7 @@ export class Foreman {
         return a.active && !a.paused && a.station === 'lounge' && ['idle', 'done'].includes(a.state)
           && !this.decisions.open().some(d => d.agentId === id);
       };
-      if (!resting(msg.agentId) || (msg.event === 'peer' && !resting(msg.agentId === 'marlow' ? 'wren' : 'marlow')))
+      if (!resting(msg.agentId) || (msg.event === 'peer' && (!msg.peerAgentId || msg.peerAgentId === msg.agentId || !resting(msg.peerAgentId))))
         return { spoken: false };
       return { spoken: this.personas.say(msg.agentId, msg.event) };
     }

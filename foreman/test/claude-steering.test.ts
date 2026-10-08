@@ -99,7 +99,7 @@ describe('claude backend steering (fake SDK)', () => {
     await until(() => fm.decisions.open().some((d) => d.kind === 'question' && d.agentId === 'kit'));
     const q = fm.decisions.open().find((d) => d.kind === 'question')!;
 
-    await fm.handle({ v: 1, type: 'agent.action', agentId: 'kit', action: 'stop' }, () => undefined);
+    await fm.handle({ v: 2, type: 'agent.action', agentId: 'kit', action: 'stop' }, () => undefined);
     // the question is withdrawn (not left on the podium), Kit is off shift, t1 is back on the board
     expect(fm.decisions.get(q.id)!.status).toBe('cancelled');
     await expect(fm.answerDecision(q.id, 'Long')).rejects.toThrow(/cancelled/);
@@ -125,7 +125,7 @@ describe('claude backend steering (fake SDK)', () => {
     await new Promise((r) => setTimeout(r, 300));
     expect(calls.filter((c) => c.agent === 'kit').length).toBe(kitCalls);
     expect(fm.agent('kit')!.active).toBe(false);
-    await fm.handle({ v: 1, type: 'agent.action', agentId: 'kit', action: 'resume' }, () => undefined);
+    await fm.handle({ v: 2, type: 'agent.action', agentId: 'kit', action: 'resume' }, () => undefined);
     expect(fm.agent('kit')!.active).toBe(true);
     await fm.close();
   });

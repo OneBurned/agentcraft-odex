@@ -22,6 +22,12 @@ public final class ForemanJson {
 		.registerTypeAdapterFactory(new WireEnumFactory())
 		.create();
 
+    public static String protocolError(JsonObject json) {
+        try {
+            if (json.has("v") && json.get("v").isJsonPrimitive() && json.getAsJsonPrimitive("v").isNumber() && json.get("v").getAsDouble() == Protocol.VERSION) return null;
+        } catch (RuntimeException ignored) { }
+        return "Несовпадение версии протокола: мод требует v" + Protocol.VERSION + ". Обнови мод и мост вместе.";
+    }
 	private ForemanJson() {
 	}
 

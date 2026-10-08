@@ -28,7 +28,7 @@ public class ConsoleReplyTest {
         feed(s, "task", "marlow", "user");
         feed(s, "message", "marlow", "wren");
         feed(s, "message", "kit", "user");
-        assertEquals("wren", message(s, "Привет").to());
+        assertEquals("kit", message(s, "Привет").to());
         feed(s, "decision", "marlow", "user");
         assertEquals("marlow", message(s, "Да").to());
         feed(s, "message", "wren", "user"); // review conclusion uses this same envelope
@@ -71,6 +71,6 @@ public class ConsoleReplyTest {
         for (int i = 0; i < 205; i++) feed(s, "task", "marlow", "user");
         assertEquals("wren", s.replyAgentId());
         apply(s, "snapshot", "{}");
-        assertEquals("marlow", s.replyAgentId());
+        assertEquals("", s.replyAgentId());
     }
 }

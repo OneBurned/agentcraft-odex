@@ -159,7 +159,7 @@ public final class AgentManager {
 		List<Agent> agents = new ArrayList<>(st.agents().values());
 		// Observer mode represents one real external coder. Off-shift cast members are not NPCs.
 		if (st.status() != null && st.status().backend() == Protocol.BackendName.OBSERVER) {
-			agents.removeIf(a -> !a.isActive());
+			agents.removeIf(a -> !a.isVisible());
 			if (layout.isEmpty()) agents.clear();
 		}
 		Map<String, Anchor> targets = layout.isEmpty() ? fallbackTargets(agents, lvl) : assigner.assign(agents, layout);
@@ -219,8 +219,8 @@ public final class AgentManager {
 				entities.put(a.id(), e);
 				byEntityId.put(e.getId(), e);
 				showRecentSay(st, e);
-			} else if (!e.getSkin().equals(AgentSkins.get(a.id(), a.skin()))) {
-				e.setSkin(AgentSkins.get(a.id(), a.skin()));
+			} else if (!e.getSkin().equals(AgentSkins.get(a))) {
+				e.setSkin(AgentSkins.get(a));
 			}
 			AgentView v = e.view();
 			v.update(a, stale, awaiting.get(a.id()), awaitingCounts.getOrDefault(a.id(), 0));
@@ -400,7 +400,7 @@ public final class AgentManager {
 	}
 
 	private ClientAgentEntity spawn(ClientLevel lvl, Agent a, Anchor target) {
-		ClientAgentEntity e = new ClientAgentEntity(lvl, a.id(), AgentSkins.get(a.id(), a.skin()));
+		ClientAgentEntity e = new ClientAgentEntity(lvl, a.id(), AgentSkins.get(a));
 		Seats.Seat seat = seats.at(lvl, target, ticks, new GridPathfinder(lvl, Anchors.current().bounds()));
 		e.life().setSeat(seat);
 		place(e, seat != null ? seat.target() : target);

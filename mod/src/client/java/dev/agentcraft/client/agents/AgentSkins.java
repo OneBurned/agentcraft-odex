@@ -27,6 +27,12 @@ public final class AgentSkins {
 		return preview(agentId, skinId, look);
 	}
 
+    public static PlayerSkin get(dev.agentcraft.client.foreman.Protocol.Agent agent) {
+        var look = dev.agentcraft.client.studio.StudioPreferences.get().look(agent.id()).copy();
+        if (agent.slim() != null) look.slim = agent.slim();
+        return preview(agent.id(), agent.skin(), look);
+    }
+
 	public static PlayerSkin preview(String agentId, String skinId, dev.agentcraft.client.studio.StudioPreferences.Look look) {
 		return CACHE.computeIfAbsent(agentId + "|" + skinId + "|" + look.slim + "|" + look.png, k -> {
 			PlayerSkin base = create(agentId, skinId);

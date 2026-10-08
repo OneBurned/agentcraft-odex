@@ -1,13 +1,14 @@
-# AgentCraft protocol v1
+# AgentCraft protocol v2
 
 > GENERATED from `foreman/src/protocol.ts` and `foreman/src/protocol-examples.ts` by `npm run gen:protocol-doc` (in `foreman/`). Do not edit by hand. The Java mod mirrors these shapes.
 
 ## Transport
 
 - The Foreman listens on `ws://127.0.0.1:${AGENTCRAFT_PORT:-7878}`. Clients (the mod, CLI tools) connect, send `hello`, and receive a full `snapshot` followed by incremental messages. Multiple clients may be connected; every client receives every broadcast.
-- One JSON object per WebSocket **text** frame. Envelope: `{ "v": 1, "type": "<type>", "id"?: "<correlation id>", ...payload }`.
+- One JSON object per WebSocket **text** frame. Envelope: `{ "v": 2, "type": "<type>", "id"?: "<correlation id>", ...payload }`.
 - Client messages that carry an `id` are answered with `ack { re: id, ok, error?, result? }`. Invalid messages get `error` (and a failed `ack` if they had an id).
 - Timestamps are integer epoch milliseconds. Colors are `"#RRGGBB"`. Optional fields are omitted, never `null`. Receivers must ignore unknown fields.
+- Protocol version must match exactly in `v` and hello.protocol. Version mismatch requires updating both mod and bridge; no state or command is applied across versions. `agent.remove` removes only the live roster entry, preserving task history.
 - Upserts replace the whole entity by id. `agent.log` and `feed.add` append.
 - Connections that carry any `Origin` header (browsers; also `Origin: null` from sandboxed iframes, `data:` and `file:` pages) or a Host header other than `127.0.0.1` / `localhost` / `[::1]` are rejected with HTTP 401, so a web page cannot drive your agents. Clients (the mod, CLI tools) must not send an Origin header. Heartbeat: the Foreman pings every 15 s.
 - The mod should reconnect with backoff and re-send `hello`; the snapshot rebuilds the whole view.
@@ -52,6 +53,11 @@ Exact option labels: merge decisions use `Merge`, `Request changes`, `Reject`; p
 | `id` | string | yes | stable lowercase id, e.g. "kit" |
 | `name` | string | yes | display name, e.g. "Kit" |
 | `role` | [AgentRole](#agentrole) | yes |  |
+| `provider` | `codex` \| `claude` | no |  |
+| `roles` | `planner` \| `developer` \| `reviewer`[] | no |  |
+| `enabled` | boolean | no |  |
+| `visible` | boolean | no |  |
+| `slim` | boolean | no |  |
 | `title` | string | no | short descriptive role from cast.json, e.g. "Backend tinkerer" |
 | `color` | string (#RRGGBB) | yes | agent color (scarf/badge/nameplate) |
 | `accent` | string (#RRGGBB) | no | "#RRGGBB" |
@@ -78,10 +84,12 @@ Exact option labels: merge decisions use `Merge`, `Request changes`, `Reject`; p
 
 | field | type | required | notes |
 | --- | --- | --- | --- |
+| `assigneeIdentity` | { id: string (#RRGGBB), name: string, provider: `codex` \| `claude` } | no | Identity at assignment; retained after rename, provider change or archive. |
+| `creatorIdentity` | { id: string (#RRGGBB), name: string, provider: `codex` \| `claude` } | no |  |
 | `id` | string | yes | e.g. "t3" |
 | `observerKey` | string | no | Stable external task key for the Codex observer; survives restarts. |
 | `queueStage` | `plan` \| `queued` \| `coding` \| `review` \| `question` \| `done` \| `cancelled` | no |  |
-| `studioReview` | [ReviewProgress](#reviewprogress) | no | Latest studio review attempt. Optional v1 extension, carried by snapshot and task.upsert; old clients ignore it, old tasks omit it. MERGE decisions are unchanged. |
+| `studioReview` | [ReviewProgress](#reviewprogress) | no | Latest studio review attempt. Optional field carried by snapshot and task.upsert; historical tasks may omit it. MERGE decisions are unchanged. |
 | `title` | string | yes |  |
 | `description` | string | no |  |
 | `status` | [TaskStatus](#taskstatus) | yes | Task Wall column. `cancelled` tasks are kept for history but should not be shown on the wall. |
@@ -250,7 +258,7 @@ Full state. Sent in reply to every `hello`; the mod rebuilds its view from it.
 | field | type | required | notes |
 | --- | --- | --- | --- |
 | `id` | string | no | client correlation id; the Foreman answers with `ack` {re: id} |
-| `replyAgentId` | `marlow` \| `wren` | no | Last observer agent to address the user; persisted across restarts; defaults to marlow |
+| `replyAgentId` | string (#RRGGBB) | no | Last observer agent to address the user; persisted across restarts; omitted when no current recipient exists |
 | `foreman` | [ForemanStatus](#foremanstatus) | yes |  |
 | `agents` | [Agent](#agent)[] | yes |  |
 | `tasks` | [Task](#task)[] | yes |  |
@@ -264,7 +272,7 @@ Full state. Sent in reply to every `hello`; the mod rebuilds its view from it.
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "snapshot",
   "foreman": {
     "version": "0.1.0",
@@ -412,6 +420,23 @@ Full state. Sent in reply to every `hello`; the mod rebuilds its view from it.
 }
 ```
 
+### `agent.remove`
+
+Remove this agent from the live roster and world. Preserve task and message history. Restoring sends agent.upsert; snapshots include only unarchived agents.
+
+| field | type | required | notes |
+| --- | --- | --- | --- |
+| `id` | string | no | client correlation id; the Foreman answers with `ack` {re: id} |
+| `agentId` | string (#RRGGBB) | yes |  |
+
+```json
+{
+  "v": 2,
+  "type": "agent.remove",
+  "agentId": "agent_example"
+}
+```
+
 ### `agent.upsert`
 
 An agent was created or changed (state, station, activity, task...). Replace by `agent.id`.
@@ -423,7 +448,7 @@ An agent was created or changed (state, station, activity, task...). Replace by 
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "agent.upsert",
   "agent": {
     "id": "kit",
@@ -457,7 +482,7 @@ New log lines for an agent monitor (append; keep a bounded tail).
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "agent.log",
   "agentId": "kit",
   "entries": [
@@ -494,7 +519,7 @@ Speech bubble above the agent; also mirrored to the feed.
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "agent.say",
   "agentId": "kit",
   "to": "juniper",
@@ -514,7 +539,7 @@ Task created or changed. Replace by `task.id`.
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "task.upsert",
   "task": {
     "id": "t2",
@@ -549,7 +574,7 @@ Decision opened, answered or cancelled. Replace by `decision.id`.
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "decision.upsert",
   "decision": {
     "id": "d2",
@@ -582,7 +607,7 @@ Repo added or changed (worktrees, CI, head, dirty). Replace by `repo.id`.
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "repo.upsert",
   "repo": {
     "id": "demo-app",
@@ -622,7 +647,7 @@ Memory entry written. Replace by `entry.id`.
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "memory.upsert",
   "entry": {
     "id": "shared/plan",
@@ -646,7 +671,7 @@ Goal created or progress/status changed. Replace by `goal.id`; latest goal is cu
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "goal.upsert",
   "goal": {
     "id": "g1",
@@ -671,7 +696,7 @@ Append to the activity feed.
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "feed.add",
   "item": {
     "ts": 1790850210000,
@@ -701,7 +726,7 @@ Reply to `diff.request` (sent only to the requesting client). Structured unified
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "diff",
   "requestId": "r7",
   "repoId": "demo-app",
@@ -801,7 +826,7 @@ Toast/banner for the player. `need_user` = a decision is waiting (play a bell).
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "notify",
   "level": "need_user",
   "text": "Marlow: Merge t2 \"Tag parser module\" into main?",
@@ -821,7 +846,7 @@ Backend/auth status changed (banner).
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "foreman.status",
   "status": {
     "version": "0.1.0",
@@ -846,7 +871,7 @@ Reply to any client message that carried an `id`.
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "ack",
   "re": "c12",
   "ok": true,
@@ -868,7 +893,7 @@ A client message was invalid or failed (also sent as ack.ok=false when it had an
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "error",
   "message": "no agent named \"kitt\"",
   "re": "c13"
@@ -884,12 +909,13 @@ Local observer NPC entered a rest/dance/nearby-colleague scene. Presentation onl
 | field | type | required | notes |
 | --- | --- | --- | --- |
 | `id` | string | no | client correlation id; the Foreman answers with `ack` {re: id} |
-| `agentId` | `marlow` \| `wren` | yes |  |
+| `agentId` | string (#RRGGBB) | yes |  |
+| `peerAgentId` | string (#RRGGBB) | no |  |
 | `event` | `rest` \| `dance` \| `peer` | yes |  |
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "agent.scene",
   "agentId": "wren",
   "event": "dance"
@@ -908,7 +934,7 @@ Observer command desk: persistent plan/queue, review, roster and shared notes. g
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "studio.action",
   "id": "studio-1",
   "action": "get",
@@ -934,7 +960,7 @@ Publish a real external Codex task status. Only accepted by the observer backend
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "observer.update",
   "key": "chat/task-1",
   "title": "TradeRecord task",
@@ -952,15 +978,15 @@ First message after connecting. The Foreman replies with `snapshot`, then stream
 | --- | --- | --- | --- |
 | `id` | string | no | client correlation id; the Foreman answers with `ack` {re: id} |
 | `modVersion` | string | yes |  |
-| `protocol` | 1 | yes |  |
+| `protocol` | 2 | yes |  |
 | `client` | string | no | "mod" \| "cli" \| ... (informational) |
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "hello",
   "modVersion": "0.1.0",
-  "protocol": 1,
+  "protocol": 2,
   "client": "mod"
 }
 ```
@@ -977,7 +1003,7 @@ New goal for the lead (console: plain text).
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "goal.submit",
   "id": "c12",
   "text": "Add a --version flag to the CLI",
@@ -998,7 +1024,7 @@ Message an agent (console: `@name text`) or everyone.
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "user.message",
   "id": "c13",
   "to": "all",
@@ -1019,7 +1045,7 @@ Answer an open decision. Merge decisions: option "Merge" merges, "Request change
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "decision.answer",
   "id": "c14",
   "decisionId": "d2",
@@ -1041,7 +1067,7 @@ Steer a task from the Task Wall.
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "task.action",
   "id": "c15",
   "taskId": "t5",
@@ -1063,7 +1089,7 @@ Pause/resume/stop an agent, or spawn an off-shift worker. In observer mode only 
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "agent.action",
   "id": "c16",
   "agentId": "juniper",
@@ -1084,7 +1110,7 @@ Ask for the structured diff of a worktree. Answered with `diff` (same requestId)
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "diff.request",
   "id": "c17",
   "requestId": "r7",
@@ -1104,7 +1130,7 @@ Register a local git repo (console: `/repo add <path>`).
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "repo.add",
   "id": "c18",
   "path": "C:\\Projects\\agentcraft\\sandbox\\demo-app"

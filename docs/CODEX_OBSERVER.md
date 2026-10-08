@@ -1,5 +1,62 @@
 # Codex chat observer for TradeRecord
 
+## Team model (A2 / t38)
+
+New observer profiles start with an empty `<profile>/team.json` (schema 1), without
+loading the six demo characters. An existing profile with saved agents and no team file
+continues using the legacy two-agent workflow below. This is a compatibility path, not
+a migration: A4 will transfer that profile explicitly. Do not create a team file over a
+personal profile to simulate migration. Sim and Claude SDK backends retain their demo cast.
+
+The team registry implements the data model in [TEAM_MODEL.md](TEAM_MODEL.md).
+Provider (`codex`/`claude`), unique role set (`planner`/`developer`/`reviewer`), name,
+enabled/visible flags and skin/color/slim appearance are independent. New IDs are generated
+and remain reserved after archive. Duplicate names are allowed; ambiguous names do not
+resolve, so use the ID. Unknown versions, malformed files, duplicate IDs, extra fields and
+references outside the profile or through junctions are rejected without replacing the file.
+
+Use `studio.action` with these actions (also available through `tools/studio.mjs ACTION
+--port PORT --file PAYLOAD.json`):
+
+| Action | Payload |
+| --- | --- |
+| `team.get` | `{}`; returns the complete registry including archived entries and `revision` |
+| `team.create` | `revision`, `agent` with `name`, `provider`, `roles`, `enabled`, `visible`, `appearance: {skin,color,slim}` |
+| `team.update` | `revision`, `id`, `patch` containing changed editable fields; appearance is replaced as a whole |
+| `team.disable` | `revision`, `id` |
+| `team.archive` | `revision`, `id`; sets archived=true, enabled=false, visible=false |
+| `team.restore` | `revision`, `id`, optional `visible` (default true); restores disabled with the same ID and references |
+
+All mutations return the full updated registry. Fetch its revision before saving. A stale
+revision fails without changing the registry; reload and reapply the draft. External file
+changes require a bridge restart. Writes are synchronous and atomic under the bridge's
+exclusive profile owner. Editing, disabling or archiving an agent with active work, pending
+decisions or unfinished assigned tasks is rejected; finish/reassign the work first. These
+operations never pretend to stop an actual process. A provider change clears connectionRef.
+
+Tasks capture `assigneeIdentity` and `creatorIdentity` (ID, name, provider) when assigned or
+created. Those snapshots survive rename/provider changes, archive and restart. The board
+and task card use the saved assignee identity. Archives preserve task, memory, instruction
+and session files. Assigning new work to a disabled, archived or unknown team member fails.
+Visibility is independent of enabled: a disabled but visible character can remain in the world.
+Team slim-arm settings are authoritative when supplied; local PNG/display preferences remain
+local and are not deleted or migrated here.
+
+**A2 scope:** CRUD is available through the bridge API/tool, not a new team-management screen.
+New agents have connectionRef=null and disabled execution controls. The dynamic observer does
+not start the old singleton Codex/Claude transports or execute queued work. Per-agent adapters,
+role execution, memory consumers, personality editors and management UI belong to subsequent
+stages. The legacy workflow remains available only to existing profiles pending A4.
+
+**Protocol 2:** update the mod, bridge and tools together. Version 1 peers are incompatible and
+receive an actionable mismatch error. `agent.remove` removes an archived NPC from the live
+roster; restore emits `agent.upsert`. Snapshots omit archives, retain task identities, and use
+arbitrary reply IDs. Peer scenes supply `peerAgentId`. Do not restart an installed v1 bridge
+against these sources before updating its mod. Development reports to a still-running v1
+bridge must use its matching v1 tools; newer tools deliberately reject it.
+
+## Legacy observer workflow
+
 The `observer` backend connects an existing Codex chat to Minecraft. Codex remains the developer
 in that chat. Version 0.4.0 adds a command desk with a user-approved task queue and an optional
 Claude Code reviewer, represented by Wren. Other cast members remain hidden. Starting the bridge
@@ -74,8 +131,8 @@ Full review messages continue to appear in the existing conversation and agent j
 
 Right-clicking a studio-review card opens that task in the command desk. Existing MERGE
 decisions retain their row ordering, cards and diff-screen click targets, taking precedence
-over studio review. This is an additive protocol v1 extension: old clients ignore the optional
-field; new clients accept tasks from old bridges without it. See `ReviewProgress` in
+over studio review. This is an optional field in protocol v2: historical tasks may omit the
+field. The message envelope must still match protocol v2. See `ReviewProgress` in
 [protocol.md](protocol.md). No installation, bridge restart or live visual check is part of t35.
 
 Validation: the mod builds and all 70 Java tests pass without skips (including the installed

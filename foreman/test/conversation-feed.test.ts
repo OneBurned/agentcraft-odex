@@ -10,13 +10,13 @@ it('persists the last user-directed agent by ID beyond feed eviction and restart
   h.fm.bus.feed('message', 'Ответ', { agentId: 'wren', to: 'user' });
   h.fm.bus.send('user', 'marlow', 'Вопрос');
   h.fm.bus.feed('message', 'Между агентами', { agentId: 'marlow', to: 'wren' });
-  h.fm.bus.feed('message', 'Чужой агент', { agentId: 'kit', to: 'user' });
+  h.fm.bus.feed('message', 'Другой агент команды', { agentId: 'kit', to: 'user' });
   for (let i = 0; i < 305; i++) h.fm.bus.feed('task', 'Статус', { agentId: 'marlow' });
-  expect(h.fm.snapshot()).toMatchObject({ replyAgentId: 'wren' });
+  expect(h.fm.snapshot()).toMatchObject({ replyAgentId: 'kit' });
   h.fm.store.flush();
   const restored = makeForeman(h.home);
   try {
-    expect(restored.fm.snapshot()).toMatchObject({ replyAgentId: 'wren' });
+    expect(restored.fm.snapshot()).toMatchObject({ replyAgentId: 'kit' });
     restored.fm.bus.feed('decision', 'Вопрос', { agentId: 'marlow', to: 'user' });
     expect(restored.fm.snapshot()).toMatchObject({ replyAgentId: 'marlow' });
     restored.fm.bus.feed('message', 'Итог ревью', { agentId: 'wren', to: 'user' });

@@ -22,7 +22,7 @@ interface StudioData { version: 1; mode: 'planning' | 'running' | 'paused'; revi
 }
 const text = z.string().trim().min(1).max(6000);
 const taskInput = z.object({ title: text.max(200), description: text.max(3000), expected: text.max(1500), deps: z.array(z.string()).max(50).default([]), priority: z.number().int().min(0).max(100).default(0) });
-const profileInput = z.object({ id: z.enum(['marlow', 'wren']), name: text.max(28), skin: z.string().regex(/^[a-z0-9_-]{1,40}$/), color: z.string().regex(/^#[a-fA-F0-9]{6}$/), enabled: z.boolean(), visible: z.boolean() });
+const profileInput = z.object({ id: z.string().regex(/^[a-z0-9_-]{1,64}$/), name: text.max(28), skin: z.string().regex(/^[a-z0-9_-]{1,40}$/), color: z.string().regex(/^#[a-fA-F0-9]{6}$/), enabled: z.boolean(), visible: z.boolean() });
 
 /** One sequential developer/reviewer queue. All state-changing requests are serialized. */
 export class Studio {
@@ -318,6 +318,7 @@ export class Studio {
       if (action === 'draft.list' || action === 'draft.create') return this.planningAction(action, payload);
       if (action === 'agent') {
         const p = profileInput.parse(payload);
+        if (!this.data.profiles.some(a => a.id === p.id)) throw new Error('Unknown agent');
         if ((this.data.active || this.dialogAbort) && !p.enabled) throw new Error('Сначала останови текущую задачу или ответ. Скрыть персонажа можно без остановки.');
         if (!this.availableSkins().includes(p.skin)) throw new Error('Неизвестный встроенный скин. Свой PNG выбирается в клиенте.');
         Object.assign(this.data.profiles.find(a => a.id === p.id)!, p); this.syncRoster();
@@ -396,7 +397,7 @@ export class Studio {
       } else if (action === 'report') {
         await this.report(payload);
       } else if (action === 'note') {
-        const p = z.object({ title: text.max(200), body: text, scope: z.enum(['shared', 'marlow', 'wren']).default('shared') }).parse(payload);
+        const p = z.object({ title: text.max(200), body: text, scope: z.string().regex(/^[a-z0-9_-]{1,64}$/).default('shared') }).parse(payload);
         this.fm.memory.write({ ...p, author: 'user' });
       } else throw new Error('Неизвестное действие пульта.');
       this.save(); return this.view();

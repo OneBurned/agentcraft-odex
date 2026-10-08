@@ -65,7 +65,7 @@ describe('claude backend: messages to idle workers', () => {
 
     // the user messages idle Juniper: she hands it to Marlow, whose prompt says how to get it done
     const before = leadPrompts.length;
-    await fm.handle({ v: 1, type: 'user.message', to: 'juniper', text: 'run the linter please' }, () => undefined);
+    await fm.handle({ v: 2, type: 'user.message', to: 'juniper', text: 'run the linter please' }, () => undefined);
     await until(() => leadPrompts.length > before);
     const p = leadPrompts[leadPrompts.length - 1]!;
     expect(p).toMatch(/run the linter please/);

@@ -63,7 +63,7 @@ public final class TaskBoardScreen extends Screen {
             var titleLines = TextUtil.wrapPlain(font, TaskBoard.titleText(t), w - 42);
             if (titleLines.size() > 2) titleLines = List.of(titleLines.get(0), TextUtil.ellipsize(font, String.join(" ", titleLines.subList(1, titleLines.size())), w - 42));
             var agent = state.agent(t.assignee());
-            String name = agent == null ? "Без исполнителя" : agent.name();
+            String name = t.assigneeIdentity() != null ? t.assigneeLabel() : agent == null ? (t.assignee() == null ? "Без исполнителя" : t.assignee()) : agent.name();
             String stage = TaskBoardTasks.stage(t.queueStage(), t.status().wire(), t.branch() != null || t.worktree() != null);
             rows.add(new Row(t, rowY, titleLines, t.id() + " · " + TaskBoardTasks.label(stage) + " · " + name));
             Button row = Button.builder(Component.empty(), b -> minecraft.gui.setScreen(TaskScreen.forTask(t.id(), this)))

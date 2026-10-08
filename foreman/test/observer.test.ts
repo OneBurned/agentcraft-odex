@@ -15,7 +15,7 @@ async function setup(home = tempDir('ac-observer-')) {
   return { ...h, backend };
 }
 const update = (patch: Partial<ObserverUpdate> = {}): ObserverUpdate => ({
-  v: 1, type: 'observer.update', id: 'u1', key: 'chat/task', title: 'Проверка TradeRecord',
+  v: 2, type: 'observer.update', id: 'u1', key: 'chat/task', title: 'Проверка TradeRecord',
   state: 'editing', activity: 'Редактирую интеграцию', ...patch,
 });
 async function send(h: Harness, msg: ClientMessage) {
@@ -68,7 +68,7 @@ describe('Codex observer', () => {
       { type: 'user.message', to: 'all', text: 'Deploy' },
       { type: 'decision.answer', decisionId: 'd1', option: 'Merge' },
     ]) {
-      expect((await send(h, { v: 1, id: 'control', ...msg } as ClientMessage))?.ok).toBe(false);
+      expect((await send(h, { v: 2, id: 'control', ...msg } as ClientMessage))?.ok).toBe(false);
     }
     expect(JSON.stringify(h.fm.store.data)).toBe(before);
   });
@@ -192,10 +192,10 @@ describe('Codex observer', () => {
     const h = await setup();
     const control = vi.spyOn(h.backend, 'onChatControl').mockResolvedValue({ chatControl: 'paused' });
     for (const action of ['pause', 'resume', 'stop']) {
-      const ack = await send(h, { v: 1, id: action, type: 'agent.action', agentId: 'marlow', action } as ClientMessage);
+      const ack = await send(h, { v: 2, id: action, type: 'agent.action', agentId: 'marlow', action } as ClientMessage);
       expect(ack?.ok).toBe(true); expect(control).toHaveBeenLastCalledWith(action, 'marlow');
     }
-    const rejected = await send(h, { v: 1, id: 'bad', type: 'agent.action', agentId: 'kit', action: 'stop' });
+    const rejected = await send(h, { v: 2, id: 'bad', type: 'agent.action', agentId: 'kit', action: 'stop' });
     expect(rejected?.ok).toBe(false); expect(control).toHaveBeenCalledTimes(3);
     h.backend.onChatActivity({ key: 'chat/1', phase: 'paused' });
     expect(h.fm.requireAgent('marlow')).toMatchObject({ paused: true, active: true, state: 'idle' });
@@ -210,25 +210,25 @@ describe('Codex observer', () => {
   });
   it('does not stop Codex through an inactive Claude card', async () => {
     const h = await setup();
-    const ack = await send(h, { v: 1, id: 'claude', type: 'agent.action', agentId: 'wren', action: 'stop' });
+    const ack = await send(h, { v: 2, id: 'claude', type: 'agent.action', agentId: 'wren', action: 'stop' });
     expect(ack?.ok).toBe(false);
   });
   it('honors the selected reply recipient without changing explicit, all or legacy goal routes', async () => {
     const h = await setup();
     const relay = vi.spyOn(h.backend, 'onChatMessage').mockResolvedValue({ accepted: true });
-    await send(h, { v: 1, id: 'claude-message', type: 'user.message', to: 'wren', text: 'Привет' });
+    await send(h, { v: 2, id: 'claude-message', type: 'user.message', to: 'wren', text: 'Привет' });
     expect(relay).toHaveBeenLastCalledWith('Привет', 'wren', false);
-    await send(h, { v: 1, id: 'codex-message', type: 'user.message', to: 'marlow', text: 'Задача' });
+    await send(h, { v: 2, id: 'codex-message', type: 'user.message', to: 'marlow', text: 'Задача' });
     expect(relay).toHaveBeenLastCalledWith('Задача', 'marlow', false);
-    await send(h, { v: 1, id: 'plain-message', type: 'goal.submit', text: 'План' });
+    await send(h, { v: 2, id: 'plain-message', type: 'goal.submit', text: 'План' });
     expect(relay).toHaveBeenLastCalledWith('План', 'marlow', false);
     h.fm.bus.feed('message', 'Новый ответ Codex', { agentId: 'marlow', to: 'user' });
-    await send(h, { v: 1, id: 'reply', type: 'user.message', to: 'wren', text: 'Ответ Клаве', reply: true });
+    await send(h, { v: 2, id: 'reply', type: 'user.message', to: 'wren', text: 'Ответ Клаве', reply: true });
     expect(relay).toHaveBeenLastCalledWith('Ответ Клаве', 'wren', true);
-    await send(h, { v: 1, id: 'all', type: 'user.message', to: 'all', text: 'Всем' });
+    await send(h, { v: 2, id: 'all', type: 'user.message', to: 'all', text: 'Всем' });
     expect(relay).toHaveBeenLastCalledWith('Всем', 'marlow', false);
     relay.mockRejectedValueOnce(new ClientError('Клава занята'));
-    expect(await send(h, { v: 1, id: 'busy', type: 'user.message', to: 'wren', text: 'Текст', reply: true }))
+    expect(await send(h, { v: 2, id: 'busy', type: 'user.message', to: 'wren', text: 'Текст', reply: true }))
       .toMatchObject({ ok: false, error: 'Клава занята' });
     expect(relay).toHaveBeenCalledTimes(6);
   });

@@ -490,7 +490,7 @@ describe('command desk queue', () => {
     expect(ReviewProgress.safeParse(review).success).toBe(true);
     const snapshot = h.fm.snapshot();
     expect(snapshot.type === 'snapshot' && snapshot.tasks.find(t => t.id === i.id)?.studioReview).toEqual(review);
-    expect(parseServerMessage({ v: 1, ...snapshot }).ok).toBe(true);
+    expect(parseServerMessage({ v: 2, ...snapshot }).ok).toBe(true);
     const updates = h.events.filter(e => e.type === 'task.upsert' && e.task.id === i.id);
     expect(updates.some(e => e.type === 'task.upsert' && e.task.studioReview?.phase === 'running' && e.task.studioReview?.step.startsWith('Читаю'))).toBe(true);
     expect(updates.at(-1)).toMatchObject({ task: { studioReview: review } });

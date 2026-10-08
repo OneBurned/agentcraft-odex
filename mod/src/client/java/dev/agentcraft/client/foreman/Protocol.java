@@ -12,7 +12,7 @@ import org.jspecify.annotations.Nullable;
  * to {@code UNKNOWN}, so a newer Foreman never breaks the mod.
  */
 public final class Protocol {
-	public static final int VERSION = 1;
+	public static final int VERSION = 2;
 
 	private Protocol() {
 	}
@@ -114,7 +114,8 @@ public final class Protocol {
 
 	public record Agent(String id, String name, AgentRole role, @Nullable String title, String color, @Nullable String accent, String skin,
 		AgentState state, String activity, Station station, @Nullable String taskId, @Nullable String repoId, @Nullable String worktree,
-		@Nullable Boolean paused, @Nullable Boolean active, @Nullable AgentControls controls) {
+		@Nullable Boolean paused, @Nullable Boolean active, @Nullable AgentControls controls,
+        @Nullable String provider, @Nullable List<String> roles, @Nullable Boolean enabled, @Nullable Boolean visible, @Nullable Boolean slim) {
 		public Agent {
 			name = name == null ? id : name;
 			role = role == null ? AgentRole.UNKNOWN : role;
@@ -129,6 +130,8 @@ public final class Protocol {
 		public boolean isActive() {
 			return active == null || active;
 		}
+
+		public boolean isVisible() { return visible == null ? isActive() : visible; }
 
 		public boolean isPaused() {
 			return paused != null && paused;
@@ -149,10 +152,13 @@ public final class Protocol {
 		@Nullable String summary, boolean waitingForUser) {
 	}
 
+	public record AgentIdentity(String id, String name, String provider) {}
+
 	public record Task(String id, String title, @Nullable String description, TaskStatus status, @Nullable String assignee, List<String> deps,
 		@Nullable String repoId, @Nullable String goalId, int priority, @Nullable String branch, @Nullable String worktree, CiStatus ci,
 		@Nullable String blockedReason, @Nullable String summary, @Nullable String createdBy, long createdAt, long updatedAt, @Nullable String queueStage,
-		@Nullable ReviewProgress studioReview) {
+		@Nullable ReviewProgress studioReview, @Nullable AgentIdentity assigneeIdentity, @Nullable AgentIdentity creatorIdentity) {
+        public String assigneeLabel() { return assigneeIdentity != null ? assigneeIdentity.name() + " · " + assigneeIdentity.provider() : assignee; }
 		public Task {
 			title = title == null ? id : title;
 			status = status == null ? TaskStatus.UNKNOWN : status;
@@ -277,6 +283,8 @@ public final class Protocol {
 			logs = logs == null ? List.of() : List.copyOf(logs);
 		}
 	}
+
+	public record AgentRemove(String agentId) {}
 
 	public record AgentUpsert(Agent agent) {
 	}

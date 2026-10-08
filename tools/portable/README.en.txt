@@ -1,5 +1,12 @@
 AgentCraft — portable Windows package
 
+A2 — TEAM DATA MODEL
+A new profile creates an empty team.json. Manage agents with studio.mjs actions
+team.get/create/update/disable/archive/restore. New-agent connections, queue execution
+and the team setup UI are subsequent stages. Protocol 2 requires matching mod, bridge
+and tools. The chat, desk and connection workflow below applies only to existing
+legacy profiles, not a new team. Legacy migration is a separate stage.
+
 This is a neutral build of the existing observer mode: Codex performs work in a
 connected desktop conversation and Claude can review changes. An arbitrary team
 and its setup wizard are separate development stages, not completed features of

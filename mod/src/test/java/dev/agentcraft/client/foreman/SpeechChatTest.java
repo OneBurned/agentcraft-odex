@@ -14,7 +14,7 @@ public class SpeechChatTest {
     private final Gson gson = new Gson();
     private Protocol.Agent profile(String id, String name, String color) {
         return new Protocol.Agent(id, name, null, null, color, null, id, null, "", null,
-            null, null, null, false, true, null);
+            null, null, null, false, true, null, null, null, null, null, null);
     }
 
     @Test public void formatsCurrentProfileNameAndColourAsLiteralLocalChatText() {

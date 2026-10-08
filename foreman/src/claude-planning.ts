@@ -52,13 +52,13 @@ export async function planningCall(directory: string, name: string, args: unknow
       if (error) reject(error); else resolve(result!);
     };
     const timer = setTimeout(() => finish(new Error('Мост не ответил. Повтори создание с тем же requestId: дубликат не появится.')), 15000);
-    ws.once('open', () => ws.send(JSON.stringify({ v: 1, type: 'hello', protocol: 1, modVersion: 'klava-planning', client: 'klava' })));
+    ws.once('open', () => ws.send(JSON.stringify({ v: 2, type: 'hello', protocol: 2, modVersion: 'klava-planning', client: 'klava' })));
     ws.on('error', () => finish(new Error('Нет связи с мостом AgentCraft. Запусти подключённый профиль.')));
     ws.on('close', () => finish(new Error('Связь с мостом закрыта. Повтори запрос с тем же requestId.')));
     ws.on('message', raw => {
       let m; try { m = JSON.parse(raw.toString()); } catch { return; }
       if (m.type === 'snapshot' && !sent) {
-        sent = true; ws.send(JSON.stringify({ v: 1, id, type: 'studio.action', action: name === 'planning_create' ? 'draft.create' : 'draft.list', payload: { ...payload, token: binding.token } }));
+        sent = true; ws.send(JSON.stringify({ v: 2, id, type: 'studio.action', action: name === 'planning_create' ? 'draft.create' : 'draft.list', payload: { ...payload, token: binding.token } }));
       }
       if (m.type === 'ack' && m.re === id) finish(m.ok ? undefined : new Error(m.error || 'Черновик не создан.'), m.result);
     });

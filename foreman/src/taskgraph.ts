@@ -51,7 +51,15 @@ const TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
 };
 
 export class TaskGraph {
-  constructor(private ctx: Ctx) {}
+  constructor(private ctx: Ctx, private canAssign?: (id: string) => boolean) {}
+
+  private checkAssignee(id: string) {
+    if (this.canAssign && !this.canAssign(id)) throw new TaskError('Agent is disabled, archived or unknown: ' + id);
+  }
+  private identity(id: string) {
+    const a = this.ctx.store.data.agents.find(a => a.id === id);
+    return a?.provider ? { id: a.id, name: a.name, provider: a.provider } : undefined;
+  }
 
   private get tasks(): Task[] {
     return this.ctx.store.data.tasks;
@@ -76,6 +84,7 @@ export class TaskGraph {
   }
 
   create(input: CreateTaskInput): Task {
+    if (input.assignee) this.checkAssignee(input.assignee);
     const title = input.title.trim();
     if (!title) throw new TaskError('task title is empty');
     const deps = [...new Set(input.deps ?? [])];
@@ -96,6 +105,8 @@ export class TaskGraph {
     if (input.assignee) task.assignee = input.assignee;
     if (input.repoId) task.repoId = input.repoId;
     if (input.goalId) task.goalId = input.goalId;
+    task.creatorIdentity = this.identity(input.createdBy);
+    if (input.assignee) task.assigneeIdentity = this.identity(input.assignee);
     this.tasks.push(task);
     this.touch(task);
     return task;
@@ -104,6 +115,7 @@ export class TaskGraph {
   /** Patch non-status fields. */
   update(id: string, patch: TaskPatch): Task {
     const t = this.require(id);
+    if (patch.assignee) this.checkAssignee(patch.assignee);
     if (patch.deps) {
       const deps = [...new Set(patch.deps)];
       for (const d of deps) {
@@ -116,8 +128,8 @@ export class TaskGraph {
     if (patch.title !== undefined) t.title = patch.title;
     if (patch.description !== undefined) t.description = patch.description;
     if (patch.assignee !== undefined) {
-      if (patch.assignee === null) delete t.assignee;
-      else t.assignee = patch.assignee;
+      if (patch.assignee === null) { delete t.assignee; delete t.assigneeIdentity; }
+      else { t.assignee = patch.assignee; t.assigneeIdentity = this.identity(patch.assignee); }
     }
     if (patch.priority !== undefined) t.priority = patch.priority;
     if (patch.branch !== undefined) t.branch = patch.branch;
@@ -151,6 +163,7 @@ export class TaskGraph {
     opts: { reason?: string; summary?: string; viaMerge?: boolean; force?: boolean } = {},
   ): Task {
     const t = this.require(id);
+    if (to === 'doing' && t.assignee) this.checkAssignee(t.assignee);
     if (!opts.force) {
       const err = this.canTransition(t, to);
       if (err) throw new TaskError(err);

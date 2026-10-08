@@ -28,6 +28,10 @@ export class ObserverBackend implements Backend {
   constructor(private fm: Foreman, private chatFile = chatConfigPath()) {}
 
   async start(): Promise<void> {
+    if (this.fm.team) {
+      this.fm.setStatus({ auth: 'unknown', message: 'Команда из team.json. Настройка подключений — следующий этап.' });
+      return;
+    }
     const lead = this.fm.requireAgent('marlow');
     lead.name = 'Codex';
     lead.title = 'Наблюдение';
@@ -236,6 +240,10 @@ export class ObserverBackend implements Backend {
     } catch (e) { throw new ClientError((e as Error).message); }
   }
   async onStudioAction(action: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (this.fm.team) {
+      if (action === 'get') return { team: this.fm.team.snapshot(), profiles: this.fm.agents(), mode: 'planning', items: [], notice: 'Команда готова к настройке подключений' };
+      throw new ClientError('Для новой команды используй team.get/create/update/disable/archive/restore. Подключения и очередь будут добавлены отдельно.');
+    }
     if (!this.studio) throw new ClientError('Пульт ещё запускается.');
     return this.studio.action(action, payload);
   }

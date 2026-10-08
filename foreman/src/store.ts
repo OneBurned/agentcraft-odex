@@ -130,8 +130,8 @@ export class Store {
     ensureDir(path.join(this.dir, 'logs'));
     const loaded = this.loadFile();
     this.data = loaded ?? emptyState(opts.now ?? Date.now());
-    if (!['marlow', 'wren'].includes(this.data.replyAgentId ?? '')) {
-      this.data.replyAgentId = this.data.feed.map(replyAuthor).filter(id => id !== undefined).at(-1) ?? 'marlow';
+    if (!this.data.replyAgentId || !/^[a-z0-9_-]{1,64}$/.test(this.data.replyAgentId)) {
+      this.data.replyAgentId = this.data.feed.map(replyAuthor).filter(id => id !== undefined).at(-1);
     }
     if (!loaded) this.flush();
   }

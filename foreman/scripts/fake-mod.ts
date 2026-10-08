@@ -136,7 +136,7 @@ function send(obj: Record<string, unknown>): void {
     out(paint('red', 'not connected'));
     return;
   }
-  ws.send(JSON.stringify({ v: 1, id: `c${++msgSeq}`, ...obj }));
+  ws.send(JSON.stringify({ v: 2, id: `c${++msgSeq}`, ...obj }));
 }
 
 function connect(): void {
@@ -144,7 +144,7 @@ function connect(): void {
   ws.on('open', () => {
     backoff = 500;
     out(paint('green', `connected to ${url}`));
-    ws!.send(JSON.stringify({ v: 1, type: 'hello', modVersion: 'fake-mod 0.1.0', protocol: 1, client: 'cli' }));
+    ws!.send(JSON.stringify({ v: 2, type: 'hello', modVersion: 'fake-mod 0.1.0', protocol: 2, client: 'cli' }));
   });
   ws.on('message', (data) => {
     let m: ServerMessage;

@@ -160,7 +160,7 @@ it('does not celebrate failed observer checks or historical completions, and iso
   await h.fm.start(backend);
   const say = vi.spyOn(h.fm.personas!, 'say');
   backend.onChatActivity({ key: 'chat/old', phase: 'completed' }); expect(say).not.toHaveBeenCalled();
-  backend.onObserverUpdate({ v: 1, type: 'observer.update', key: 'chat/task', title: 'Task', state: 'error', ci: 'fail', activity: 'Failed' });
+  backend.onObserverUpdate({ v: 2, type: 'observer.update', key: 'chat/task', title: 'Task', state: 'error', ci: 'fail', activity: 'Failed' });
   backend.onChatActivity({ key: 'chat/old', phase: 'completed' });
   expect(say.mock.calls).toEqual([['marlow', 'error']]);
   const before = JSON.stringify(h.fm.store.data);
@@ -175,14 +175,14 @@ it('accepts only real idle scene kinds and ignores a busy or paused character wi
   h.fm.setAgent('wren', { active: true, paused: false, state: 'idle', station: 'lounge' });
   const before = JSON.stringify(h.fm.store.data);
   const replies: Outbound[] = [];
-  await h.fm.handle({ v: 1, id: 'scene', type: 'agent.scene', agentId: 'wren', event: 'dance' }, m => replies.push(m));
+  await h.fm.handle({ v: 2, id: 'scene', type: 'agent.scene', agentId: 'wren', event: 'dance' }, m => replies.push(m));
   expect(say).toHaveBeenCalledWith('wren', 'dance');
   expect(replies.at(-1)).toMatchObject({ type: 'ack', ok: true });
   expect(JSON.stringify(h.fm.store.data)).toBe(before);
   for (const patch of [{ state: 'editing' as const }, { state: 'idle' as const, paused: true }, { paused: false, active: false }]) {
     h.fm.setAgent('wren', patch);
-    await h.fm.handle({ v: 1, type: 'agent.scene', agentId: 'wren', event: 'dance' }, () => {});
+    await h.fm.handle({ v: 2, type: 'agent.scene', agentId: 'wren', event: 'dance' }, () => {});
   }
   expect(say).toHaveBeenCalledTimes(1);
-  expect(parseClientMessage({ v: 1, type: 'agent.scene', agentId: 'wren', event: 'task_finished' }).ok).toBe(false);
+  expect(parseClientMessage({ v: 2, type: 'agent.scene', agentId: 'wren', event: 'task_finished' }).ok).toBe(false);
 });
