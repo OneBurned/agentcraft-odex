@@ -13,6 +13,7 @@ import { ClaudeDeveloper } from './agents/claude/developer.js';
 export type ConnectionPhase = ChatActivity['phase'] | 'external';
 export interface WorkRequest { role: 'developer' | 'reviewer'; cwd: string; taskId?: string; run?: string; }
 export interface AdapterEvents {
+  useClaudeLogin?: boolean;
   permission?(cwd: string, signal: AbortSignal): CanUseTool;
   personaDescription?(): string | undefined;
   activity(phase: ConnectionPhase, detail?: string): void;
@@ -83,6 +84,7 @@ export class ClaudeAdapter implements AgentAdapter {
       this.store.assertCurrent(c); return claudeWorkspace(c.workspace);
     });
     this.developer = developer ?? new ClaudeDeveloper({ agentId: c.agentId, workspace: c.workspace,
+      useClaudeLogin: events.useClaudeLogin ?? false,
       file: store.file(`agents/${c.agentId}/claude-developer.json`), executable: () => findClaude(c.executable),
       assertCurrent: () => store.assertCurrent(c), permission: (cwd, signal) => {
         if (!events.permission) throw new Error('Игровые разрешения Claude не подключены.');
@@ -121,6 +123,8 @@ export class ClaudeAdapter implements AgentAdapter {
   execute(text: string, work: WorkRequest) { return this.send(text, 'task', false, work); }
   async send(text: string, purpose: 'message' | 'task', retry = false, work?: WorkRequest): Promise<Record<string, unknown>> {
     this.store.assertCurrent(this.c);
+    const external = this.runner.externalStatus?.();
+    if (external) throw new Error(external);
     if (this.closed || this.busy() || this.polling) throw new Error(this.runner.externalStatus?.() || 'Агент занят. Дождись завершения команды.');
     if (!this.ready) throw new Error('Подключение Claude ещё не подтверждено.');
     if (this.state.paused && !retry) throw new Error('Сначала продолжи или останови приостановленный ответ.');
@@ -156,9 +160,7 @@ export class ClaudeAdapter implements AgentAdapter {
     try {
       // Abort prevents a pre-spawn await from launching a late child. stop() verifies child exit.
       this.abort?.abort();
-      await this.developer.stop();
-      await this.runner.stop();
-      await this.running;
+      await this.stopRunners();
       this.stopUnconfirmed = false;
       delete this.state.error;
       this.state.paused = action === 'pause' && !!this.state.pending;
@@ -170,7 +172,17 @@ export class ClaudeAdapter implements AgentAdapter {
   }
   async dispose() {
     this.closed = true; clearInterval(this.timer);
-    this.abort?.abort(); await this.developer.stop(); await this.runner.stop(); await this.running;
+    this.abort?.abort(); await this.stopRunners();
+  }
+  private async stopRunners() {
+    // Attempt both stops even if one throws synchronously; don't await a live turn after failed stop.
+    const results = await Promise.allSettled([
+      Promise.resolve().then(() => this.developer.stop()),
+      Promise.resolve().then(() => this.runner.stop()),
+    ]);
+    const errors = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected').map(r => r.reason);
+    if (errors.length) throw new AggregateError(errors, errors.map(e => e instanceof Error ? e.message : String(e)).join('; '));
+    await this.running;
   }
 }
 

@@ -1756,16 +1756,31 @@ Building source does not restart the personal bridge or install a mod.
 Claude developer assignments run through the Agent SDK in the authorized project
 checkout, using the shared Claude permission policy and a separate persisted session
 per task attempt. They do not require the legacy Claude backend or a worktree.
+SDK authorization follows `agents/claude/auth.ts`: API key, cloud provider or API
+gateway by default; missing API configuration fails before an SDK call/session
+creation. The API-mode child environment removes subscription OAuth credentials.
+Personal Claude login requires explicit `--use-claude-login`,
+`AGENTCRAFT_USE_CLAUDE_LOGIN=1` or `claude.useClaudeLogin: true` in config.json.
+The developer role does not enable login implicitly, including in portable builds.
+The SDK client application identifier matches the legacy backend.
 Permissions become in-game decisions; process receipts retain ownership until the
 CLI and its descendants have exited. An SDK failure opens a queue question instead
 of leaving a coding task silently paused. Reports use a validated JSON schema and the
 same run correlation and commit checks as Codex. See [ROLE_QUEUE.md](ROLE_QUEUE.md)
 for setup, session boundaries and the opt-in real-model check.
 
+Stopping/disposing the adapter attempts both the SDK runner and dialogue runner
+independently. A failed stop remains unconfirmed even when the other runner exits;
+it does not wait indefinitely for the failed runner's pending turn. A conversation
+held by terminal/Code still reserves the agent, including for new SDK development;
+the adapter rechecks ownership before sending work, not only during background polls.
+
 The Windows live check on 2026-10-08 passed: real Claude edited the fixture, ran its
 check, committed, and delivered a report accepted by the queue. A simulated second
 agent received the exact review range. This does not claim real model review or
-in-game visual verification, and does not update the personal installation.
+in-game visual verification, and does not update the personal installation. That
+work-loop probe predates the auth-mode correction. The corrected default/opt-in
+authorization is covered with a simulated SDK; no new paid API probe was run.
 
 ## Codex reviewer in the role queue (A7)
 

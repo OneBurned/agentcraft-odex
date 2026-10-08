@@ -57,6 +57,7 @@ export class AgentRuntime {
           const history = History.parse(readJson(this.historyFile(a.id)) ?? []);
           const current = () => !this.closed && this.slots.get(a.id) === slot;
           const adapter = this.factory(connection, this.connections, {
+            useClaudeLogin: this.fm.config.claude.useClaudeLogin,
             permission: (cwd, signal) => toolPermission(this.fm, a.id, 'worker', cwd, { signal }, 'agentcraft',
               waiting => { if (current()) this.activity(a.id, waiting ? 'waiting' : 'working', waiting ? 'Нужно разрешение в игре' : 'Выполняю задачу'); }),
             personaDescription: () => this.fm.personas?.description(a.id),

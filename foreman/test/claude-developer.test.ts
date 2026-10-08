@@ -18,6 +18,7 @@ import { type ProcEntry } from '../src/util/proc.js';
 import { processTable } from '../src/util/proc.js';
 import type { AgentConnections } from '../src/agent-connections.js';
 import { tempDir, rmrf, testConfig, until } from './helpers.js';
+import { CLAUDE_LOGIN_VARS, PROVIDER_SWITCHES } from '../src/agents/claude/auth.js';
 
 const dirs: string[] = [], cores: Foreman[] = [], processes: ClaudeProcess[] = [];
 const dir = () => { const d = tempDir('claude-developer-'); dirs.push(d); return d; };
@@ -25,6 +26,7 @@ afterEach(async () => {
   for (const f of cores.splice(0)) await f.close();
   for (const p of processes.splice(0)) await p.stop();
   for (const d of dirs.splice(0)) rmrf(d);
+  vi.unstubAllEnvs();
 });
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, windowsHide: true, stdio: 'pipe' }).toString().trim();
 function repo() {
@@ -50,11 +52,16 @@ function sdk(body: (o: Options, prompt: string) => Promise<string> = async o => 
     return Object.assign(iterator, { close() {} });
   }) as unknown as typeof query;
 }
-function developer(queryFn = sdk()) {
+function authEnvironment(env: Record<string, string> = { ANTHROPIC_API_KEY: 'fixture-api-key' }) {
+  for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', ...CLAUDE_LOGIN_VARS, ...Object.keys(PROVIDER_SWITCHES)]) vi.stubEnv(key, undefined);
+  for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
+}
+function developer(queryFn = sdk(), useClaudeLogin = false) {
+  authEnvironment();
   const cwd = repo(), w = workspace(cwd), file = path.join(dir(), 'session.json');
   const permission = vi.fn(() => vi.fn(async () => ({ behavior: 'allow' as const })));
   const d = new ClaudeDeveloper({ agentId: 'test_dev', workspace: w, file, executable: () => process.execPath,
-    assertCurrent() {}, permission, queryFn });
+    assertCurrent() {}, permission, queryFn, useClaudeLogin });
   const work = { role: 'developer' as const, cwd, taskId: 't1', run: randomUUID() };
   return { d, cwd, w, file, work, permission, queryFn };
 }
@@ -67,10 +74,35 @@ it('uses an SDK session in the authorized project and resumes only the same task
   expect((calls[0]!.outputFormat as any).schema.$schema).toBeUndefined();
   expect(calls[0]!.strictMcpConfig).toBe(true);
   expect(calls[0]!.env?.GIT_ALLOW_PROTOCOL).toBe('agentcraft-none');
+  expect(calls[0]!.env?.CLAUDE_AGENT_SDK_CLIENT_APP).toMatch(/^agentcraft-foreman\//);
   expect(calls[1]!.resume).toBe(calls[0]!.sessionId); expect(calls[2]!.sessionId).not.toBe(calls[0]!.sessionId);
   const hook = calls[0]!.hooks!.PreToolUse![0]!.hooks[0]!;
   expect(await hook({ hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: { file_path: 'file.txt' } } as any, 'use1', { signal: new AbortController().signal })).toMatchObject({ hookSpecificOutput: { permissionDecision: 'allow' } });
   expect(x.permission.mock.results[0]!.value).toHaveBeenCalled();
+});
+it('rejects missing API authentication before SDK or session creation even with a Claude login token', async () => {
+  const x = developer(); authEnvironment({ CLAUDE_CODE_OAUTH_TOKEN: 'fixture-login' });
+  await expect(x.d.run('Task', new AbortController().signal, { text: '', context: '', retry: false, work: x.work })).rejects.toThrow('No Claude API key');
+  expect(x.queryFn).not.toHaveBeenCalled(); expect(fs.existsSync(x.file)).toBe(false); expect(x.d.isRunning()).toBe(false);
+});
+it.each([
+  { ANTHROPIC_API_KEY: 'fixture-api-key' },
+  ...Object.keys(PROVIDER_SWITCHES).map(key => ({ [key]: '1' })),
+  { ANTHROPIC_AUTH_TOKEN: 'fixture-gateway', ANTHROPIC_BASE_URL: 'https://gateway.example.invalid' },
+])('allows configured API/provider authentication and strips subscription credentials: %j', async env => {
+  const x = developer(); authEnvironment({ ...env, CLAUDE_CODE_OAUTH_TOKEN: 'fixture-login' } as Record<string, string>);
+  await x.d.run('Task', new AbortController().signal, { text: '', context: '', retry: false, work: x.work });
+  const options = vi.mocked(x.queryFn).mock.calls[0]![0].options!;
+  expect(options.env).toMatchObject(env); expect(options.env).not.toHaveProperty('CLAUDE_CODE_OAUTH_TOKEN');
+});
+it('uses subscription login only with explicit opt-in and rechecks authentication on resume', async () => {
+  const personal = developer(sdk(), true); authEnvironment({ CLAUDE_CODE_OAUTH_TOKEN: 'fixture-login' });
+  await personal.d.run('Task', new AbortController().signal, { text: '', context: '', retry: false, work: personal.work });
+  expect(vi.mocked(personal.queryFn).mock.calls[0]![0].options!.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe('fixture-login');
+  const api = developer(); const run = () => api.d.run('Task', new AbortController().signal, { text: '', context: '', retry: true, work: api.work });
+  await run(); const saved = fs.readFileSync(api.file, 'utf8'); authEnvironment(); vi.stubEnv('ANTHROPIC_API_KEY', undefined);
+  await expect(run()).rejects.toThrow('No Claude API key'); expect(api.queryFn).toHaveBeenCalledTimes(1);
+  expect(fs.readFileSync(api.file, 'utf8')).toBe(saved);
 });
 it('refuses a foreign checkout and missing attempt before invoking SDK', async () => {
   const x = developer();
@@ -89,6 +121,53 @@ it('rejects SDK process launch in another directory and retains failed turns wit
   }));
   await expect(x.d.run('Task', new AbortController().signal, { text: '', context: '', retry: false, work: x.work })).rejects.toThrow('SDK failure');
   expect(x.d.isRunning()).toBe(false);
+});
+
+it.each([false, true])('runtime passes the explicit Claude login setting to the agent adapter: %s', async optedIn => {
+  vi.stubEnv('AGENTCRAFT_USE_CLAUDE_LOGIN', undefined);
+  const f = new Foreman({ config: testConfig(dir(), ['--backend', 'observer', ...(optedIn ? ['--use-claude-login'] : [])]), logger: silentLogger }); cores.push(f);
+  const factory = vi.fn((_c, _store, events) => ({ start: () => events.activity('idle'), busy: () => false,
+    dispose: async () => {}, send: async () => ({}), control: async () => ({}) }));
+  const backend = new ObserverBackend(f, undefined, factory); await f.start(backend);
+  f.teamAction('team.create', { revision: f.team!.snapshot().revision, agent: { name: 'Developer', provider: 'claude', roles: ['developer'], enabled: true, visible: true,
+    appearance: { skin: 'wren', color: '#123456', slim: false } } });
+  const w = workspace(repo()), id = f.team!.snapshot().agents[0]!.id;
+  await backend.onStudioAction('connection.bind', { id, revision: f.team!.snapshot().revision,
+    connection: { provider: 'claude', transport: 'claude-code', workspace: w, sessionId: readJson<any>(path.join(w, 'conversation.json')).sessionId } });
+  expect(factory).toHaveBeenCalledTimes(1); expect(factory.mock.calls[0]![2].useClaudeLogin).toBe(optedIn);
+});
+
+function adapterWithRunners() {
+  const storage = dir(), events = { activity: vi.fn(), text: vi.fn(), history: vi.fn() };
+  const runner = { history: async () => [], externalStatus: vi.fn((): string | undefined => undefined), run: vi.fn(async () => 'chat'), stop: vi.fn(async () => {}) };
+  const developer = { run: vi.fn(async () => 'result'), stop: vi.fn(async () => {}) };
+  const store = { file: (s: string) => path.join(storage, s), assertCurrent() {} } as unknown as AgentConnections;
+  const adapter = new ClaudeAdapter({ version: 1, agentId: 'test_dev', provider: 'claude', transport: 'claude-code', workspace: storage, sessionId: randomUUID() }, store, events, runner, developer);
+  return { adapter, runner, developer, events };
+}
+it.each(['dispose', 'stop'] as const)('%s attempts both runners and retains a failed stop until confirmation', async action => {
+  const x = adapterWithRunners(); await x.adapter.poll();
+  x.developer.stop.mockRejectedValue(new Error('Process table unavailable'));
+  let finish = () => {}; x.runner.stop.mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
+  let settled = false;
+  const result = (action === 'dispose' ? x.adapter.dispose() : x.adapter.control('stop')).then(() => { settled = true; return undefined; }, e => { settled = true; return e; });
+  await until(() => x.runner.stop.mock.calls.length === 1);
+  expect(x.developer.stop).toHaveBeenCalledTimes(1); expect(settled).toBe(false);
+  finish(); expect(await result).toMatchObject({ message: 'Process table unavailable' });
+  if (action === 'stop') {
+    expect(x.adapter.busy()).toBe(true); expect(x.events.activity.mock.calls.at(-1)![0]).toBe('unavailable');
+    x.developer.stop.mockResolvedValue(); x.runner.stop.mockResolvedValue();
+    await x.adapter.control('stop'); expect(x.adapter.busy()).toBe(false); await x.adapter.dispose();
+  }
+});
+it('does not launch SDK work if the common conversation moved to a terminal after the last poll', async () => {
+  const x = adapterWithRunners(); await x.adapter.poll();
+  x.runner.externalStatus.mockReturnValue('Conversation is open in Code');
+  const work = { role: 'developer' as const, cwd: dir(), taskId: 't1', run: randomUUID() };
+  await expect(x.adapter.execute('Task', work)).rejects.toThrow('open in Code'); expect(x.developer.run).not.toHaveBeenCalled();
+  x.runner.externalStatus.mockReturnValue(undefined); await x.adapter.execute('Task', work);
+  await until(() => x.events.text.mock.calls.length === 1); expect(x.developer.run).toHaveBeenCalledTimes(1);
+  await x.adapter.dispose();
 });
 
 async function core() {
@@ -138,6 +217,7 @@ it('confirms exit of a real CLI process and its child before releasing the recei
 }, 45000);
 
 it.each(['pause', 'stop', 'unconfirmed'] as const)('adapter %s waits for the SDK process tree and preserves the run on pause', async mode => {
+  authEnvironment();
   const cwd = repo(), w = workspace(cwd), storage = dir(), childIds: number[] = [];
   let readable = mode !== 'unconfirmed', session = '';
   const p = new ClaudeProcess(path.join(storage, 'process.json'), () => readable ? processTable() : Promise.resolve(undefined)); processes.push(p);
@@ -181,6 +261,7 @@ it.each(['pause', 'stop', 'unconfirmed'] as const)('adapter %s waits for the SDK
 }, 60000);
 
 async function queueScenario(real = false) {
+  if (!real) authEnvironment();
   const f = await core(), cwd = repo(), w = workspace(cwd), adapters: AgentAdapter[] = [];
   let developerId = '', reviewerId = '', reviewPrompt = '', liveError = '', finalResult = '';
   fs.writeFileSync(path.join(cwd, 'check.cjs'), `require('node:assert/strict').equal(require('node:fs').readFileSync('test-result.txt','utf8'),'tested');`); commit(cwd);
@@ -207,7 +288,8 @@ async function queueScenario(real = false) {
       events.activity = (phase, notice) => { if (phase === 'error' || phase === 'unavailable') liveError ||= notice ?? phase; activity(phase, notice); };
       events.text = (value, final) => { if (final) finalResult = value; text(value, final); };
       const d = new ClaudeDeveloper({ agentId: c.agentId, workspace: w, file: path.join(dir(), 'dev.json'),
-        executable: () => real ? findClaude() : process.execPath, assertCurrent: () => { store.assertCurrent(c); }, permission: events.permission!, queryFn });
+        executable: () => real ? findClaude() : process.execPath, assertCurrent: () => { store.assertCurrent(c); }, permission: events.permission!, queryFn,
+        useClaudeLogin: events.useClaudeLogin });
       const a = new ClaudeAdapter(c, store, events, { history: async () => [], run: async () => 'chat', stop: async () => {} }, d);
       adapters.push(a); return a;
     }
