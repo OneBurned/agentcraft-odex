@@ -116,6 +116,55 @@ it('a changed HEAD invalidates the review result', async () => {
   const p = { id: i.id, run: i.attempt!.run, agentId: x.ids[2], head: i.head, verdict: 'pass', summary: 'ok' };
   x.change(); await expect(x.action('review.report', p)).rejects.toThrow('HEAD'); expect(i.stage).toBe('question');
 });
+it.each(['pass', 'changes', 'question'] as const)('review %s consumes its key once and rejects foreign keys, agents and malformed verdicts', async verdict => {
+  const x = await fixture(), i = await x.create({ developerId: x.ids[1] }); await x.action('start'); await x.done(i);
+  const p = { id: i.id, run: i.attempt!.run, agentId: x.ids[2], head: i.head, verdict, summary: 'Reviewed Claude changes' };
+  const before = JSON.stringify(i);
+  for (const patch of [{ run: randomUUID() }, { agentId: x.ids[0] }, { verdict: 'approved' }, { summary: '' }, { summary: ' '.repeat(3) }, { extra: true }])
+    await expect(x.action('review.report', { ...p, ...patch })).rejects.toThrow();
+  expect(JSON.stringify(i)).toBe(before);
+  x.keys.set(x.ids[2]!, 'changed-review-connection');
+  await expect(x.action('review.report', p)).rejects.toThrow('изменилось');
+  x.keys.set(x.ids[2]!, x.ids[2]!);
+  await x.action('review.report', p);
+  const accepted = JSON.stringify(i);
+  await expect(x.action('review.report', p)).rejects.toThrow('уже использован');
+  await expect(x.action('review.report', { ...p, summary: 'Another summary' })).rejects.toThrow('уже использован');
+  expect(JSON.stringify(i)).toBe(accepted);
+});
+it.each(['tracked', 'staged', 'untracked'] as const)('rejects %s changes during review with a question and preserves the files', async kind => {
+  const x = await fixture(), i = await x.create(); await x.action('start'); await x.done(i);
+  const p = { id: i.id, run: i.attempt!.run, agentId: x.ids[2], head: i.head, verdict: 'pass', summary: 'Looks good' };
+  const file = path.join(x.cwd, kind === 'untracked' ? 'new-file.txt' : 'file.txt'); fs.writeFileSync(file, 'reviewer change');
+  if (kind === 'staged') execFileSync('git', ['add', 'file.txt'], { cwd: x.cwd, windowsHide: true });
+  await expect(x.action('review.report', p)).rejects.toThrow('несохранённые');
+  expect(i.stage).toBe('question'); expect(i.reason).toContain('Ревью отклонено');
+  expect(i.receipts[p.run]).toBeUndefined(); expect(fs.readFileSync(file, 'utf8')).toBe('reviewer change');
+  expect(x.fm.decisions.open().some(d => d.taskId === i.id && d.agentId === x.ids[2])).toBe(true);
+  await expect(x.action('review.report', p)).rejects.toThrow('не активны');
+});
+it('review keys are rejected after pause/stop and a new attempt never reuses the stopped key', async () => {
+  const x = await fixture(), i = await x.create(); await x.action('start'); await x.done(i);
+  const p = { id: i.id, run: i.attempt!.run, agentId: x.ids[2], head: i.head, verdict: 'pass', summary: 'Old result' };
+  await x.q.control(x.ids[2]!, 'pause'); await expect(x.action('review.report', p)).rejects.toThrow('не активны');
+  await x.q.control(x.ids[2]!, 'resume'); await x.q.control(x.ids[2]!, 'stop');
+  await expect(x.action('review.report', p)).rejects.toThrow('не активны');
+  await x.action('retry', { id: i.id, answer: 'Checked previous process and Git' }); await x.action('start');
+  expect(i.attempt?.run).not.toBe(p.run); await expect(x.action('review.report', p)).rejects.toThrow('не активны');
+});
+it('a dirty project before review is not delivered to the Codex reviewer', async () => {
+  const x = await fixture(), i = await x.create(); await x.action('start'); x.change();
+  await x.action('report', { id: i.id, run: i.attempt!.run, agentId: x.ids[0], status: 'done', summary: 'Ready', checks: 'Tests', ci: 'pass' });
+  fs.writeFileSync(path.join(x.cwd, 'uncommitted.txt'), 'user edit'); x.busy.delete(x.ids[0]!); await x.q.tick();
+  expect(i.stage).toBe('question'); expect(x.calls).toHaveLength(1);
+});
+it('stopping a queue removes failure callbacks and ignores a previously captured callback', async () => {
+  const x = await fixture(), i = await x.create(); x.q.start(); await x.action('start');
+  const r = x.runtime as unknown as AgentRuntime, failure = r.onFailure!; await x.q.stop();
+  expect(r.onFailure).toBeUndefined(); const before = JSON.stringify(x.fm.store.data.backend.roleQueue);
+  failure(x.ids[0]!, 'Late Codex error'); await new Promise(resolve => setTimeout(resolve, 0));
+  expect(JSON.stringify(x.fm.store.data.backend.roleQueue)).toBe(before); expect(i.stage).toBe('coding');
+});
 it('does not start review or another project while the reporting provider still runs', async () => {
   const x = await fixture(), i = await x.create(); await x.create({ repoId: x.project2.id, developerId: x.ids[1], noReview: true, reviewerId: null });
   await x.action('start'); x.change();

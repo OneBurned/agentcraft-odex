@@ -1766,3 +1766,15 @@ The Windows live check on 2026-10-08 passed: real Claude edited the fixture, ran
 check, committed, and delivered a report accepted by the queue. A simulated second
 agent received the exact review range. This does not claim real model review or
 in-game visual verification, and does not update the personal installation.
+
+## Codex reviewer in the role queue (A7)
+
+Both Codex Desktop and CLI receive the task, expected result, developer checks,
+commit ranges and reviewed HEAD, with explicit instructions not to change files.
+`studio.mjs review --file <json> --port <port>` accepts the same strict envelope as
+`review.report`; accepted review keys cannot be replayed, including identical reports.
+Dirty/unavailable Git state or a changed HEAD rejects the verdict and opens a queue
+question. Provider errors also open a question; stopped queues discard their failure
+callbacks. Desktop/CLI transport and helper tests use isolated fixtures, with no real
+Codex model calls or messages to other chats. Permissions remain those of the Codex
+connection; see [ROLE_QUEUE.md](ROLE_QUEUE.md) for the limits of the Git checks.

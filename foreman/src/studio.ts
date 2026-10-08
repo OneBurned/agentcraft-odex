@@ -41,8 +41,8 @@ export class TeamStudio {
       const { id, control } = selected.extend({ control: z.enum(['pause', 'resume', 'stop']) }).strict().parse(payload);
       return this.queue.control(id, control);
     } else {
-      const result = await this.queue.action(action, payload);
-      return ['report', 'review.report'].includes(action) ? result : this.action('get', {});
+      const result = await this.queue.action(action === 'review' ? 'review.report' : action, payload);
+      return ['report', 'review', 'review.report'].includes(action) ? result : this.action('get', {});
     }
     this.fm.syncTeam();
     return { team };
