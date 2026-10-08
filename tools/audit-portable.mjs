@@ -19,6 +19,10 @@ const publicIds = new Set([
   '00000000-0000-0000-0000-000000000000', // UUID validator sentinel
   'ffffffff-ffff-ffff-ffff-ffffffffffff', // UUID validator sentinel
   '3ab19d7e-9f35-45c2-926e-75e271cc60b3', // SDK remote-session UUID namespace, sdk.mjs
+  '9d1c250a-e61b-44d9-88ed-5944d1962f5e', // Claude SDK public OAuth client ID, sdk.mjs
+  '59637612-477b-4836-a601-b0589eda7704', // Claude SDK public Design OAuth client ID, sdk.mjs
+  '22422756-60c9-4084-8eb7-27705fd5cf9a', // Claude SDK local OAuth client ID, sdk.mjs
+  '00000000-0000-4000-8000-000000000000', // Claude SDK local Design client sentinel, sdk.mjs
 ]);
 // Only reviewed, byte-identical third-party attribution/binaries can exempt public emails/UUIDs.
 // No exception ever exempts personal project names, paths, state files or private personalities.

@@ -84,6 +84,17 @@ test('public protocol GUID does not hide a private session ID in the same file',
   await fs.appendFile(path.join(root, 'protocol.txt'), '\n12345678-1234-1234-1234-123456789abc');
   assert.ok((await auditPortable(root)).issues.some(i => i.rule === 'session-id'));
 });
+test('public SDK OAuth client constants do not exempt private sessions or account data', async t => {
+  const ids = ['9d1c250a-e61b-44d9-88ed-5944d1962f5e', '59637612-477b-4836-a601-b0589eda7704', '22422756-60c9-4084-8eb7-27705fd5cf9a', '00000000-0000-4000-8000-000000000000'];
+  const sdk = await fs.readFile(new URL('../../foreman/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs', import.meta.url), 'utf8');
+  for (const id of ids) assert.ok(sdk.includes(id));
+  const root = await fixture(t, { 'sdk.js': ids.join('\n') });
+  assert.equal((await auditPortable(root)).ok, true);
+  await fs.appendFile(path.join(root, 'sdk.js'), '\n12345678-1234-1234-1234-123456789abc\nowner@private.invalid');
+  const result = await auditPortable(root);
+  assert.ok(result.issues.some(i => i.rule === 'session-id'));
+  assert.ok(result.issues.some(i => i.rule === 'email'));
+});
 test('third-party notice exception expires on any changed byte', async t => {
   const original = await fs.readFile(new URL('../../foreman/node_modules/ws/LICENSE', import.meta.url));
   const root = await fixture(t, { 'licenses/ws-MIT.txt': original });

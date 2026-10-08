@@ -625,7 +625,8 @@ export class Foreman {
         msg.type === 'user.message' && msg.reply === true);
     }
     if (this.config.backend === 'observer' && msg.type === 'decision.answer' &&
-      ['studio', 'role-queue'].includes(this.decisions.get(msg.decisionId)?.tool ?? '')) {
+      (['studio', 'role-queue'].includes(this.decisions.get(msg.decisionId)?.tool ?? '') ||
+        this.team && !this.migratedPair && this.decisions.get(msg.decisionId)?.kind === 'permission')) {
       await this.answerDecision(msg.decisionId, msg.option, msg.text);
       return { decisionId: msg.decisionId };
     }

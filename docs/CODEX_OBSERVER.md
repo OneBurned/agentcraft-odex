@@ -1750,3 +1750,19 @@ The planning screen assigns a project, developer and reviewer or opts a task out
 auto-selection is an explicit team setting. Queue controls and provider controls are separate.
 Existing migrated pairs opt in with `queue.enable` after resolving old work and pauses.
 Building source does not restart the personal bridge or install a mod.
+
+## Claude developer in the role queue (A6)
+
+Claude developer assignments run through the Agent SDK in the authorized project
+checkout, using the shared Claude permission policy and a separate persisted session
+per task attempt. They do not require the legacy Claude backend or a worktree.
+Permissions become in-game decisions; process receipts retain ownership until the
+CLI and its descendants have exited. An SDK failure opens a queue question instead
+of leaving a coding task silently paused. Reports use a validated JSON schema and the
+same run correlation and commit checks as Codex. See [ROLE_QUEUE.md](ROLE_QUEUE.md)
+for setup, session boundaries and the opt-in real-model check.
+
+The Windows live check on 2026-10-08 passed: real Claude edited the fixture, ran its
+check, committed, and delivered a report accepted by the queue. A simulated second
+agent received the exact review range. This does not claim real model review or
+in-game visual verification, and does not update the personal installation.

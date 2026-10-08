@@ -52,6 +52,15 @@ async function fixture() {
   return { root, cwd, other, project, project2, fm, ids, busy, keys, calls, runtime, q, action, create, change, done };
 }
 
+it('an asynchronous SDK failure opens a question while retaining the attempt and project', async () => {
+  const x = await fixture(), i = await x.create(); x.q.start(); await x.action('start');
+  const attempt = i.attempt;
+  (x.runtime as unknown as AgentRuntime).onFailure!(x.ids[0]!, 'SDK could not start');
+  await x.q.tick();
+  expect(i.stage).toBe('question'); expect(i.reason).toContain('SDK could not start');
+  expect(i.attempt).toBe(attempt); expect(i.lock).toBeTruthy();
+  expect(x.fm.decisions.open().some(d => d.taskId === i.id)).toBe(true);
+});
 it('dispatches explicit assignments, exact commit ranges and returns corrections to the same developer', async () => {
   const x = await fixture(), i = await x.create(); await x.action('start');
   expect(x.calls[0]?.id).toBe(x.ids[0]); expect(i.stage).toBe('coding');
@@ -148,12 +157,12 @@ it('retry requires an answer before touching the provider', async () => {
   const x = await fixture(), i = await x.create(); await x.action('start'); await x.q.control(x.ids[0]!, 'stop');
   x.runtime.control.mockClear(); await expect(x.action('retry', { id: i.id })).rejects.toThrow('ответ'); expect(x.runtime.control).not.toHaveBeenCalled();
 });
-it('only developer work enables native Claude editing tools, and only for an authorized project', async () => {
+it('dialog stays read-only and directs authorized development to the SDK', async () => {
   const x = await fixture(), workspace = path.join(x.root, 'workspace'); fs.mkdirSync(workspace);
   writeJsonAtomic(path.join(workspace, 'access.json'), { version: 1, repositories: [{ id: 'one', name: 'One', path: x.cwd, github: 'example/one' }] });
   const w = { directory: workspace, args: [], instructions: '' };
   expect(workArguments(undefined, w).tools).toBe(''); expect(workArguments({ role: 'reviewer', cwd: x.cwd }, w).tools).toBe('');
-  expect(workArguments({ role: 'developer', cwd: x.cwd }, w).tools).toContain('Edit');
+  expect(() => workArguments({ role: 'developer', cwd: x.cwd }, w)).toThrow('SDK');
   expect(() => workArguments({ role: 'developer', cwd: x.other }, w)).toThrow('не разрешён');
 });
 

@@ -14,6 +14,7 @@ import { WorkspaceConfig } from './claude-workspace.js';
 import type { WorkRequest } from './agent-adapters.js';
 import fs from 'node:fs';
 import path from 'node:path';
+import { toolPermission } from './agents/claude/permissions.js';
 
 interface Slot { connection: Connection; ref: string; adapter: AgentAdapter; phase: ConnectionPhase; notice: string; history: ConversationMessage[]; rest?: NodeJS.Timeout; }
 const History = z.array(z.object({ id: z.string(), role: z.enum(['user', 'assistant']), text: z.string() }));
@@ -22,6 +23,7 @@ const stations: Record<ObserverUpdate['state'], Station> = { thinking: 'meeting'
 /** Each slot owns its adapter, control state, history and callbacks. No provider-global recipient. */
 export class AgentRuntime {
   onFinal?: (id: string, text: string) => void;
+  onFailure?: (id: string, reason: string) => void;
   projectHint?: (id: string) => string | undefined;
   readonly connections: AgentConnections;
   private slots = new Map<string, Slot>();
@@ -55,6 +57,8 @@ export class AgentRuntime {
           const history = History.parse(readJson(this.historyFile(a.id)) ?? []);
           const current = () => !this.closed && this.slots.get(a.id) === slot;
           const adapter = this.factory(connection, this.connections, {
+            permission: (cwd, signal) => toolPermission(this.fm, a.id, 'worker', cwd, { signal }, 'agentcraft',
+              waiting => { if (current()) this.activity(a.id, waiting ? 'waiting' : 'working', waiting ? 'Нужно разрешение в игре' : 'Выполняю задачу'); }),
             personaDescription: () => this.fm.personas?.description(a.id),
             activity: (phase, notice) => { if (current()) this.activity(a.id, phase, notice); },
             text: (text, final) => { if (current()) this.answer(a.id, text, final); },
@@ -86,6 +90,7 @@ export class AgentRuntime {
     slot.phase = phase;
     const labels: Record<ConnectionPhase, string> = { working: 'Обрабатываю сообщение', waiting: 'Нужен ответ в приложении', completed: 'Ответ готов', interrupted: 'Ответ прерван', error: 'Ошибка исполнителя', idle: 'Ожидаю сообщение', unavailable: 'Связь недоступна; состояние неизвестно', paused: 'Ответ приостановлен', stopped: 'Выполнение остановлено', external: 'Разговор открыт в терминале/Code' };
     slot.notice = notice || labels[phase];
+    if (phase === 'error' && previous !== 'error') this.onFailure?.(id, slot.notice);
     const state: AgentState = phase === 'working' ? 'thinking' : phase === 'waiting' ? 'waiting_user' : phase === 'completed' ? 'done' : phase === 'error' ? 'error' : 'idle';
     if (phase !== previous || notice) {
       if (phase !== previous && ['working', 'waiting', 'paused', 'error'].includes(previous)) {
