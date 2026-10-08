@@ -10,10 +10,11 @@ import { writeReleaseManifest } from './lib/portable-install.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const version=(await fs.readFile(path.join(root,'mod/gradle.properties'),'utf8')).match(/^mod_version=(.+)$/m)[1].trim();
-const { values, positionals } = parseArgs({ allowPositionals: true, options: { 'include-schematics': { type: 'string' } } });
+const { values, positionals } = parseArgs({ allowPositionals: true, options: { 'include-schematics': { type: 'string' }, public: { type: 'boolean', default: false } } });
 if (positionals.length > 1) throw Error('Use --include-schematics <directory> to explicitly include private buildings.');
 const out=path.resolve(positionals[0] || path.join(root,'dist',`AgentCraft-${version}-portable`));
 const buildingSource=values['include-schematics'] ? path.resolve(values['include-schematics']) : null;
+if (values.public && buildingSource) throw Error('Public releases cannot include private schematics.');
 const templates=path.join(root,'tools/portable-templates');
 try { await fs.access(out); throw new Error('Output directory already exists; choose a fresh directory.'); }
 catch(e) { if(e.code!=='ENOENT') throw e; }
@@ -23,6 +24,7 @@ async function copy(from,to) {
   await fs.copyFile(from,to);
 }
 const opts={bundle:true,platform:'node',format:'esm',target:'node24',legalComments:'external', minify:true,
+  ...(values.public ? { define: { 'process.env.AGENTCRAFT_PUBLIC_PACKAGE': '"1"' } } : {}),
   banner:{js:"import { createRequire as _createRequire } from 'node:module'; const require = _createRequire(import.meta.url);"}};
 await build({...opts,entryPoints:[path.join(root,'foreman/src/observer-main.ts')],outfile:path.join(out,'foreman/src/observer-main.mjs')});
 await build({...opts,entryPoints:[path.join(root,'foreman/src/claude-workspace-server.ts')],outfile:path.join(out,'foreman/src/claude-workspace-server.mjs')});
@@ -33,19 +35,20 @@ await build({...opts,entryPoints:[path.join(root,'tools/migrate-team.ts')],outfi
 await build({...opts,entryPoints:[path.join(root,'tools/connect-codex-chat.ts')],outfile:path.join(out,'connect-codex-chat.mjs')});
 await build({...opts,entryPoints:[path.join(root,'tools/klava-terminal.mjs')],outfile:path.join(out,'foreman/src/agent-terminal.mjs')});
 await build({...opts,entryPoints:[path.join(root,'tools/setup-package.ts')],outfile:path.join(out,'foreman/src/setup.mjs')});
-// Replace only declared presentation resources. Classes, skins and third-party notices stay intact.
-const jar=readZip(await fs.readFile(path.join(root,`mod/build/libs/agentcraft-${version}.jar`)));
+// Public releases omit unlicensed personal cosmetics; class bytes and dependency notices stay intact.
+let jar=readZip(await fs.readFile(path.join(root,`mod/build/libs/agentcraft-${version}.jar`)));
 const cast=await fs.readFile(path.join(templates,'cast.json'));
 const cosmeticIds=['girl_swimsuit','gta_sa_girl','skuf','ded_vasyan','girl_no_armor','boy_no_armor'];
+if (values.public) jar=jar.filter(e=>!cosmeticIds.some(id=>e.name===`assets/agentcraft/textures/entity/agent/${id}.png`));
 for (const entry of jar) {
   if (entry.name==='assets/agentcraft/cast.json') entry.data=cast;
   if (/^assets\/agentcraft\/lang\/(en_us|ru_ru)\.json$/.test(entry.name)) {
     const lang=JSON.parse(entry.data.toString('utf8'));
-    cosmeticIds.forEach((id,i)=>lang[`skin.agentcraft.${id}`]=`${entry.name.includes('ru_ru')?'Скин':'Skin'} ${i+1}`);
+    cosmeticIds.forEach((id,i)=> { if (values.public) delete lang[`skin.agentcraft.${id}`]; else lang[`skin.agentcraft.${id}`]=`${entry.name.includes('ru_ru')?'Скин':'Skin'} ${i+1}`; });
     entry.data=Buffer.from(JSON.stringify(lang,null,2)+'\n');
   }
 }
-for (const id of cosmeticIds) if (!jar.some(e=>e.name===`assets/agentcraft/textures/entity/agent/${id}.png`)) throw Error('Missing required cosmetic skin: '+id);
+if (!values.public) for (const id of cosmeticIds) if (!jar.some(e=>e.name===`assets/agentcraft/textures/entity/agent/${id}.png`)) throw Error('Missing required cosmetic skin: '+id);
 await fs.mkdir(path.join(out,'mods'),{recursive:true});
 await fs.writeFile(path.join(out,`mods/agentcraft-${version}.jar`),writeZip(jar));
 await copy(path.join(templates,'personas.json'),path.join(out,'personas.example.json'));
@@ -64,6 +67,10 @@ for(const hash of await fs.readdir(apiRoot)) {
 }
 if(!api) throw new Error('Fabric API dependency has not been downloaded by Gradle.');
 await copy(api,path.join(out,'mods',path.basename(api)));
+const fabricLicense=readZip(await fs.readFile(api)).find(e=>e.name==='LICENSE-fabric-api');
+if (!fabricLicense || !fabricLicense.data.toString('utf8').includes('Apache License')) throw Error('Missing Fabric API license');
+await fs.mkdir(path.join(out,'licenses'),{recursive:true});
+await fs.writeFile(path.join(out,'licenses/Fabric-API-Apache-2.0.txt'),fabricLicense.data);
 await copy(process.execPath,path.join(out,'runtime/node.exe'));
 await copy(path.join(root,'LICENSE'),path.join(out,'licenses/AgentCraft-MIT.txt'));
 await copy(path.join(root,'foreman/node_modules/ws/LICENSE'),path.join(out,'licenses/ws-MIT.txt'));
@@ -79,9 +86,10 @@ await fs.writeFile(path.join(out,'licenses/Node-LICENSE.txt'),await license.text
 await copy(path.join(templates,'cast.json'),path.join(out,'assets-src/cast.json'));
 for(const name of await fs.readdir(path.join(root,'tools/portable'))) {
   const target=name==='agentcraft-client.json'?path.join('config',name):name;
-  await copy(path.join(root,'tools/portable',name),path.join(out,target));
+  const publicOverride=values.public && name==='SOURCES.txt' ? path.join(templates,'public',name) : null;
+  await copy(publicOverride ?? path.join(root,'tools/portable',name),path.join(out,target));
 }
-await fs.writeFile(path.join(out,'BUILD.json'),JSON.stringify({version,minecraft:'26.3',fabricLoader:'0.19.5+',node:nodeVersion,backend:'observer'},null,2));
+await fs.writeFile(path.join(out,'BUILD.json'),JSON.stringify({version,minecraft:'26.3',fabricLoader:'0.19.5+',node:nodeVersion,backend:'observer',publicRelease:values.public,additionalSkins:!values.public},null,2));
 const audit=await auditPortable(out,{allowSchematics:!!buildingSource});
 if (!audit.ok) {
   console.error(JSON.stringify(audit));

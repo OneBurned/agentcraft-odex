@@ -155,6 +155,9 @@ try {
   for (let n = 0; n < 80 && (await get()).dialog?.sessionCursor !== legacyCursor; n++) await new Promise(r => setTimeout(r, 100));
   assert.equal((await get()).dialog.sessionCursor, legacyCursor, 'Bundled SDK must read the bound native session');
   assert.equal((await get()).version, 1);
+  if (JSON.parse(await fs.readFile(path.join(pkg, 'BUILD.json'))).publicRelease) {
+    assert.deepEqual((await get()).skins, ['marlow', 'juniper', 'kit', 'wren', 'rowan', 'tove'], 'Public legacy picker excludes omitted personal skins');
+  }
   const created = await client.send('studio.action', { action: 'create', payload: { title: 'Проверка пакета', description: 'Не выполнять', expected: 'Черновик на доске' } });
   const id = created.result.items[0].id;
   await client.send('studio.action', { action: 'approve', payload: { id } });

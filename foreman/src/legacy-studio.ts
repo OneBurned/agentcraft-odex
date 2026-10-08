@@ -322,7 +322,8 @@ export class Studio {
       repo: this.fm.repos.defaultRepo()?.path ?? '', chat: this.activity?.phase ?? 'unavailable',
       helper: this.reportHelper(), port: this.fm.config.port, notes: this.fm.memory.list(), skins: this.availableSkins() };
   }
-  private availableSkins(): string[] { return [...loadCast(this.fm.config.projectRoot).cast.map(a => a.id), 'girl_swimsuit', 'gta_sa_girl', 'skuf', 'ded_vasyan', 'girl_no_armor', 'boy_no_armor']; }
+  // The public bundle replaces this value at build time; omitted textures must not be offered.
+  private availableSkins(): string[] { return [...loadCast(this.fm.config.projectRoot).cast.map(a => a.id), ...(process.env.AGENTCRAFT_PUBLIC_PACKAGE === '1' ? [] : ['girl_swimsuit', 'gta_sa_girl', 'skuf', 'ded_vasyan', 'girl_no_armor', 'boy_no_armor'])]; }
   async action(action: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     // Pause must be able to abort an in-flight review; reviews never hold the command lock.
     return this.lock(async () => {

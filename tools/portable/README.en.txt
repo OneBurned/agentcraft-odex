@@ -115,8 +115,8 @@ Apply the appearance, selecting wide/slim arms and the outer skin layer as neede
 The file is copied to the game's config/agentcraft-skins folder as SHA-256.png;
 the original file is no longer needed. Selection is saved in config/agentcraft-studio.json.
 Custom imports require 64×64. Some bundled 64×32 skins have a separate legacy conversion;
-this does not enable legacy custom imports. Six additional skins are labelled Skin 1–6.
-Before public distribution, the user must confirm redistribution rights; see SOURCES.txt.
+this does not enable legacy custom imports. Six additional user-supplied skins are
+excluded from public builds. Private builds may label them Skin 1–6; see SOURCES.txt.
 
 BUILDINGS
 The standard package includes no personal building schematics. Put your own .schem
