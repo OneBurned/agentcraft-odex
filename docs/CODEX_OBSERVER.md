@@ -1778,3 +1778,22 @@ question. Provider errors also open a question; stopped queues discard their fai
 callbacks. Desktop/CLI transport and helper tests use isolated fixtures, with no real
 Codex model calls or messages to other chats. Permissions remain those of the Codex
 connection; see [ROLE_QUEUE.md](ROLE_QUEUE.md) for the limits of the Git checks.
+
+## Codex planner in the role queue (A14)
+
+An enabled Codex agent with the `planner` role can list the pool and create an
+unapproved draft through `studio.mjs draft list/create --permit <private-json>`.
+The operator issues a 30-minute, one-card permit using `draft grant --file <json>
+--out <new-private-json>`, choosing the agent and allowed registered projects.
+Permits bind the agent's current connection; every request rechecks planning mode,
+absence of unfinished attempts, role, project paths and pool dependencies.
+Stable per-agent request IDs deduplicate retries, including after a restart and
+with a replacement permit. Drafts require an expected result and cannot set
+assignments or disable review. Approval and start remain operator actions.
+
+The `/planner` WebSocket path accepts only authenticated draft list/create calls;
+neither another hello nor omission of the token grants operator controls. The
+ordinary loopback control channel remains trusted local operator access, not a
+process sandbox. CLI/server tests run against temporary profiles without model
+calls, personal bridge restarts or Minecraft installation. See [ROLE_QUEUE.md](ROLE_QUEUE.md)
+for commands, pagination, expiry and token handling.

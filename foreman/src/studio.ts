@@ -14,6 +14,8 @@ export class TeamStudio {
   start() { this.queue.start(); }
   stop() { return this.queue.stop(); }
   async action(action: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if ('token' in payload && !['draft.list', 'draft.create'].includes(action))
+      throw new Error('Разрешение планировщика не позволяет управлять карточками или командой.');
     const idle = (id: string) => this.fm.assertTeamAgentIdle(id);
     if (action === 'persona.get' || action === 'persona.save') {
       if (!this.fm.personas) throw new Error('Редактор характеров доступен только в режиме наблюдения.');
@@ -42,7 +44,7 @@ export class TeamStudio {
       return this.queue.control(id, control);
     } else {
       const result = await this.queue.action(action === 'review' ? 'review.report' : action, payload);
-      return ['report', 'review', 'review.report'].includes(action) ? result : this.action('get', {});
+      return action.startsWith('draft.') || ['report', 'review', 'review.report'].includes(action) ? result : this.action('get', {});
     }
     this.fm.syncTeam();
     return { team };

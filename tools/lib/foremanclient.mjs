@@ -66,12 +66,12 @@ export class ForemanClient {
 
   /**
    * Connect (retrying while the Foreman starts), send hello and wait for the first snapshot.
-   * @param {{port?:number, host?:string, timeoutMs?:number, retryMs?:number, client?:string, onWait?:(ms:number)=>void}} opts
+   * @param {{port?:number, host?:string, pathname?:string, timeoutMs?:number, retryMs?:number, client?:string, onWait?:(ms:number)=>void}} opts
    */
   static async connect(opts = {}) {
     const port = opts.port ?? DEFAULT_FOREMAN_PORT;
     const host = opts.host ?? '127.0.0.1';
-    const url = `ws://${host}:${port}`;
+    const url = `ws://${host}:${port}${opts.pathname ?? ''}`;
     const timeoutMs = opts.timeoutMs ?? 30_000;
     const start = Date.now();
     let lastErr;

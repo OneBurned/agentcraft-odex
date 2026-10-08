@@ -584,6 +584,8 @@ export class Foreman {
   }
 
   private async dispatch(msg: ClientMessage, reply: Reply): Promise<Record<string, unknown> | undefined> {
+    if (msg.type === 'studio.action' && 'token' in msg.payload && !['draft.list', 'draft.create'].includes(msg.action))
+      throw new ClientError('Разрешение планировщика позволяет только draft.list и draft.create.');
     if (msg.type === 'studio.action' && msg.action.startsWith('team.')) return this.teamAction(msg.action, msg.payload);
     if (this.team && !this.migratedPair && !['hello', 'repo.add', 'diff.request', 'agent.scene', 'studio.action', 'user.message', 'agent.action', 'observer.update', 'decision.answer'].includes(msg.type))
       throw new ClientError('Агент не подключён. Выполнение ролей для новой команды будет доступно после настройки подключений.');
