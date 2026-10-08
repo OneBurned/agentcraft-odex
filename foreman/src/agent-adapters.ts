@@ -2,7 +2,7 @@ import { DesktopChat, type ChatActivity, type ChatControl } from './codex-deskto
 import { ClaudeDialog, type DialogRunner } from './claude-dialog.js';
 import { claudeWorkspace } from './claude-workspace.js';
 import { findClaude } from './studio-review.js';
-import { ARTIFACT_STYLE_RULE } from './persona-prompt.js';
+import { ARTIFACT_STYLE_RULE, personaPrompt } from './persona-prompt.js';
 import type { ConversationMessage } from './claude-conversation.js';
 import type { Connection, AgentConnections } from './agent-connections.js';
 import { readJson, writeJsonAtomic } from './util/fsx.js';
@@ -11,6 +11,7 @@ import { CodexCliAdapter } from './codex-cli.js';
 export type ConnectionPhase = ChatActivity['phase'] | 'external';
 export interface WorkRequest { role: 'developer' | 'reviewer'; cwd: string; }
 export interface AdapterEvents {
+  personaDescription?(): string | undefined;
   activity(phase: ConnectionPhase, detail?: string): void;
   text(text: string, final: boolean): void;
   history(messages: ConversationMessage[]): void;
@@ -35,6 +36,7 @@ export class CodexAdapter implements AgentAdapter {
     this.chat = new DesktopChat({ configFile: store.file(store.team.get(c.agentId)!.connectionRef!),
       stateFile: store.file(`agents/${c.agentId}/codex-chat-state.json`),
       binding: () => { store.assertCurrent(c); return c; },
+      personaDescription: events.personaDescription,
       onText: events.text, onActivity: a => events.activity(a.phase), onStatus: () => {}, ...overrides });
   }
   start() { this.chat.start(); }
@@ -118,7 +120,8 @@ export class ClaudeAdapter implements AgentAdapter {
     const signal = this.abort.signal;
     // Store running synchronously before any completion handler can publish a result.
     this.running = Promise.resolve().then(async () => {
-      const result = await this.runner.run(text, signal, { text, context: '', retry, style: ARTIFACT_STYLE_RULE, work });
+      const style = purpose === 'message' ? personaPrompt(this.events.personaDescription?.()) : '';
+      const result = await this.runner.run(text, signal, { text, context: '', retry, style: style || ARTIFACT_STYLE_RULE, work });
       if (this.closed || this.controlling || signal.aborted) return;
       this.store.assertCurrent(this.c);
       if (this.runner.shared?.()) await this.syncHistory();

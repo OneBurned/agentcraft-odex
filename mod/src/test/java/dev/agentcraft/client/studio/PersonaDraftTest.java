@@ -14,8 +14,8 @@ public class PersonaDraftTest {
         }
         p.add("events", events); return p;
     }
-    @Test public void editsBothAgentsWithoutDroppingOtherEventPoolsOrTheRevision() {
-        for (String agent : new String[]{"marlow", "wren"}) {
+    @Test public void editsAllAgentsWithoutDroppingOtherEventPoolsOrTheRevision() {
+        for (String agent : new String[]{"marlow", "wren", "agent_third"}) {
             var source = profile(agent); var draft = new PersonaDraft(source);
             assertFalse(draft.dirty()); draft.set(0, "Новый\nхарактер"); draft.set(1, " Первый вариант \n Второй вариант \n");
             assertTrue(draft.dirty()); assertEquals(-1, draft.firstInvalidPage());

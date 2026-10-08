@@ -241,14 +241,13 @@ public final class AgentLife {
 		var state = dev.agentcraft.client.foreman.Foreman.state();
 		boolean connected = state != null && !state.isStale() && state.status() != null
 			&& state.status().backend() == dev.agentcraft.client.foreman.Protocol.BackendName.OBSERVER;
-		ClientAgentEntity other = AgentManager.get().entities().values().stream()
-            .filter(a -> a != e && a.life().atRestTarget() && e.position().distanceToSqr(a.position()) < 16)
-            .min(java.util.Comparator.comparingDouble(a -> e.position().distanceToSqr(a.position()))).orElse(null);
+		String peerId = dev.agentcraft.workspace.PersonaScene.closestPeer(e.agentId(), AgentManager.get().entities().values().stream()
+            .map(a -> new dev.agentcraft.workspace.PersonaScene.Peer(a.agentId(), a.life().atRestTarget(), e.position().distanceToSqr(a.position()))).toList());
 		String event = personaScene.update(connected && atRestTarget(), posture == Posture.DANCE,
-			other != null && other.life().atRestTarget() && e.position().distanceToSqr(other.position()) < 16);
+			peerId);
 		if (!event.isEmpty()) {
 			var payload = new com.google.gson.JsonObject(); payload.addProperty("agentId", e.agentId()); payload.addProperty("event", event);
-            if (other != null && event.equals("peer")) payload.addProperty("peerAgentId", other.agentId());
+            if (event.equals("peer")) payload.addProperty("peerAgentId", peerId);
 			dev.agentcraft.client.foreman.Foreman.send("agent.scene", payload).exceptionally(error -> null);
 		}
 	}

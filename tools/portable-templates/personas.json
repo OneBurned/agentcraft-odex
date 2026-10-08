@@ -1,7 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "minIntervalSeconds": 20,
-  "roles": {
+  "agents": {
     "marlow": {
       "description": "Внимательный разработчик. Отвечает кратко и по делу.",
       "events": {

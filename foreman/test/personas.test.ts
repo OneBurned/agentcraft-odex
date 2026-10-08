@@ -25,9 +25,36 @@ function setup(contents: string | null = JSON.stringify(data())) {
 }
 it('ships five distinct phrases for every event in both roles', () => {
   const template = PersonasFile.parse(JSON.parse(fs.readFileSync(new URL('../../tools/templates/personas.json', import.meta.url), 'utf8')));
-  for (const profile of Object.values(template.roles)) for (const phrases of Object.values(profile.events)) {
+  for (const profile of Object.values(template.agents)) for (const phrases of Object.values(profile.events)) {
     expect(phrases.length).toBeGreaterThanOrEqual(5); expect(phrases.length).toBeLessThanOrEqual(10);
   }
+});
+it('reads the legacy pair without rewriting and saves a third ID in version 2 preserving both profiles', () => {
+  const h = setup(); const before = fs.readFileSync(h.file, 'utf8');
+  const { notice, ...edit } = h.speech.edit('agent_third');
+  expect(edit.description).toContain('Нейтральный');
+  expect(h.speech.description('agent_third')).toBeUndefined();
+  expect(fs.readFileSync(h.file, 'utf8')).toBe(before);
+  h.speech.say('agent_third', 'rest'); expect(h.emitted.at(-1)).toMatchObject({ agentId: 'agent_third', text: 'Сейчас отдыхаю.' });
+  edit.description = 'Third personality'; edit.events.rest = ['Third A', 'Third B'];
+  h.speech.saveEdit(edit);
+  const file = JSON.parse(fs.readFileSync(h.file, 'utf8'));
+  expect(file.version).toBe(2); expect(file.roles).toBeUndefined();
+  expect(file.agents.marlow).toEqual(data().roles.marlow); expect(file.agents.wren).toEqual(data().roles.wren);
+  expect(h.speech.description('agent_third')).toBe('Third personality');
+  h.advance(); h.speech.say('agent_third', 'rest'); expect(h.emitted.at(-1)).toMatchObject({ text: 'Third A' });
+  h.speech.say('another_agent', 'rest'); expect(h.emitted.at(-1)).toMatchObject({ text: 'Сейчас отдыхаю.' });
+});
+it('uses each of three IDs for independent pools and peer recipients, not provider or display name', () => {
+  const agents = Object.fromEntries(['one', 'two', 'three'].map(id => [id, { description: id,
+    events: Object.fromEntries(PERSONA_EVENTS.map(e => [e, [`${id} first`, `${id} second`]])) }]));
+  const h = setup(JSON.stringify({ version: 2, minIntervalSeconds: 2, agents }));
+  for (const [id, peer] of [['one', 'two'], ['two', 'three'], ['three', 'one']]) {
+    expect(h.speech.say(id!, 'peer', peer)).toBe(true);
+    expect(h.emitted.at(-1)).toMatchObject({ agentId: id, to: peer, text: `${id} first` });
+  }
+  h.advance(); h.speech.say('one', 'peer', 'three');
+  expect(h.emitted.at(-1)).toMatchObject({ agentId: 'one', to: 'three', text: 'one second' });
 });
 it.each(['marlow', 'wren'] as const)('saves %s atomically, preserves the other role and immediately reloads speech/description', agentId => {
   const h = setup(); const before = PersonasFile.parse(JSON.parse(fs.readFileSync(h.file, 'utf8')));
@@ -39,7 +66,7 @@ it.each(['marlow', 'wren'] as const)('saves %s atomically, preserves the other r
   expect(rename).toHaveBeenCalledOnce(); expect(rename.mock.calls[0]![1]).toBe(h.file);
   expect(String(rename.mock.calls[0]![0])).toMatch(/\.tmp$/);
   const after = PersonasFile.parse(JSON.parse(fs.readFileSync(h.file, 'utf8')));
-  expect(after.roles[agentId === 'marlow' ? 'wren' : 'marlow']).toEqual(before.roles[agentId === 'marlow' ? 'wren' : 'marlow']);
+  expect(after.agents[agentId === 'marlow' ? 'wren' : 'marlow']).toEqual(before.agents[agentId === 'marlow' ? 'wren' : 'marlow']);
   expect(after.minIntervalSeconds).toBe(before.minIntervalSeconds);
   expect(h.speech.description(agentId)).toBe('Новый характер');
   h.speech.say(agentId, 'rest'); expect(h.emitted.at(-1)).toMatchObject({ text: 'Новая реплика 1' });
@@ -89,7 +116,7 @@ it('enforces the total UTF-8 file limit and does not reset speech cooldowns on s
   // Seed one large role, then reject a second role that would exceed the whole-file byte cap.
   const first = data(); first.roles.marlow = big.roles.marlow;
   fs.writeFileSync(h.file, JSON.stringify(first)); const before = fs.readFileSync(h.file, 'utf8');
-  const { notice, ...edit } = h.speech.edit('wren'); edit.events = PersonasFile.parse(big).roles.wren.events;
+  const { notice, ...edit } = h.speech.edit('wren'); edit.events = PersonasFile.parse(big).agents.wren!.events;
   expect(() => h.speech.saveEdit(edit)).toThrow('128 КБ'); expect(fs.readFileSync(h.file, 'utf8')).toBe(before);
   h.speech.say('wren', 'rest');
   const { notice: unused, ...small } = h.speech.edit('wren'); small.events.rest = ['Updated first', 'Updated second'];

@@ -65,13 +65,29 @@ try {
     } } })).result;
   }
   assert.equal(client.state.agents.size, 3);
+  const persona = id => client.send('studio.action', { action: 'persona.get', payload: { agentId: id } }).then(a => a.result);
+  const savePersona = payload => client.send('studio.action', { action: 'persona.save', payload });
+  const thirdId = team.agents[2].id;
+  for (const a of team.agents) {
+    const { notice, ...draft } = await persona(a.id);
+    assert(draft.description.includes('Нейтральный'));
+    await savePersona({ ...draft, description: `Style for ${a.id}` });
+  }
+  assert.equal((await persona(thirdId)).description, `Style for ${thirdId}`);
+  const { notice: ignored, ...stale } = await persona(thirdId);
+  const { notice: otherNotice, ...otherDraft } = await persona(team.agents[1].id);
+  await savePersona({ ...otherDraft, description: 'Updated second persona' });
+  await assert.rejects(savePersona({ ...stale, description: 'Stale overwrite' }), /изменился/);
   const archivedId = team.agents[0].id;
   team = (await client.send('studio.action', { action: 'team.archive', payload: { revision: team.revision, id: archivedId } })).result;
   assert.equal(client.state.agents.has(archivedId), false);
+  await assert.rejects(persona(archivedId), /существующего/);
   await stop(); await launch('team-smoke');
   assert.equal(client.state.agents.size, 2);
+  assert.equal((await persona(thirdId)).description, `Style for ${thirdId}`, 'Persona survives restart');
   await client.send('studio.action', { action: 'team.restore', payload: { revision: team.revision, id: archivedId } });
   assert.equal(client.state.agents.get(archivedId).enabled, false);
+  assert.equal((await persona(archivedId)).description, `Style for ${archivedId}`, 'Archive/restore preserves persona');
   // Real bundled adapters, isolated native SDK transcripts; no model calls or user's chats.
   team = (await client.send('studio.action', { action: 'team.get', payload: {} })).result;
   const codexBinding = { provider: 'codex', transport: 'codex-desktop', threadId: randomUUID(),
@@ -175,7 +191,7 @@ try {
     assert.equal((await call()).duplicate, true, 'Bundled planning deduplication must survive restart');
     assert.equal((await get()).items[1].stage, 'plan');
   } finally { await mcp.close(); }
-  await stop(); console.log('Portable studio: four agents, distinct Codex bindings, duplicate rejection, two native Claude histories/restart, archive/restore, legacy queue/memory, helper and bundled MCP checks passed. No model calls or real chat messages sent.');
+  await stop(); console.log('Portable studio: four agents, persona editor/revision/archive/restart, distinct Codex bindings, duplicate rejection, two native Claude histories/restart, archive/restore, legacy queue/memory, helper and bundled MCP checks passed. No model calls or real chat messages sent.');
 } finally {
   client?.close(); if (child && child.exitCode === null) { const exited = new Promise(resolve => child.once('exit', resolve)); child.kill(); await exited; }
   assert.ok(path.resolve(temp).startsWith(path.resolve(os.tmpdir()) + path.sep));

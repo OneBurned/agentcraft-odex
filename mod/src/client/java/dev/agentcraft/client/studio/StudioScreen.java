@@ -170,7 +170,7 @@ public final class StudioScreen extends Screen {
     }
     private void team() {
         selectAgent(); var p = profile();
-        button("Характер и фразы…", x + 163, top, w - 175, () -> minecraft.gui.setScreen(new PersonaScreen(this, agent, str(p, "name")))).active = !busy && !dynamicTeam();
+        button("Характер и фразы…", x + 163, top, w - 175, () -> minecraft.gui.setScreen(new PersonaScreen(this, agent, str(p, "name")))).active = !busy;
         int left = x + 12, cy = top + 28, bw = Math.min(230, (w - 30) / 2);
         label("Имя персонажа", left, cy, bw);
         EditBox name = input("Имя", str(p, "name"), left, cy + 12, bw, 28);

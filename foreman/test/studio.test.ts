@@ -47,7 +47,7 @@ describe('personal agent controls and dialog', () => {
   it('puts the reviewer description in game dialog and shared request, with neutral artifacts in dispatched tasks', async () => {
     const h = await setup();
     const config = JSON.parse(fs.readFileSync(new URL('../../tools/templates/personas.json', import.meta.url), 'utf8'));
-    config.roles.wren.description = 'Unique reviewer manner'; config.roles.marlow.description = 'Unique developer manner';
+    config.agents.wren.description = 'Unique reviewer manner'; config.agents.marlow.description = 'Unique developer manner';
     fs.writeFileSync(path.join(h.fm.config.dataDir, 'personas.json'), JSON.stringify(config));
     await h.studio.messageClaude('Обсудим план');
     await until(() => h.studio.data.dialog!.history.length === 2);
@@ -55,7 +55,7 @@ describe('personal agent controls and dialog', () => {
     expect(prompt).toContain('Unique reviewer manner'); expect(prompt).not.toContain('Unique developer manner');
     expect(request?.style).toContain('Unique reviewer manner'); expect(request?.text).toBe('Обсудим план');
     expect(request?.style).toContain('откровенных сексуальных сцен нет');
-    expect(prompt).not.toContain(config.roles.wren.events.rest[0]);
+    expect(prompt).not.toContain(config.agents.wren.events.rest[0]);
     await h.start();
     const [task, purpose] = h.send.mock.calls[0]!;
     expect(purpose).toBe('task'); expect(task).toContain('Не переноси характер в артефакты');

@@ -925,7 +925,7 @@ Local observer NPC entered a rest/dance/nearby-colleague scene. Presentation onl
 
 ### `studio.action`
 
-Observer command desk: persistent plan/queue, review, roster and shared notes. get returns studio state in ack.result. persona.get with payload {agentId: marlow|wren} returns {agentId, revision, description, events, notice}; persona.save accepts {agentId, revision, description, events}, validates and atomically replaces the persona profile, returning the same editor shape. revision is a SHA-256 file revision or missing for a new profile; stale saves and damaged existing files are rejected without overwriting them. Missing files start from neutral defaults only when explicitly saved. Mutations are validated by the studio controller.
+Observer command desk: persistent plan/queue, review, roster and shared notes. get returns studio state in ack.result. persona.get with payload {agentId: team agent ID} returns {agentId, revision, description, events, notice}; persona.save accepts {agentId, revision, description, events}, validates and atomically replaces the persona profile, returning the same editor shape. revision is a SHA-256 file revision or missing for a new profile; stale saves and damaged existing files are rejected without overwriting them. Missing agent entries use neutral defaults; missing files are created only when explicitly saved. Saves use personas.json version 2 with agents keyed by ID; legacy version 1 roles are read without rewriting until an explicit save. Mutations are validated by the studio controller.
 
 | field | type | required | notes |
 | --- | --- | --- | --- |

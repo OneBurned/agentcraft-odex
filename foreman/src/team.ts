@@ -107,7 +107,7 @@ export class TeamRegistry {
       let id: string;
       do { id = `agent_${randomUUID().replaceAll('-', '')}`; } while (next.agents.some(a => a.id === id));
       next.agents.push({ ...input, id, archived: false, connectionRef: null,
-        personaRef: `agents/${id}/persona.json`, memoryDir: `agents/${id}/memory`, instructionsDir: `agents/${id}/instructions` });
+        personaRef: 'personas.json', memoryDir: `agents/${id}/memory`, instructionsDir: `agents/${id}/instructions` });
     } else {
       const a = next.agents.find(a => a.id === request.id);
       if (!a) throw new TeamError('Unknown agent');

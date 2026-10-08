@@ -33,7 +33,7 @@
       "visible": true,
       "archived": false,
       "appearance": { "skin": "marlow", "color": "#858ED1", "slim": false },
-      "personaRef": "agents/marlow/persona.json",
+      "personaRef": "personas.json",
       "connectionRef": "connections/marlow.json",
       "memoryDir": "agents/marlow/memory",
       "instructionsDir": "agents/marlow/instructions"
@@ -47,7 +47,7 @@
       "visible": true,
       "archived": false,
       "appearance": { "skin": "wren", "color": "#D78E65", "slim": false },
-      "personaRef": "agents/wren/persona.json",
+      "personaRef": "personas.json",
       "connectionRef": "connections/wren.json",
       "memoryDir": "agents/wren/memory",
       "instructionsDir": "agents/wren/instructions"
@@ -71,7 +71,7 @@
 | `visible` | Показывает персонажа в мире. Скрытие не отключает исполнителя и не убирает его из команды/истории. |
 | `archived` | Исключает агента из действующей команды, адресатов и назначения новых задач, сохраняя данные. Архивный агент имеет `enabled=false`, `visible=false`. |
 | `appearance` | Ссылка на скин, цвет `#RRGGBB`, модель рук. Прочие существующие настройки внешности сохраняются при переносе; серверная модель и локальные настройки должны иметь явное распределение ответственности. |
-| `personaRef` | Отдельный файл личности: описание и фразы по событиям. Не содержит полномочия. Текущие ограничения редактора фраз сохраняются; его схема обобщается на любой id. |
+| `personaRef` | Общий файл `personas.json`: версия 2, записи `agents[id]` с описанием и фразами. Не содержит полномочия. Старые резервные ссылки `agents/<id>/persona.json` сохраняются как метаданные; отдельные файлы по ним не читаются. Редактор работает для любого неархивного id, включая выключенных агентов. |
 | `connectionRef` | Ссылка на отдельную конфигурацию подключения. У нового неподключённого агента допустим `null`; в пульте показано «Не подключён». |
 | `memoryDir`, `instructionsDir` | Папки личной памяти и инструкций. Общие правила проекта подключаются отдельно и не превращают личную память в общую. |
 
@@ -189,7 +189,7 @@
 | `foreman/src/cast.ts`, `assets-src/cast.json` | `LEAD_ID`, фиксированные workers и отображение поверх шести PLACEHOLDER. Отделить каталог внешности от действующей команды. |
 | `foreman/src/foreman.ts` | `initRoster` создаёт встроенный состав и перезаписывает его данные из cast; fallback `replyAgentId=marlow`; псевдонимы codex/claude, фильтры получателей/управления; `agent.scene peer` вычисляет второго участника как marlow↔wren. Заменить реестром команды и разрешением адресатов. |
 | `foreman/src/protocol.ts`, `foreman/src/protocol-examples.ts`, `foreman/scripts/gen-protocol-doc.ts`, `docs/protocol.md` | `replyAgentId`, `agent.scene` ограничены двумя id; сообщения `agent.remove` нет; роль lead/worker не равна рабочим ролям. Синхронно обновить схемы, примеры и документацию. |
-| `foreman/src/personas.ts` | `PersonaRole`, схема roles и нейтральные профили зафиксированы для marlow/wren. Обобщить хранение по id, сохранив проверки и конфликт ревизий. |
+| `foreman/src/personas.ts` | A9 реализован: версия 2 `agents[id]`, чтение старой версии 1 без записи, нейтральный запасной профиль для любого id; проверки и конфликт ревизий сохранены. |
 | `foreman/src/studio.ts` | Два profiles, индексы 0/1, фиксированные назначения и авторы, единственный transport/reviewer/dialog, паузы, настройки Claude, планирование и отчёты. Ввести реестр исполнителей и одну очередь; действия persona не должны менять команду/задачи. |
 | `foreman/src/reply-recipient.ts`, `foreman/src/store.ts` | Допустимы только два автора ответа и fallback marlow. Нужен текущий адресат из динамического состава, история архивных авторов и перенос persisted state. |
 | `foreman/src/agents/observer.ts` | Один `DesktopChat`, состояние, таймер отдыха и маршрутизация для marlow/wren. Разделить по агентам; статусы и сообщения не должны перезаписывать соседей. |

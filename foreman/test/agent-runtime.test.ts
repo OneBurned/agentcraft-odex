@@ -39,10 +39,10 @@ async function fixture() {
   const adapters = new Map<string, AgentAdapter>(), runners = new Map<string, ReturnType<typeof runner>>();
   const callbacks = new Map<string, AdapterEvents>();
   const chats = new Map<string, { working: boolean; turn: string; items: any[] }>();
-  const sent: string[] = [], interrupted: string[] = [];
-  const call: AppCall = async (binding, tool) => {
+  const sent: string[] = [], interrupted: string[] = [], prompts: Record<string, unknown>[] = [];
+  const call: AppCall = async (binding, tool, args) => {
     const chat = chats.get(binding.threadId)!;
-    if (tool === 'send_message_to_thread') { sent.push(binding.threadId); chat.working = true; chat.turn = randomUUID(); chat.items = []; return { threadId: binding.threadId }; }
+    if (tool === 'send_message_to_thread') { sent.push(binding.threadId); prompts.push(args); chat.working = true; chat.turn = randomUUID(); chat.items = []; return { threadId: binding.threadId }; }
     return { thread: { id: binding.threadId, status: { type: chat.working ? 'active' : 'idle' } },
       turns: [{ id: chat.turn, status: chat.working ? 'inProgress' : 'completed', items: chat.items }] };
   };
@@ -76,7 +76,7 @@ async function fixture() {
     ids.push(id); connections.push(c);
     await until(() => f.agent(id)?.controls?.message === true);
   }
-  return { f, backend, ids, connections, adapters, callbacks, runners, chats, sent, interrupted };
+  return { f, backend, ids, connections, adapters, callbacks, runners, chats, sent, interrupted, prompts };
 }
 async function message(f: Foreman, body: Record<string, unknown>) {
   const out: Outbound[] = [];
@@ -85,6 +85,55 @@ async function message(f: Foreman, body: Record<string, unknown>) {
   await f.handle(parsed.msg, m => out.push(m));
   return out.find(m => m.type === 'ack') as any;
 }
+it('edits any team persona without changing work or roster and isolates style to game messages across providers', async () => {
+  const x = await fixture();
+  const before = JSON.stringify(x.f.store.data), team = x.f.team!.snapshot();
+  for (const id of x.ids) {
+    const { notice, ...edit } = await x.backend.onStudioAction('persona.get', { agentId: id });
+    expect(edit.description).toContain('Нейтральный');
+    await x.backend.onStudioAction('persona.save', { ...edit, description: `Style ${id}` });
+    expect((await x.backend.onStudioAction('persona.get', { agentId: id })).description).toBe(`Style ${id}`);
+  }
+  expect(x.f.team!.snapshot()).toEqual(team); expect(JSON.stringify(x.f.store.data)).toBe(before);
+  await expect(x.backend.onStudioAction('persona.get', { agentId: 'unknown_agent' })).rejects.toThrow('существующего');
+  for (const id of x.ids) await x.backend.onChatMessage('Hello', id);
+  expect(x.prompts[0]!.prompt).toContain(`Style ${x.ids[0]}`);
+  expect(x.prompts[0]!.prompt).not.toContain(`Style ${x.ids[1]}`);
+  expect(x.prompts[1]!.prompt).toContain(`Style ${x.ids[1]}`);
+  for (const id of x.ids.slice(2)) {
+    await until(() => vi.mocked(x.runners.get(id)!.value.run).mock.calls.length > 0);
+    const request = vi.mocked(x.runners.get(id)!.value.run).mock.calls[0]![2];
+    expect(request?.text).toBe('Hello'); expect(request?.style).toContain(`Style ${id}`);
+    expect(request?.style).toContain('артефакты');
+  }
+  for (const id of [x.ids[0]!, x.ids[2]!]) {
+    await x.adapters.get(id)!.control('stop');
+    await x.adapters.get(id)!.send('Review neutral artifacts', 'task');
+  }
+  expect(x.prompts.at(-1)!.prompt).not.toContain('Style ');
+  await until(() => vi.mocked(x.runners.get(x.ids[2]!)!.value.run).mock.calls.length === 2);
+  const taskStyle = vi.mocked(x.runners.get(x.ids[2]!)!.value.run).mock.calls[1]![2]?.style;
+  expect(taskStyle).not.toContain('Style '); expect(taskStyle).toContain('артефакты');
+});
+it('routes peer bubbles among three present team agents and rejects hidden, busy and paused recipients', async () => {
+  const x = await fixture(), [a, b, c] = x.ids as [string, string, string];
+  const events: Outbound[] = []; x.f.subscribe(e => events.push(e));
+  for (const id of [a, b, c]) x.f.setAgent(id, { state: 'idle', station: 'lounge', active: true, paused: false });
+  x.f.teamAction('team.update', { id: c, revision: x.f.team!.snapshot().revision, patch: { visible: false } });
+  expect((await message(x.f, { type: 'agent.scene', agentId: a, event: 'peer', peerAgentId: c })).result.spoken).toBe(false);
+  x.f.teamAction('team.update', { id: c, revision: x.f.team!.snapshot().revision, patch: { visible: true } });
+  for (const patch of [{ paused: true }, { paused: false, state: 'editing' as const }]) {
+    x.f.setAgent(c, patch);
+    expect((await message(x.f, { type: 'agent.scene', agentId: a, event: 'peer', peerAgentId: c })).result.spoken).toBe(false);
+  }
+  x.f.setAgent(c, { state: 'idle' });
+  const before = JSON.stringify(x.f.store.data);
+  for (const [id, peer] of [[a, b], [b, c], [c, a]]) {
+    expect((await message(x.f, { type: 'agent.scene', agentId: id, event: 'peer', peerAgentId: peer })).result.spoken).toBe(true);
+    expect(events).toContainEqual(expect.objectContaining({ type: 'agent.say', agentId: id, to: peer }));
+  }
+  expect(JSON.stringify(x.f.store.data)).toBe(before); expect(x.sent).toEqual([]);
+});
 it('two Codex and two Claude agents send, receive and pause independently through the real dispatch', async () => {
   const x = await fixture();
   const [a, b, c, d] = x.ids as [string, string, string, string];

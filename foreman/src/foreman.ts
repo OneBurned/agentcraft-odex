@@ -129,6 +129,7 @@ export class Foreman {
     } else this.initRoster();
     if (opts.config.backend === 'observer') this.personas = new PersonaSpeech({
       file: path.join(opts.config.dataDir, 'personas.json'), now, emit: message => this.emit(message),
+      knownAgent: id => this.team ? !!this.team.get(id) && !this.team.get(id)!.archived : !!this.agent(id),
       warn: message => { this.log.warn(message); this.bus.feed('system', message); },
     });
     this.decisions.onCreated((d) => this.onDecisionCreated(d));
@@ -597,7 +598,7 @@ export class Foreman {
       if (!this.personas) throw new ClientError('Реплики сцен доступны в режиме наблюдения.');
       const resting = (id: string) => {
         const a = this.requireAgent(id);
-        return a.active && !a.paused && a.station === 'lounge' && ['idle', 'done'].includes(a.state)
+        return a.active && a.visible !== false && !a.paused && a.station === 'lounge' && ['idle', 'done'].includes(a.state)
           && !this.decisions.open().some(d => d.agentId === id);
       };
       if (!resting(msg.agentId) || (msg.event === 'peer' && (!msg.peerAgentId || msg.peerAgentId === msg.agentId || !resting(msg.peerAgentId))))

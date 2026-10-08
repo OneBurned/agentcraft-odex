@@ -15,6 +15,10 @@ export class TeamStudio {
   stop() { return this.queue.stop(); }
   async action(action: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     const idle = (id: string) => this.fm.assertTeamAgentIdle(id);
+    if (action === 'persona.get' || action === 'persona.save') {
+      if (!this.fm.personas) throw new Error('Редактор характеров доступен только в режиме наблюдения.');
+      return action === 'persona.get' ? this.fm.personas.edit(payload.agentId) : this.fm.personas.saveEdit(payload);
+    }
     if (action === 'get') return { ...this.queue.view(), team: this.fm.team!.snapshot(), profiles: this.fm.agents(), repos: this.fm.repos.list(), notes: this.fm.memory.list(),
       skins: loadCast(this.fm.config.projectRoot).cast.map(a => a.id) };
     if (action === 'settings') {

@@ -55,6 +55,7 @@ export class AgentRuntime {
           const history = History.parse(readJson(this.historyFile(a.id)) ?? []);
           const current = () => !this.closed && this.slots.get(a.id) === slot;
           const adapter = this.factory(connection, this.connections, {
+            personaDescription: () => this.fm.personas?.description(a.id),
             activity: (phase, notice) => { if (current()) this.activity(a.id, phase, notice); },
             text: (text, final) => { if (current()) this.answer(a.id, text, final); },
             history: rows => { if (current()) { slot!.history = rows.slice(-200); this.saveHistory(a.id); } },
@@ -87,6 +88,10 @@ export class AgentRuntime {
     slot.notice = notice || labels[phase];
     const state: AgentState = phase === 'working' ? 'thinking' : phase === 'waiting' ? 'waiting_user' : phase === 'completed' ? 'done' : phase === 'error' ? 'error' : 'idle';
     if (phase !== previous || notice) {
+      if (phase !== previous && ['working', 'waiting', 'paused', 'error'].includes(previous)) {
+        if (phase === 'error' || phase === 'paused' || phase === 'stopped')
+          this.fm.personas?.say(id, phase === 'paused' ? 'pause' : phase === 'stopped' ? 'stop' : 'error');
+      }
       clearTimeout(slot.rest);
       this.fm.setAgent(id, { state, paused: phase === 'paused', station: phase === 'waiting' ? 'user' : phase === 'idle' ? 'lounge' : 'desk', activity: slot.notice });
       if (phase === 'completed') {

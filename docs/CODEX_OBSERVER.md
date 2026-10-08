@@ -1,5 +1,30 @@
 # Codex chat observer for TradeRecord
 
+## Personas for arbitrary team members (A9 / t41)
+
+**Пульт → Команда → выбранный агент → Характер и фразы…** edits any non-archived member,
+including disabled or hidden members. Editing never enables an agent, starts a model, changes
+queue assignments or alters permissions. Saves use the common profile-local `personas.json`
+version 2 map `agents[id]`. New roster entries reference this file; pre-existing reserved
+`agents/<id>/persona.json` references remain metadata and are not separately loaded.
+The editor rejects unknown/archived IDs and stale revisions, preserves other profiles and keeps
+the 128,000-byte whole-file limit. Archive/restore retains the entry under the same ID.
+
+Codex Desktop, Codex CLI and Claude load their own description on a new game message.
+Tasks and reviews omit it and keep the neutral-artifact rule. CLI resume preserves the original
+message/task purpose; old pending turns without a purpose resume without a persona.
+The rule is a prompt boundary, not an output filter; source, commits, docs and verdicts still
+require normal review. Persona edits do not modify project instructions or memory.
+
+The role queue emits task/review phrases after confirmed dispatch and accepted reports;
+errors and confirmed pause/stop use the actual agent ID. Scene phrases select the nearest
+present resting colleague (ties by ID), excluding self, hidden/busy/paused agents and distances
+of four blocks or more. A change of recipient can trigger a new cue; the bridge's per-agent
+cooldown and no-adjacent-repeat rule still apply. Bubbles are transient, never model requests.
+
+Verification uses three-agent scene/editor tests, captured provider prompts and Java layout/data
+tests. Live Minecraft rendering and real model responses require a separate manual check.
+
 ## Client roster (A8 / t40)
 
 The mod uses the bridge snapshot/agent.upsert roster, including arbitrary IDs and multiple agents
@@ -9,8 +34,8 @@ Cast is a cosmetic preset catalog only; a missing catalog produces no fallback t
 
 The command desk cycles over the current roster (including hidden/disabled members). New team
 profiles support name, enabled/visible and appearance updates with team.update and revision checks.
-Empty teams show an explanation. The current bridge has no new-team queue/persona editor yet:
-those legacy-only controls are unavailable rather than targeting a fixed developer/reviewer.
+Empty teams show an explanation. New teams use the role queue and per-agent persona editor;
+controls target the selected stable agent ID.
 The memory library remains readable. Local places/looks are keyed by stable agent ID.
 
 New HQ builds and the manual configurator publish shared_desk/shared_desk_2… and
@@ -82,7 +107,7 @@ local and are not deleted or migrated here.
 
 CRUD is available through the bridge API/tool, not a new team-management screen. New agents
 have connectionRef=null until explicitly connected. A3 adds per-agent adapters below. Role
-queue execution, personality editors and management UI remain subsequent stages. The legacy
+queue execution and personality editors are described in their sections; extended management UI remains a subsequent stage. The legacy
 workflow remains available only to existing profiles pending A4.
 
 **Protocol 2:** update the mod, bridge and tools together. Version 1 peers are incompatible and
@@ -299,7 +324,7 @@ the Codex app; the game's decision queue accepts only questions created by the s
 
 ### Character and phrase editor (t31)
 
-Open **Пульт → Команда**, select Codex or Claude, then **Характер и фразы…**. The first page
+Open **Пульт → Команда**, select any team member, then **Характер и фразы…**. The first page
 edits the description; the following twelve pages edit event pools. Arrows switch pages while
 retaining the draft. The fields scroll and the screen keeps navigation, save and status outside
 the field at normal GUI sizes down to 320×240. **Сохранить всё** saves the selected agent's
@@ -315,7 +340,7 @@ from the description or change the global cooldown.
 
 `studio.action` provides `persona.get` and `persona.save`. The bridge validates the full agent
 payload, agent ID, event set, string lengths, uniqueness and the final profile's 128,000-byte
-UTF-8 limit. A save preserves the other agent and `minIntervalSeconds`, writes a temporary file
+UTF-8 limit. A save preserves all other agents and `minIntervalSeconds`, writes a temporary file
 beside `personas.json`, fsyncs and atomically renames it over the target. Failure leaves the
 previous file intact. Missing profiles offer neutral defaults and create the file only on an
 explicit save; damaged/unreadable files are not silently repaired or replaced.
@@ -512,9 +537,12 @@ portable packages instead use the neutral `tools/portable-templates/personas.jso
 `personas.example.json`. The portable launcher copies it only to a new profile without
 `personas.json`. Existing files are never overwritten automatically.
 
-The UTF-8 JSON object has `version: 1`, `minIntervalSeconds` (integer, 1–600, template: 20), and
-`roles`. Both `roles.marlow` and `roles.wren` contain `description` (1–2500 characters) and
-`events`. These stable IDs select the profile independently of character names and skins.
+The UTF-8 JSON object has `version: 2`, `minIntervalSeconds` (integer, 1–600, template: 20), and
+`agents`, a map keyed by stable agent ID. Each entry contains `description` (1–2500 characters)
+and `events`. IDs select profiles independently of provider, work roles, names and skins.
+Version 1 with `roles.marlow`/`roles.wren` remains readable without rewriting; an explicit editor
+save converts it atomically to version 2 and preserves both entries. Missing entries use neutral
+phrases and do not attach a conversational description until explicitly saved.
 Every event holds 2–20 distinct, nonempty strings of at most 160 characters; the template has
 five per event for each role in the personal template and two in the neutral portable template. Required event keys:
 

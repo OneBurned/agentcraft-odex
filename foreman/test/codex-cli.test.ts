@@ -49,7 +49,7 @@ function success(child: Child, id: string, text: string) {
   child.event({ type: 'item.completed', item: { type: 'agent_message', id: 'answer', text } });
   child.event({ type: 'turn.completed' }); child.close();
 }
-function fixture(auth = true) {
+function fixture(auth = true, personaDescription?: () => string | undefined) {
   const root = dir(), team = new TeamRegistry(root), store = new AgentConnections(root, team);
   team.change('create', { revision: 0, agent: { name: 'Coder', provider: 'codex', roles: ['developer'], enabled: true, visible: true,
     appearance: { skin: 'marlow', color: '#112233', slim: false } } }, () => {});
@@ -57,10 +57,28 @@ function fixture(auth = true) {
   store.bind({ id: c.agentId, revision: 1, connection: c }, () => {});
   const fake = processes(auth), runner = new CodexCliProcess(c, fake.launch, fake.kill, 20);
   const text = vi.fn(), activity = vi.fn();
-  const a = new CodexCliAdapter(c, store, { text, activity, history: vi.fn() }, runner, () => false);
+  const a = new CodexCliAdapter(c, store, { text, activity, history: vi.fn(), personaDescription }, runner, () => false);
   adapters.push(a);
   return { a, c, store, fake, runner, text, activity, root, team };
 }
+it('loads CLI persona for game replies and preserves neutral task purpose across pause/resume', async () => {
+  let style = 'Distinct personality';
+  const f = fixture(true, () => style); await f.a.check();
+  const thread = randomUUID();
+  await f.a.send('Hello', 'message'); await until(() => f.runner.busy());
+  expect(f.fake.last().prompt).toContain(style); expect(f.fake.last().prompt).toContain('артефакты');
+  success(f.fake.last(), thread, 'Hello back'); await until(() => !f.a.busy());
+  style = 'Updated personality';
+  await f.a.send('Hello again', 'message'); await until(() => f.runner.busy());
+  expect(f.fake.last().prompt).toContain(style);
+  success(f.fake.last(), thread, 'Second reply'); await until(() => !f.a.busy());
+  await f.a.send('Review the change', 'task'); await until(() => f.runner.busy());
+  expect(f.fake.last().prompt).not.toContain(style);
+  await f.a.control('pause');
+  await f.a.control('resume'); await until(() => f.runner.busy());
+  expect(f.fake.last().prompt).not.toContain(style); expect(f.fake.last().prompt).toContain('артефакты');
+  await f.a.control('stop');
+});
 it('checks version/capabilities/login without starting a turn or touching the project', async () => {
   const f = fixture(); fs.writeFileSync(path.join(f.c.workspace, 'sentinel'), 'unchanged');
   expect(await f.a.check()).toEqual({ version: '0.162.0-alpha.2' });
