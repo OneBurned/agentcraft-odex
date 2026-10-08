@@ -105,7 +105,7 @@ export class WorkspaceReader {
     return { file: p.file, totalLines: lines.length, text: clip(lines.slice(p.start - 1, p.start - 1 + p.lines).map((line, n) => `${p.start + n}: ${line}`).join('\n')) };
   }
   async call(name: string, args: unknown): Promise<unknown> {
-    if (name === 'projects') return this.config.repositories.map(r => ({ id: r.id, name: r.name, github: r.github, access: 'read-only local source and GitHub' }));
+    if (name === 'projects') return this.config.repositories.map(r => ({ id: r.id, name: r.name, github: r.github, access: r.github ? 'read-only local source and GitHub' : 'read-only local source' }));
     if (name === 'project_files') {
       const p = repoArg.extend({ contains: z.string().max(150).default(''), offset: z.number().int().min(0).default(0) }).parse(args);
       const files = (await this.files(p.project)).filter(f => f.toLowerCase().includes(p.contains.toLowerCase()));
@@ -189,7 +189,9 @@ export class WorkspaceReader {
     throw new Error('Неизвестный инструмент.');
   }
   private async github(p: z.infer<typeof githubArg>) {
-    const root = `repos/${this.repo(p.project).github}`;
+    const repository = this.repo(p.project).github;
+    if (!repository) throw new Error('GitHub для этого проекта не настроен. Локальные файлы доступны.');
+    const root = `repos/${repository}`;
     let endpoint: string = root;
     if (['pull', 'pull_files', 'issue'].includes(p.action) && !p.number) throw new Error('Укажи номер PR или issue.');
     const page = `per_page=20&page=${p.page}`;

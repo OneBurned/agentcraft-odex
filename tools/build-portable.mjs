@@ -6,6 +6,7 @@ import { build } from '../foreman/node_modules/esbuild/lib/main.js';
 import { parseArgs } from 'node:util';
 import { readZip, writeZip } from './lib/zip.mjs';
 import { auditPortable } from './audit-portable.mjs';
+import { writeReleaseManifest } from './lib/portable-install.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const version=(await fs.readFile(path.join(root,'mod/gradle.properties'),'utf8')).match(/^mod_version=(.+)$/m)[1].trim();
@@ -31,6 +32,7 @@ await build({...opts,entryPoints:[path.join(root,'tools/studio.mjs')],outfile:pa
 await build({...opts,entryPoints:[path.join(root,'tools/migrate-team.ts')],outfile:path.join(out,'migrate-team.mjs')});
 await build({...opts,entryPoints:[path.join(root,'tools/connect-codex-chat.ts')],outfile:path.join(out,'connect-codex-chat.mjs')});
 await build({...opts,entryPoints:[path.join(root,'tools/klava-terminal.mjs')],outfile:path.join(out,'foreman/src/agent-terminal.mjs')});
+await build({...opts,entryPoints:[path.join(root,'tools/setup-package.ts')],outfile:path.join(out,'foreman/src/setup.mjs')});
 // Replace only declared presentation resources. Classes, skins and third-party notices stay intact.
 const jar=readZip(await fs.readFile(path.join(root,`mod/build/libs/agentcraft-${version}.jar`)));
 const cast=await fs.readFile(path.join(templates,'cast.json'));
@@ -87,4 +89,5 @@ if (!audit.ok) {
 }
 // A marker is written only after the final audit; never publish partially assembled output.
 await fs.writeFile(path.join(out,'PACKAGE-READY.json'),JSON.stringify({version,privacyAudit:'pass',privateSchematics:!!buildingSource},null,2)+'\n');
+await writeReleaseManifest(out);
 console.log(out);

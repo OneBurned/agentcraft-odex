@@ -10,7 +10,7 @@ export const WorkspaceConfig = z.object({
     id: z.string().regex(/^[a-z][a-z0-9_-]{0,39}$/),
     name: z.string().min(1).max(100),
     path: z.string().refine(path.isAbsolute, 'Absolute repository path required'),
-    github: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
+    github: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/).optional(),
   })).min(1).max(8),
 });
 export type WorkspaceAccess = z.infer<typeof WorkspaceConfig>;

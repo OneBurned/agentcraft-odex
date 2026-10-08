@@ -122,10 +122,16 @@ Visibility is independent of enabled: a disabled but visible character can remai
 Team slim-arm settings are authoritative when supplied; local PNG/display preferences remain
 local and are not deleted or migrated here.
 
-CRUD is available through the bridge API/tool, not a new team-management screen. New agents
-have connectionRef=null until explicitly connected. A3 adds per-agent adapters below. Role
-queue execution and personality editors are described in their sections; extended management UI remains a subsequent stage. The legacy
-workflow remains available only to existing profiles pending A4.
+Team management is available through the command desk and the bridge API/tool. New agents
+have connectionRef=null until explicitly connected. Per-agent adapters, role queue execution
+and personality editors are described below. Existing unmigrated profiles retain the legacy workflow.
+
+The portable Windows package includes the bilingual Setup wizard described in
+[PORTABLE_SETUP.md](PORTABLE_SETUP.md). It installs into an empty separate directory,
+verifies Fabric metadata, prepares optional projects/disabled agents, and updates only
+manifest-owned release files plus identified game mods. Profile data is preserved; binary
+rollback and interrupted-copy recovery use checksum journals. No account credentials or model
+turns are created by setup/checks. An installer guard also blocks direct observer startup.
 
 **Protocol 2:** update the mod, bridge and tools together. Version 1 peers are incompatible and
 receive an actionable mismatch error. `agent.remove` removes an archived NPC from the live

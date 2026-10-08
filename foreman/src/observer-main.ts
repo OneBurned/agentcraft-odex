@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 
 async function main() {
   const cfg = loadConfig([...process.argv.slice(2), '--backend', 'observer']);
+  if (fs.existsSync(path.join(path.dirname(cfg.home), '.installer-active.json'))) throw new Error('Установка не завершена. Выполни восстановление через Setup / Recover.');
   cfg.host = '127.0.0.1';
   cfg.allowBrowserOrigins = false;
   cfg.notify = false;

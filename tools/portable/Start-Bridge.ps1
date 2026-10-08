@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param([int]$Port = 7878, [string]$Repository)
 $ErrorActionPreference = 'Stop'
+if (Test-Path -LiteralPath (Join-Path $PSScriptRoot '.installer-active.json')) { throw 'Setup is active or interrupted. Use Setup / Recover before starting the bridge.' }
 $nodePath = Join-Path $PSScriptRoot 'runtime\node.exe'
 $status = (& $nodePath (Join-Path $PSScriptRoot 'control.mjs') $Port | ConvertFrom-Json)
 if ($status.running) {
