@@ -78,6 +78,23 @@ and remain reserved after archive. Duplicate names are allowed; ambiguous names 
 resolve, so use the ID. Unknown versions, malformed files, duplicate IDs, extra fields and
 references outside the profile or through junctions are rejected without replacing the file.
 
+The role-queue command desk exposes a paginated team/archive list, creation, provider/role
+editing and connection forms. See [ROLE_QUEUE.md](ROLE_QUEUE.md) for the in-game setup.
+`get.capabilities` describes the running adapters: Codex Desktop/CLI support planner,
+developer and reviewer; Claude supports developer/reviewer. New unsupported combinations
+are rejected by `team.create`/`team.update`; saved migrated roles remain readable and
+presentation edits do not delete them. Roles are permissions, not a guarantee of credentials
+or project access. Claude planner tools for arbitrary team members are not yet connected.
+
+`connection.get` also returns the typed `connection` record (or null), without credentials.
+`connection.check` probes enabled or disabled non-archived agents and returns
+`{agentId,result}`. It does not start a model turn: Desktop reads only the selected thread,
+CLI checks version/capabilities/login, and Claude validates ownership/workspace and CLI
+login. Claude SDK auth configuration is reported separately without claiming a successful
+API call. A temporary disabled-agent adapter is never started and is disposed after the
+probe. Concurrent checks and profile/connection changes are refused until it finishes.
+The original migrated-pair UI remains until explicit role-queue activation.
+
 Use `studio.action` with these actions (also available through `tools/studio.mjs ACTION
 --port PORT --file PAYLOAD.json`):
 

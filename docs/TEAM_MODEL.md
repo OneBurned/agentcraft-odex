@@ -256,4 +256,22 @@ A2 согласован пользователем через пульт. Сле
 The implemented queue contract, commands, provider permissions and migration activation are
 in [ROLE_QUEUE.md](ROLE_QUEUE.md). New team profiles support manual planning, explicit/automatic
 role assignment and exact-range review. The legacy pair retains its existing queue until
-explicit `queue.enable`. Arbitrary-provider planner tools remain a separate stage.
+explicit `queue.enable`. Codex planner draft permits are implemented; arbitrary-team Claude
+planner tools remain a separate stage.
+
+## A10 implementation
+
+The command desk has a paginated team/archive list and agent/profile/connection editors.
+The current capability DTO is defined in `foreman/src/team-capabilities.ts` and delivered
+by `studio.action get`; unsupported new role combinations are rejected server-side too.
+Codex Desktop/CLI support all three roles, with an additional scoped permit for draft
+creation. Claude developer/reviewer adapters are available; its arbitrary-team planner
+tools are not. Stored legacy planner roles are preserved, without claiming new capability.
+Connection checks do not invoke models and work before enabling a new/restored agent.
+See [ROLE_QUEUE.md](ROLE_QUEUE.md) for setup, assignment and archive behavior.
+
+Automated coverage includes a three-agent desk workflow with simulated transports,
+read-only diagnostics, pending-check ownership, role validation, Java editor payloads and
+bounds at 320×240, 427×240, 480×270, 640×360 and 960×540. These layout assertions do not
+replace manual Minecraft rendering/interactions; no live game or model run is claimed by
+these tests.

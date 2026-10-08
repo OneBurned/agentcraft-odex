@@ -1,7 +1,8 @@
 import { DesktopChat, type ChatActivity, type ChatControl } from './codex-desktop.js';
 import { ClaudeDialog, type DialogRunner } from './claude-dialog.js';
 import { claudeWorkspace } from './claude-workspace.js';
-import { findClaude } from './studio-review.js';
+import { findClaude, claudeLoggedIn } from './studio-review.js';
+import { detectApiAuth } from './agents/claude/auth.js';
 import { ARTIFACT_STYLE_RULE, personaPrompt } from './persona-prompt.js';
 import type { ConversationMessage } from './claude-conversation.js';
 import type { Connection, AgentConnections } from './agent-connections.js';
@@ -46,6 +47,11 @@ export class CodexAdapter implements AgentAdapter {
   start() { this.chat.start(); }
   async dispose() { this.chat.stop(); }
   busy() { return this.pending; }
+  async check() {
+    if (this.pending) throw new Error('Предыдущая команда агента ещё выполняется.');
+    this.pending = true;
+    try { return await this.chat.check(); } finally { this.pending = false; }
+  }
   async send(text: string, purpose: 'message' | 'task') {
     if (this.pending) throw new Error('Предыдущая команда агента ещё выполняется.');
     this.pending = true;
@@ -94,6 +100,23 @@ export class ClaudeAdapter implements AgentAdapter {
   private save() { this.store.file(`agents/${this.c.agentId}/claude-state.json`); writeJsonAtomic(this.file, this.state); }
   private phase(phase: ConnectionPhase, detail?: string) { if (!this.closed) this.events.activity(phase, detail); }
   busy() { return !!this.running || this.controlling || this.stopUnconfirmed || !!this.runner.isRunning?.() || !!this.developer.isRunning?.(); }
+  async check() {
+    if (this.closed || this.busy() || this.polling) throw new Error('Агент занят. Повтори проверку позже.');
+    this.controlling = true;
+    try {
+      this.store.assertCurrent(this.c);
+      const external = this.runner.externalStatus?.();
+      if (external) throw new Error(external);
+      const executable = findClaude(this.c.executable);
+      if (!executable) throw new Error('Claude Code не найден. Укажи путь к claude.exe.');
+      if (!await claudeLoggedIn(executable)) throw new Error('В Claude Code не выполнен вход. Выполни claude auth login в терминале.');
+      this.store.assertCurrent(this.c);
+      const api = detectApiAuth();
+      return { notice: 'Рабочее пространство, сессия и вход Claude Code проверены. Модель не вызывалась.',
+        developer: api.ok ? 'Авторизация SDK настроена; доступ к API этой проверкой не подтверждается.' : this.events.useClaudeLogin
+          ? 'SDK использует явно разрешённый вход Claude Code.' : 'Для разработки требуется авторизация SDK в настройках моста.' };
+    } finally { this.controlling = false; }
+  }
   start() { void this.poll(); this.timer = setInterval(() => void this.poll(), 5000); this.timer.unref(); }
   async poll() {
     if (this.closed || this.polling || this.running || this.controlling) return;

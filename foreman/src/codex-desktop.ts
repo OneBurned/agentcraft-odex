@@ -138,6 +138,16 @@ export class DesktopChat {
     this.timer = setInterval(() => void this.poll(), 5000); this.timer.unref();
   }
   stop() { this.stopped = true; clearInterval(this.timer); }
+  async check() {
+    if (this.polling || this.stopped || this.controlling || this.sending) throw new Error('Подключение занято. Повтори проверку через несколько секунд.');
+    const binding = this.options.binding?.() ?? readBinding(this.options.configFile);
+    if (!binding) throw new Error('Чат Codex не подключён.');
+    // No send, resume, or project operation: this probe only reads the selected thread.
+    const data = await (this.options.call ?? appCall)(binding, 'read_thread', { turnLimit: 1, includeOutputs: false, maxOutputCharsPerItem: 100 });
+    if (data.thread?.id !== binding.threadId || !Array.isArray(data.turns)) throw new Error('Codex вернул другой чат или неизвестный формат.');
+    if (chatActivity(data).phase === 'unavailable') throw new Error('Чат недоступен в приложении Codex.');
+    return { notice: 'Выбранный чат доступен. Задача не запускалась.' };
+  }
   async poll() {
     if (this.polling || this.stopped || this.controlling || this.sending) return;
     this.polling = true;

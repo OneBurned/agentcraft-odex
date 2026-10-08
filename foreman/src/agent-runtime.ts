@@ -28,6 +28,7 @@ export class AgentRuntime {
   readonly connections: AgentConnections;
   private slots = new Map<string, Slot>();
   private errors = new Map<string, string>();
+  private checking = new Set<string>();
   private closed = false;
   constructor(private fm: Foreman, private factory: AdapterFactory = createAdapter) {
     if (!fm.team) throw new Error('Team required');
@@ -129,6 +130,7 @@ export class AgentRuntime {
     return slot;
   }
   assertIdle(id: string) {
+    if (this.checking.has(id)) throw new Error('Дождись завершения проверки подключения.');
     const slot = this.slots.get(id);
     if (slot && (slot.adapter.busy() || ['working', 'waiting', 'external'].includes(slot.phase)))
       throw new Error('Агент занят или остановка не подтверждена. Сначала останови его работу.');
@@ -185,11 +187,30 @@ export class AgentRuntime {
     finally { if (this.slots.get(id) === slot) this.controls(id); }
   }
   async check(id: string) {
-    const slot = this.slot(id);
-    if (!slot.adapter.check) throw new Error('Для этого подключения используй connection.get.');
-    const result = await slot.adapter.check();
-    this.controls(id);
-    return { agentId: id, result };
+    const agent = this.fm.team!.get(id);
+    if (!agent || agent.archived) throw new Error('Сначала восстанови агента из архива.');
+    this.assertIdle(id);
+    const connection = this.connections.read(id);
+    if (!connection) throw new Error('Сначала сохрани подключение.');
+    this.connections.assertCurrent(connection);
+    const slot = this.slots.get(id);
+    // A restored/new agent can be checked while disabled. Never start the temporary adapter.
+    this.checking.add(id);
+    let adapter: AgentAdapter | undefined;
+    try {
+      adapter = slot?.adapter ?? this.factory(connection, this.connections, {
+        useClaudeLogin: this.fm.config.claude.useClaudeLogin, activity: () => {}, text: () => {}, history: () => {},
+      });
+      if (adapter.busy()) throw new Error('Агент занят. Проверь подключение после завершения работы.');
+      if (!adapter.check) throw new Error('Проверка этого подключения не поддерживается.');
+      const result = await adapter.check();
+      if (this.closed || slot && this.slots.get(id) !== slot) throw new Error('Подключение изменилось во время проверки.');
+      this.connections.assertCurrent(connection);
+      this.controls(id);
+      return { agentId: id, result };
+    } finally {
+      try { if (!slot && adapter) await adapter.dispose(); } finally { this.checking.delete(id); }
+    }
   }
   view(id: string) {
     const agent = this.fm.team!.get(id);
@@ -197,11 +218,11 @@ export class AgentRuntime {
     const slot = this.slots.get(id);
     if (!slot) {
       const connection = this.connections.read(id);
-      return { agentId: id, provider: agent.provider, phase: agent.archived ? 'archived' : !agent.enabled ? 'disabled' : 'not_connected',
+      return { agentId: id, provider: agent.provider, connection: connection ?? null, phase: agent.archived ? 'archived' : !agent.enabled ? 'disabled' : 'not_connected',
         notice: this.errors.get(id) || 'Не подключён', history: connection ? History.parse(readJson(this.historyFile(id)) ?? []) : [] };
     }
     this.connections.assertCurrent(slot.connection);
-    return { agentId: id, provider: slot.connection.provider, transport: slot.connection.transport, phase: slot.phase, notice: slot.notice, history: structuredClone(slot.history) };
+    return { agentId: id, provider: slot.connection.provider, connection: structuredClone(slot.connection), transport: slot.connection.transport, phase: slot.phase, notice: slot.notice, history: structuredClone(slot.history) };
   }
   observe(update: ObserverUpdate) {
     if (!update.agentId) throw new Error('Для команды обязательно укажи agentId.');

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { writeJsonAtomic } from './util/fsx.js';
+import { unsupportedRole } from './team-capabilities.js';
 
 export const TeamId = z.string().regex(/^[a-z0-9_-]{1,64}$/);
 export const Provider = z.enum(['codex', 'claude']);
@@ -104,6 +105,8 @@ export class TeamRegistry {
     if (action === 'create') {
       if (!request.agent) throw new TeamError('Missing agent');
       const input = request.agent;
+      const unsupported = unsupportedRole(input.provider, input.roles);
+      if (unsupported) throw new TeamError(unsupported);
       let id: string;
       do { id = `agent_${randomUUID().replaceAll('-', '')}`; } while (next.agents.some(a => a.id === id));
       next.agents.push({ ...input, id, archived: false, connectionRef: null,
@@ -119,6 +122,11 @@ export class TeamRegistry {
         if (a.archived) throw new TeamError('Restore the archived agent before editing');
         if (action === 'update') {
           if (!request.patch) throw new TeamError('Missing patch');
+          // Existing migrated roles remain readable/editable; only newly requested combinations are checked.
+          if (request.patch.provider && request.patch.provider !== a.provider || request.patch.roles && !isDeepStrictEqual(request.patch.roles, a.roles)) {
+            const unsupported = unsupportedRole(request.patch.provider ?? a.provider, request.patch.roles ?? a.roles);
+            if (unsupported) throw new TeamError(unsupported);
+          }
           if (request.patch.provider && request.patch.provider !== a.provider) a.connectionRef = null;
           Object.assign(a, request.patch);
         } else if (action === 'disable') a.enabled = false;

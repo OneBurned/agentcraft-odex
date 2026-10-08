@@ -57,11 +57,11 @@ it('fresh observer starts empty, uses arbitrary provider/roles, and survives res
   expect(f.agents()).toEqual([]);
   expect(f.cast).toEqual([]);
   for (const [i, provider] of ['codex', 'codex', 'claude'].entries())
-    f.teamAction('team.create', { revision: i, agent: { ...input('Duplicate', provider as 'codex' | 'claude'), roles: i === 2 ? ['planner', 'reviewer'] : ['developer'] } });
+    f.teamAction('team.create', { revision: i, agent: { ...input('Duplicate', provider as 'codex' | 'claude'), roles: i === 2 ? ['developer', 'reviewer'] : ['developer'] } });
   expect(f.agents()).toHaveLength(3);
   expect(new Set(f.agents().map(a => a.id)).size).toBe(3);
   expect(f.agents().map(a => a.provider)).toEqual(['codex', 'codex', 'claude']);
-  expect(f.agents()[2]!.roles).toEqual(['planner', 'reviewer']);
+  expect(f.agents()[2]!.roles).toEqual(['developer', 'reviewer']);
   expect(f.resolveAgentId('Duplicate')).toBeUndefined();
   expect(f.resolveAgentId(f.agents()[0]!.id)).toBe(f.agents()[0]!.id);
   expect(f.agents().every(a => a.controls?.message === false)).toBe(true);
@@ -78,7 +78,7 @@ it('edits, disables, archives and restores, preserving task identities and emitt
   expect(() => f.teamAction('team.archive', { revision: 1, id })).toThrow('незавершённую');
   f.tasks.setStatus(task.id, 'done');
   f.setAgent(id, { state: 'done', taskId: task.id });
-  f.teamAction('team.update', { revision: 1, id, patch: { name: 'Renamed', provider: 'claude', roles: ['planner', 'reviewer'], appearance: { skin: 'wren', color: '#654321', slim: true } } });
+  f.teamAction('team.update', { revision: 1, id, patch: { name: 'Renamed', provider: 'claude', roles: ['developer', 'reviewer'], appearance: { skin: 'wren', color: '#654321', slim: true } } });
   expect(f.agent(id)).toMatchObject({ name: 'Renamed', provider: 'claude', slim: true });
   f.teamAction('team.disable', { revision: 2, id });
   expect(f.agent(id)).toMatchObject({ active: false, visible: true, enabled: false });
