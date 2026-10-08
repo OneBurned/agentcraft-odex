@@ -88,3 +88,18 @@ it('does not activate a legacy import when its source cursor is damaged', () => 
   expect(() => f.store.importCodex(f.a, 2, () => {}, source)).toThrow();
   expect(f.team.get(f.a)?.connectionRef).toBeNull(); expect(f.team.snapshot().revision).toBe(2);
 });
+it('binds an unrelated agent when another record is damaged but retains known session reservations', () => {
+  const f = fixture(), first = binding(); f.bind(f.a, first);
+  fs.writeFileSync(f.store.file(f.team.get(f.a)!.connectionRef!), '{broken');
+  f.bind(f.b, binding());
+  expect(() => f.bind(f.b, first)).toThrow('уже назначен');
+  f.store.unbind(f.a, f.team.snapshot().revision, () => {});
+  f.bind(f.b, first);
+});
+it('checks duplicate Claude session IDs even when the other workspace is missing', () => {
+  const f = fixture('claude'), first = workspace(); f.bind(f.a, first);
+  expect(dirs).toContain(first.workspace);
+  fs.renameSync(first.workspace, path.join(dir(), 'moved'));
+  f.bind(f.b, workspace());
+  expect(() => f.bind(f.b, workspace(first.sessionId))).toThrow('уже назначен');
+});

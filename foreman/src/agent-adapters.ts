@@ -75,7 +75,7 @@ export class ClaudeAdapter implements AgentAdapter {
   }
   private save() { this.store.file(`agents/${this.c.agentId}/claude-state.json`); writeJsonAtomic(this.file, this.state); }
   private phase(phase: ConnectionPhase, detail?: string) { if (!this.closed) this.events.activity(phase, detail); }
-  busy() { return !!this.running || this.controlling || this.stopUnconfirmed || !!this.runner.isRunning?.() || !!this.runner.externalStatus?.(); }
+  busy() { return !!this.running || this.controlling || this.stopUnconfirmed || !!this.runner.isRunning?.(); }
   start() { void this.poll(); this.timer = setInterval(() => void this.poll(), 5000); this.timer.unref(); }
   async poll() {
     if (this.closed || this.polling || this.running || this.controlling) return;

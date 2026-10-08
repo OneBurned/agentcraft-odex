@@ -38,6 +38,10 @@ INSTALL AND START
    Send with runtime/node.exe studio.mjs connection.bind --file binding.json.
    Open-Agent.ps1 -Agent <id> continues that conversation in the terminal; -Desktop
    hands off to Code, -Return returns after closing its Code session. No duplicate session.
+   Legacy profiles without team.json can still run Connect-Codex.ps1 without -Agent;
+   that updates data/portable/codex-chat.json. Team profiles require -Agent.
+   One damaged connection does not disable other agents. Detach an inactive damaged
+   binding with connection.unbind (id and revision), including an archived entry.
 6. Start your Fabric profile and open an ordinary single-player world.
    Find the command desk, console, monitor and workspace configurator in the creative
    inventory. Check the recipient before sending a console message with Enter.

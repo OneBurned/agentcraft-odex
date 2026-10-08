@@ -169,13 +169,11 @@ it('addresses progress by agent and never combines equal observer task keys', as
   const bad = await message(x.f, { type: 'observer.update', key: 'same', title: 'Work', state: 'done', activity: 'Done' });
   expect(bad.ok).toBe(false);
 });
-it('repairs an unavailable Codex pipe without allowing another conversation to take its place', async () => {
+it('replaces an unavailable Codex connection when no command or work is active', async () => {
   const x = await fixture(), id = x.ids[0]!;
   x.callbacks.get(id)!.activity('unavailable');
-  await expect(x.backend.onStudioAction('connection.bind', { id, revision: x.f.team!.snapshot().revision,
-    connection: { ...x.connections[0], threadId: randomUUID() } })).rejects.toThrow('не подтверждена');
   await x.backend.onStudioAction('connection.bind', { id, revision: x.f.team!.snapshot().revision,
-    connection: { ...x.connections[0], pipePath: '\\\\.\\pipe\\codex-browser-use-new' } });
+    connection: { ...x.connections[0], threadId: randomUUID(), pipePath: '\\\\.\\pipe\\codex-browser-use-new' } });
   await until(() => x.f.agent(id)?.controls?.message === true);
   expect(x.f.team!.get(id)?.connectionRef).toBeTruthy();
 });
@@ -202,4 +200,75 @@ it('retains Codex history across a full bridge restart without replaying old fee
   await f.start(backend);
   const view = await backend.onStudioAction('connection.get', { id });
   expect(view.history).toEqual(expect.arrayContaining([expect.objectContaining({ text: 'Durable reply' })]));
+});
+it.each(['workspace', 'connection'])('isolates a missing/damaged %s and detaches only its inactive agent', async damage => {
+  const x = await fixture(), broken = x.ids[2]!, healthy = x.ids[3]!, codex = x.ids[0]!;
+  if (damage === 'workspace') {
+    const workspace = x.connections[2].workspace;
+    expect(dirs).toContain(workspace);
+    fs.renameSync(workspace, path.join(dir(), 'moved-workspace'));
+  } else fs.writeFileSync(path.join(x.f.config.dataDir, x.f.team!.get(broken)!.connectionRef!), '{broken');
+  await (x.adapters.get(broken) as ClaudeAdapter).poll();
+  expect(x.f.agent(broken)?.controls?.message).toBe(false);
+  await (x.adapters.get(healthy) as ClaudeAdapter).poll();
+  await (x.adapters.get(codex) as CodexAdapter).chat.poll();
+  expect(x.f.agent(healthy)?.controls?.message).toBe(true);
+  expect(x.f.agent(codex)?.controls?.message).toBe(true);
+  await x.backend.onChatMessage('Unrelated work', healthy);
+  await x.backend.onChatMessage('Other work', codex);
+  await x.backend.onStudioAction('connection.unbind', { id: broken, revision: x.f.team!.snapshot().revision });
+  expect(x.f.team!.get(broken)?.connectionRef).toBeNull();
+  expect(x.f.agent(healthy)?.state).toBe('thinking');
+  expect(x.f.agent(codex)?.state).toBe('thinking');
+  expect(x.runners.get(healthy)!.value.stop).not.toHaveBeenCalled();
+});
+it.each(['workspace', 'connection'])('starts with a damaged %s, serves healthy agents and allows recovery', async damage => {
+  const x = await fixture(), broken = x.ids[2]!;
+  await x.f.close();
+  if (damage === 'workspace') {
+    expect(dirs).toContain(x.connections[2].workspace);
+    fs.renameSync(x.connections[2].workspace, path.join(dir(), 'moved-workspace'));
+  } else fs.writeFileSync(path.join(x.f.config.dataDir, x.f.team!.get(broken)!.connectionRef!), '{broken');
+  const f = new Foreman({ config: x.f.config, logger: silentLogger }); cores.push(f);
+  const backend = new ObserverBackend(f, undefined, (c, store, events) => c.provider === 'claude'
+    ? new ClaudeAdapter(c, store, events, runner(c.sessionId).value)
+    : new CodexAdapter(c, store, events, { call: async (binding, tool) => tool === 'read_thread'
+      ? { thread: { id: binding.threadId, status: { type: 'idle' } }, turns: [] } : { threadId: binding.threadId } }));
+  await f.start(backend);
+  for (const id of x.ids.filter(id => id !== broken)) await until(() => f.agent(id)?.controls?.message === true);
+  expect(f.agent(broken)?.controls?.message).toBe(false);
+  f.teamAction('team.archive', { id: broken, revision: f.team!.snapshot().revision });
+  f.teamAction('team.restore', { id: broken, revision: f.team!.snapshot().revision });
+  f.teamAction('team.archive', { id: broken, revision: f.team!.snapshot().revision });
+  await backend.onStudioAction('connection.unbind', { id: broken, revision: f.team!.snapshot().revision });
+  expect(f.team!.get(broken)).toMatchObject({ archived: true, connectionRef: null });
+  await backend.onChatMessage('Healthy after recovery', x.ids[0]!);
+  expect(f.agent(x.ids[0]!)?.state).toBe('thinking');
+});
+it.each(['unavailable', 'interrupted', 'error'] as const)('releases an inactive Codex in %s through all lifecycle operations', async phase => {
+  const x = await fixture(), id = x.ids[0]!;
+  for (const action of ['team.update', 'team.disable', 'team.archive', 'connection.unbind']) {
+    // Restore and enable between independent lifecycle operations.
+    if (x.f.team!.get(id)?.archived) x.f.teamAction('team.restore', { id, revision: x.f.team!.snapshot().revision });
+    if (!x.f.team!.get(id)?.enabled) {
+      x.f.teamAction('team.update', { id, revision: x.f.team!.snapshot().revision, patch: { enabled: true } });
+      await until(() => x.f.agent(id)?.controls?.message === true);
+    }
+    x.callbacks.get(id)!.activity(phase);
+    if (phase === 'interrupted') expect(x.f.agent(id)?.controls?.stop).toBe(true);
+    const payload = { id, revision: x.f.team!.snapshot().revision, ...(action === 'team.update' ? { patch: { name: 'Renamed' } } : {}) };
+    if (action === 'connection.unbind') await x.backend.onStudioAction(action, payload);
+    else x.f.teamAction(action, payload);
+    expect(x.f.agent(x.ids[1]!)?.controls?.message).toBe(true);
+  }
+});
+it('polls read only their connection and reuse the parsed common team revision', async () => {
+  const x = await fixture();
+  const read = vi.spyOn(fs, 'readFileSync');
+  try {
+    await (x.adapters.get(x.ids[0]!) as CodexAdapter).chat.poll();
+    const files = read.mock.calls.map(c => String(c[0]));
+    for (const id of x.ids.slice(1)) expect(files).not.toContain(path.join(x.f.config.dataDir, x.f.team!.get(id)!.connectionRef!));
+    expect(files.filter(f => f === x.f.team!.file).length).toBeLessThanOrEqual(1);
+  } finally { read.mockRestore(); }
 });

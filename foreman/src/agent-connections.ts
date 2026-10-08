@@ -21,6 +21,7 @@ const request = z.object({ id: TeamId, revision: z.number().int().nonnegative(),
 
 /** Immutable records: team.json's reference is the only activation point. No secrets on the wire. */
 export class AgentConnections {
+  private known = new Map<string, Connection>();
   constructor(readonly root: string, readonly team: TeamRegistry) {}
   file(ref: string) { validateReference(this.root, ref); return path.join(this.root, ref); }
   read(id: string): Connection | undefined {
@@ -30,25 +31,19 @@ export class AgentConnections {
     if (fs.statSync(file).size > 32000) throw new Error('Connection file is too large');
     const record = Connection.parse(JSON.parse(fs.readFileSync(file, 'utf8')));
     if (record.agentId !== id || record.provider !== agent.provider) throw new Error('Connection owner/provider mismatch');
+    this.known.set(id, record);
     return record;
   }
   private identity(c: Connection) {
     return `${c.provider}:${c.provider === 'codex' ? c.threadId.toLowerCase() : c.sessionId.toLowerCase()}`;
   }
   private workspace(c: Extract<Connection, { provider: 'claude' }>) {
-    const real = fs.realpathSync(c.workspace);
+    let real: string;
+    try { real = fs.realpathSync(c.workspace); } catch { real = path.resolve(c.workspace); }
     return process.platform === 'win32' ? real.toLowerCase() : real;
   }
-  validateAll(): void {
-    this.team.assertUnchanged();
-    const records = this.team.snapshot().agents.map(a => this.read(a.id)).filter((c): c is Connection => !!c);
-    for (const [i, c] of records.entries()) for (const other of records.slice(i + 1)) {
-      if (this.identity(c) === this.identity(other) || c.provider === 'claude' && other.provider === 'claude' && this.workspace(c) === this.workspace(other))
-        throw new Error(`Разговор уже назначен агенту ${other.agentId}. Выбери отдельный чат/сессию.`);
-    }
-  }
   assertCurrent(expected: Connection): Connection {
-    this.validateAll();
+    this.team.assertAgentUnchanged(expected.agentId);
     const actual = this.read(expected.agentId);
     if (!actual || !isDeepStrictEqual(actual, expected)) throw new Error('Подключение изменено извне. Перезапусти мост после проверки конфигурации.');
     if (actual.provider === 'claude' && conversation(actual.workspace)?.sessionId !== actual.sessionId)
@@ -60,7 +55,7 @@ export class AgentConnections {
     const record = Connection.parse({ ...(connection as object), version: 1, agentId: id });
     const agent = this.team.get(id);
     if (!agent || agent.archived || agent.provider !== record.provider) throw new Error('Unknown agent or wrong provider');
-    idle(id); this.validateAll();
+    idle(id); this.team.assertUnchanged();
     if (record.provider === 'claude') {
       claudeWorkspace(record.workspace);
       if (conversation(record.workspace)?.sessionId !== record.sessionId) throw new Error('conversation.json must name this Claude session');
@@ -68,18 +63,23 @@ export class AgentConnections {
     }
     for (const a of this.team.snapshot().agents) {
       if (a.id === id) continue;
-      const other = this.read(a.id);
+      let other;
+      try { other = this.read(a.id); }
+      catch { other = a.connectionRef ? this.known.get(a.id) : undefined; }
       if (other && (this.identity(record) === this.identity(other) || record.provider === 'claude' && other.provider === 'claude' && this.workspace(record) === this.workspace(other)))
         throw new Error(`Разговор уже назначен агенту ${a.name} (${a.id}). Выбери отдельный чат/сессию.`);
     }
-    const existing = this.read(id);
+    let existing;
+    try { existing = this.read(id); } catch { /* An inactive damaged binding can be replaced. */ }
     if (isDeepStrictEqual(existing, record)) {
       if (revision !== this.team.snapshot().revision) throw new Error('Team revision conflict');
       return this.team.snapshot();
     }
     const ref = `connections/${id}-${randomUUID()}.json`;
     writeJsonAtomic(this.file(ref), record);
-    return this.team.connect(id, ref, revision, idle);
+    const result = this.team.connect(id, ref, revision, idle);
+    this.known.set(id, record);
+    return result;
   }
   unbind(id: string, revision: number, idle: (id: string) => void) { return this.team.connect(id, null, revision, idle); }
   /** Explicit, idempotent legacy import into ONE selected agent; preserves source and cursor. */

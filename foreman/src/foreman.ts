@@ -35,7 +35,7 @@ import { truncate } from './util/text.js';
 import { PersonaSpeech } from './personas.js';
 
 export interface Backend {
-  assertAgentIdle?(id: string): void;
+  assertAgentIdle?(id: string): boolean | void;
   onTeamChanged?(): void;
   readonly name: 'sim' | 'claude' | 'observer';
   onObserverUpdate?(update: ObserverUpdate): Record<string, unknown>;
@@ -211,9 +211,10 @@ export class Foreman {
   }
 
   assertTeamAgentIdle(id: string): void {
-      try { this.backend?.assertAgentIdle?.(id); } catch (e) { throw new TeamError((e as Error).message); }
+      let runtimeIdle;
+      try { runtimeIdle = this.backend?.assertAgentIdle?.(id); } catch (e) { throw new TeamError((e as Error).message); }
       const a = this.agent(id);
-      if (a && (!['idle', 'done'].includes(a.state) || a.taskId && !['done', 'cancelled'].includes(this.tasks.get(a.taskId)?.status ?? '')) ||
+      if (a && (runtimeIdle !== true && !['idle', 'done'].includes(a.state) || a.taskId && !['done', 'cancelled'].includes(this.tasks.get(a.taskId)?.status ?? '')) ||
         this.tasks.list().some(t => t.assignee === id && !['done', 'cancelled'].includes(t.status)) ||
         this.decisions.open().some(d => d.agentId === id))
         throw new TeamError('Агент занят или назначен на незавершённую задачу. Заверши или переназначь работу перед изменением.');

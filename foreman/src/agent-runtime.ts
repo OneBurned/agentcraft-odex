@@ -31,7 +31,6 @@ export class AgentRuntime {
   start() { this.reconcile(); }
   reconcile() {
     if (this.closed) return;
-    this.connections.validateAll();
     for (const [id, slot] of this.slots) {
       const a = this.fm.team!.get(id);
       if (!a || a.archived || !a.enabled || a.connectionRef !== slot.ref) {
@@ -68,7 +67,7 @@ export class AgentRuntime {
     const hint = slot?.notice || this.errors.get(id) || (enabled ? 'Не подключён' : 'Выключен');
     this.fm.setAgent(id, { controls: { message: !!enabled && ready && !busy && slot?.phase !== 'paused',
       pause: ready && !!working, resume: ready && slot?.phase === 'paused' && !busy,
-      stop: (ready && (!!working || slot?.phase === 'paused' || slot?.phase === 'error')) ||
+      stop: (ready && (!!working || slot?.phase === 'paused' || slot?.phase === 'error' || slot?.phase === 'interrupted')) ||
         slot?.connection.provider === 'claude' && slot.phase === 'unavailable' && slot.adapter.busy(), hint },
       ...(!slot ? { activity: hint, state: 'idle', paused: false } : {}) });
   }
@@ -111,22 +110,12 @@ export class AgentRuntime {
   }
   assertIdle(id: string) {
     const slot = this.slots.get(id);
-    if (slot && (slot.adapter.busy() || !['idle', 'completed', 'stopped', 'paused'].includes(slot.phase)))
+    if (slot && (slot.adapter.busy() || ['working', 'waiting', 'external'].includes(slot.phase)))
       throw new Error('Агент занят или остановка не подтверждена. Сначала останови его работу.');
-    const c = this.connections.read(id);
-    if (c) this.connections.assertCurrent(c);
+    let c = slot?.connection;
+    if (!c) { try { c = this.connections.read(id); } catch { /* No runtime exists for this damaged record. */ } }
     if (c?.provider === 'claude' && conversationLease(c.workspace)) throw new Error('Разговор занят. Сначала верни его из терминала/Code.');
-  }
-  assertCanBind(id: string, candidate: unknown) {
-    const slot = this.slots.get(id);
-    // App restarts change the pipe, not the conversation. Allow repairing only that identity;
-    // never switch an unknown/busy agent to a different chat or detach an in-flight command.
-    if (slot?.phase === 'unavailable' && !slot.adapter.busy() && slot.connection.provider === 'codex' &&
-      candidate && typeof candidate === 'object' && 'provider' in candidate && candidate.provider === 'codex' &&
-      'threadId' in candidate && candidate.threadId === slot.connection.threadId) {
-      this.connections.assertCurrent(slot.connection); return;
-    }
-    this.fm.assertTeamAgentIdle(id);
+    return true;
   }
   async send(id: string, text: string, purpose: 'message' | 'task' = 'message') {
     const slot = this.slot(id);
@@ -134,7 +123,7 @@ export class AgentRuntime {
     let result;
     try { result = await slot.adapter.send(text, purpose); }
     catch (e) {
-      // A timeout is not proof of non-delivery. Do not allow reassignment on an old idle status.
+      // A timeout is not proof of non-delivery; expose uncertainty rather than a false success.
       if (!this.closed && this.slots.get(id) === slot) this.activity(id, 'unavailable', (e as Error).message);
       throw e;
     }

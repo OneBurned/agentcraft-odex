@@ -74,15 +74,21 @@ atomically activates the reference through a revision-checked team write. Old fi
 The record includes `version:1`, `agentId`, `provider`, `transport`, plus provider-specific
 fields. It is local configuration and is never returned in game snapshots. Duplicate Codex
 thread IDs or Claude session IDs/workspace realpaths are rejected, including archived bindings.
-Unbind deliberately releases the reservation while preserving files and history. External
-team/connection edits cause errors; there is no silent fallback to another conversation.
+Unbind deliberately releases the reservation while preserving files and history; it also
+works on archived entries. A missing workspace or malformed connection disables only its
+owner's connection, including at startup. Healthy agents keep working. Each poll validates
+only that agent and its binding; the parsed common team revision is cached until its file
+changes. Duplicate checks run on bind/import: unavailable workspace paths use the saved
+normalized path, and a damaged record retains its last known identity in the running bridge.
+An unreadable record without a known identity cannot start an adapter; repair it through
+unbind/bind, where duplicate checks apply again. There is no fallback to another conversation.
 
 Connection API through `studio.action` / `studio.mjs`:
 
 | Action | Payload |
 | --- | --- |
 | `connection.bind` | `id`, current team `revision`, `connection` as below; version/agentId are assigned by the bridge |
-| `connection.unbind` | `id`, `revision`; active or unconfirmed work blocks detachment |
+| `connection.unbind` | `id`, `revision`; releases an inactive binding, including damaged/archived entries; active work and owned processes still block detachment |
 | `connection.importCodex` | `id`, `revision`; imports the old global/AGENTCRAFT_CHAT_CONFIG binding into exactly this agent |
 | `connection.get` | `id`; returns provider, phase, notice and recent public history, without pipe/workspace paths |
 | `connection.send` | `id`, `text`, optional `purpose: message|task`; explicit user request, not queue approval |
@@ -93,8 +99,11 @@ Codex connection fields: `provider:codex`, `transport:codex-desktop`, `threadId`
 `node --import ./foreman/node_modules/tsx/dist/loader.mjs tools/connect-codex-chat.ts --agent <id> --port <port>`.
 The connector verifies the desktop thread and sends the binding to the running profile.
 The no-argument connector remains the legacy global-file path; do not use it for a new team.
-After an app restart, the same thread's pipe can be refreshed while unavailable, provided no
-local command is in flight. An unknown/busy agent cannot be rebound to a different thread.
+After an app restart, refresh its pipe with the same connector. An inactive Codex in
+unavailable/interrupted/error can also be renamed, disabled, archived or unbound, provided
+no local command, assigned unfinished task or decision is pending. This is detachment of a
+connection, not confirmation that a remote process was stopped. Interrupted/error states
+also expose Stop when the transport can confirm it. An actively working agent stays protected.
 
 Explicit legacy import keeps the original file, creates a profile-local backup, and copies a
 matching old `codex-chat-state.json` cursor if this agent does not already have one. Repeating
@@ -129,17 +138,21 @@ selected agent's immutable ID. `observer.update` requires `agentId` for dynamic 
 task keys are namespaced by it (`codex-progress.mjs --agent <id>`). Ambiguous names and `all`
 are not accepted as a recipient. Status changes do not claim a real stop: Codex confirms the
 specific thread is no longer running; Claude confirms its own child process has exited and
-prevents a delayed spawn after cancellation. Failed confirmation remains unavailable and
-blocks reassignment; retry Stop. Disposing the bridge's Codex watcher does not stop that chat.
+prevents a delayed spawn after cancellation. Failed confirmation never claims paused/stopped.
+A pending control, active local child, unconfirmed Claude child exit or external Claude lease
+blocks registry changes; retry Stop or return the external conversation. Inactive damaged
+bindings can be detached without reading their broken configuration. Disposing the bridge's
+Codex watcher does not stop that chat.
 
 `agents/observer.ts` and `studio.ts` route dynamic teams. Pre-team behavior is isolated in
 `agents/legacy-observer.ts` and `legacy-studio.ts`; existing local profiles keep that path until
 explicit migration. This stage does not install/restart the user's live bridge or mod.
 
-Validation: 714 tests passed in the full bridge suite; after the final stale-poll guard,
-43 focused adapter/connection tests passed, including one additional regression. TypeScript,
-protocol documentation verification, two CLI transport tests and PowerShell launcher parsing
-passed. The neutral portable package passed its privacy audit and isolated integration test:
+Validation: 725 tests passed in the full bridge suite, including missing/malformed connection
+isolation, restart/recovery, inactive Codex lifecycle operations, per-agent polling and active
+process protection. TypeScript, protocol documentation verification and three CLI tests passed;
+the latter execute the packaged PowerShell connector against a stub to verify legacy/team
+selection without sending real messages. The neutral portable package passed its privacy audit and isolated integration test:
 four agents, duplicate-binding rejection, two independent native Claude SDK transcript fixtures,
 history after restart, and the legacy queue/MCP workflow. No real model messages were sent.
 Live simultaneous conversations with two signed-in Codex and two Claude instances, and manual

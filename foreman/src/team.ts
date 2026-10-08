@@ -40,6 +40,7 @@ export function validateReference(root: string, ref: string) {
 /** Synchronous compare-and-write under the single profile owner; no await between validation and commit. */
 export class TeamRegistry {
   private data: TeamData;
+  private observed?: { stamp: string; agents: Map<string, TeamAgent> };
   readonly file: string;
   constructor(private root: string) {
     this.file = path.join(root, 'team.json');
@@ -62,14 +63,29 @@ export class TeamRegistry {
   assertUnchanged(): void {
     if (!isDeepStrictEqual(this.read(), this.data)) throw new TeamError('team.json changed outside the bridge: restart before editing');
   }
-  get(id: string): TeamAgent | undefined { return this.snapshot().agents.find(a => a.id === id); }
+  get(id: string): TeamAgent | undefined {
+    const agent = this.data.agents.find(a => a.id === id);
+    return agent && structuredClone(agent);
+  }
+  /** Polls validate only their owner. Parse the common file once per filesystem revision. */
+  assertAgentUnchanged(id: string): void {
+    rejectLink(this.file);
+    const s = fs.statSync(this.file, { bigint: true });
+    const stamp = `${s.ino}/${s.size}/${s.mtimeNs}/${s.ctimeNs}`;
+    if (this.observed?.stamp !== stamp) {
+      const disk = Team.parse(JSON.parse(fs.readFileSync(this.file, 'utf8')));
+      this.observed = { stamp, agents: new Map(disk.agents.map(a => [a.id, a])) };
+    }
+    if (!isDeepStrictEqual(this.observed.agents.get(id), this.get(id)))
+      throw new TeamError('Agent changed outside the bridge: restart before using its connection');
+  }
   /** Connection records are committed first; this atomic reference is the activation point. */
   connect(id: string, ref: string | null, revision: number, assertIdle: (id: string) => void): TeamData {
     if (!isDeepStrictEqual(this.read(), this.data)) throw new TeamError('team.json changed outside the bridge: restart before editing');
     if (revision !== this.data.revision) throw new TeamError('Team revision conflict: reload team.get');
     const next = this.snapshot();
-    const agent = next.agents.find(a => a.id === id && !a.archived);
-    if (!agent) throw new TeamError('Unknown or archived agent');
+    const agent = next.agents.find(a => a.id === id);
+    if (!agent || agent.archived && ref !== null) throw new TeamError('Unknown or archived agent');
     assertIdle(id);
     if (ref) validateReference(this.root, ref);
     agent.connectionRef = ref; next.revision++;

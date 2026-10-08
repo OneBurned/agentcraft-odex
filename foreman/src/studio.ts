@@ -14,7 +14,7 @@ export class TeamStudio {
       notice: 'Подключения адресуются по ID агента. Автоматическая очередь команды — отдельный этап.' };
     if (action === 'connection.get') return this.runtime.view(selected.parse(payload).id);
     let team;
-    if (action === 'connection.bind') team = this.runtime.connections.bind(payload, id => this.runtime.assertCanBind(id, payload.connection));
+    if (action === 'connection.bind') team = this.runtime.connections.bind(payload, idle);
     else if (action === 'connection.unbind' || action === 'connection.importCodex') {
       const { id, revision } = selected.extend({ revision: z.number().int().nonnegative() }).strict().parse(payload);
       team = action === 'connection.unbind' ? this.runtime.connections.unbind(id, revision, idle)
