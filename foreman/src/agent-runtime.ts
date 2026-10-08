@@ -71,7 +71,8 @@ export class AgentRuntime {
     const ready = !!slot && !['unavailable', 'external'].includes(slot.phase);
     const busy = !!slot?.adapter.busy();
     const working = slot && ['working', 'waiting'].includes(slot.phase);
-    const hint = this.projectHint?.(id) || slot?.notice || this.errors.get(id) || (enabled ? 'Не подключён' : 'Выключен');
+    const statusHint = slot?.notice || this.errors.get(id) || (enabled ? 'Не подключён' : 'Выключен');
+    const hint = [statusHint, this.projectHint?.(id)].filter(Boolean).join(' · ');
     this.fm.setAgent(id, { controls: { message: !!enabled && ready && !busy && slot?.phase !== 'paused',
       pause: ready && !!working, resume: ready && slot?.phase === 'paused' && !busy,
       stop: (ready && (!!working || slot?.phase === 'paused' || slot?.phase === 'error' || slot?.phase === 'interrupted')) ||

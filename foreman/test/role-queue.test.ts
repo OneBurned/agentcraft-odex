@@ -183,3 +183,88 @@ it('two repository records for the same directory share the project lock', async
   x.busy.delete(x.ids[0]!); await x.q.tick();
   expect(alias.stage).toBe('queued'); expect(alias.reason).toContain(i.id); expect(x.calls).toHaveLength(1);
 });
+
+it('a completed task explains its changed HEAD lock and can release the project from the card', async () => {
+  const x = await fixture(), i = await x.create({ noReview: true, reviewerId: null }); await x.action('start');
+  const next = await x.create({ noReview: true, reviewerId: null });
+  x.change(); const a = i.attempt!;
+  await x.action('report', { id: i.id, run: a.run, agentId: a.agentId, status: 'done', summary: 'done', ci: 'pass', checks: 'tests' });
+  const accepted = i.head; x.change(); x.busy.delete(a.agentId); await x.q.tick();
+  expect(i.lock).toBeTruthy(); expect(i.reason).toContain('Освободить проект');
+  expect(x.q.view().items[0]?.canReleaseProject).toBe(true); expect(next.reason).toContain(i.id);
+  await x.action('release', { id: i.id });
+  expect(i.lock).toBeUndefined(); expect(i.head).toBe(accepted); expect(next.stage).toBe('coding');
+});
+it('release refuses a dirty completed project and tells the user to save changes first', async () => {
+  const x = await fixture(), i = await x.create({ noReview: true, reviewerId: null }); await x.action('start'); x.change();
+  const a = i.attempt!;
+  await x.action('report', { id: i.id, run: a.run, agentId: a.agentId, status: 'done', summary: 'done', ci: 'pass', checks: 'tests' });
+  fs.appendFileSync(path.join(x.cwd, 'file.txt'), '\npending edit'); x.busy.delete(a.agentId); await x.q.tick();
+  expect(i.reason).toContain('сохрани'); await expect(x.action('release', { id: i.id })).rejects.toThrow(); expect(i.lock).toBeTruthy();
+  commit(x.cwd); await x.action('release', { id: i.id }); expect(i.lock).toBeUndefined();
+});
+it('changed review HEAD can explicitly return to development and the next review includes the new range', async () => {
+  const x = await fixture(), i = await x.create(); await x.action('start'); await x.done(i);
+  const oldHead = i.head!, oldRun = i.attempt!.run, changedHead = x.change();
+  await expect(x.action('review.report', { id: i.id, run: oldRun, agentId: x.ids[2], head: oldHead, verdict: 'pass', summary: 'old' })).rejects.toThrow('HEAD');
+  const questionId = x.fm.decisions.open()[0]!.id, count = x.calls.length;
+  await expect(x.action('retry', { id: i.id, answer: 'Checked', recovery: 'restore-head' })).rejects.toThrow('Вернуть разработчику');
+  expect(i.stage).toBe('question'); expect(i.attempt).toBeUndefined(); expect(x.calls).toHaveLength(count);
+  expect(x.q.view().items[0]?.canAssignReviewer).toBe(true);
+  expect(x.fm.decisions.open().map(d => d.id)).toEqual([questionId]);
+  await x.action('retry', { id: i.id, answer: 'Inspect the added commit', recovery: 'developer' });
+  expect(i.stage).toBe('coding'); expect(i.attempt?.agentId).toBe(x.ids[0]); expect(i.attempt?.base).toBe(changedHead);
+  expect(i.ranges).toContainEqual({ base: oldHead, head: changedHead }); expect(x.fm.decisions.open()).toHaveLength(0);
+  await x.done(i); expect(i.ranges).toHaveLength(3); expect(x.calls.at(-1)?.text).toContain(JSON.stringify(i.ranges));
+  await x.action('review.report', { id: i.id, run: i.attempt!.run, agentId: x.ids[2], head: i.head, verdict: 'pass', summary: 'Checked all ranges' });
+  expect(i.stage).toBe('done');
+});
+it('ordinary retry is available after the user restores the originally reviewed HEAD', async () => {
+  const x = await fixture(), i = await x.create(); await x.action('start'); await x.done(i);
+  const head = i.head!, run = i.attempt!.run;
+  git(x.cwd, 'checkout', '-b', 'extra'); x.change();
+  await expect(x.action('review.report', { id: i.id, run, agentId: x.ids[2], head, verdict: 'pass', summary: 'stale' })).rejects.toThrow('HEAD');
+  git(x.cwd, 'checkout', '--detach', head); // synthetic temporary test repository; no working files discarded
+  await x.action('retry', { id: i.id, answer: 'Restored original HEAD', recovery: 'restore-head' });
+  expect(i.stage).toBe('review'); expect(i.attempt?.run).not.toBe(run); expect(i.head).toBe(head);
+});
+it.each(['disable', 'archive'])('can replace a reviewer who becomes unavailable via %s after development', async mode => {
+  const x = await fixture(), i = await x.create(); await x.action('start'); await x.action('pause'); await x.done(i);
+  const lock = i.lock, ranges = structuredClone(i.ranges);
+  x.fm.teamAction(`team.${mode}`, { id: x.ids[2], revision: x.fm.team!.snapshot().revision });
+  await x.action('start'); expect(i.stage).toBe('review'); expect(i.attempt).toBeUndefined(); expect(i.reason).toContain('выключен');
+  expect(x.q.view().items[0]?.canAssignReviewer).toBe(true);
+  await x.action('assign', { id: i.id, reviewerId: x.ids[1] });
+  expect(i.attempt?.agentId).toBe(x.ids[1]); expect(i.lock).toBe(lock); expect(i.ranges).toEqual(ranges);
+  await x.action('review.report', { id: i.id, run: i.attempt!.run, agentId: x.ids[1], head: i.head, verdict: 'pass', summary: 'replacement review' });
+  expect(i.stage).toBe('done'); expect(x.calls).toHaveLength(2);
+});
+it('reviewer reassignment cannot bypass review, change project/developer, or select an earlier developer', async () => {
+  const x = await fixture(), i = await x.create(); await x.action('start'); await x.action('pause'); await x.done(i);
+  expect(i.developerIds).toEqual([x.ids[0]]);
+  // Persisted task with an earlier second author, e.g. restored from a prior development attempt.
+  i.developerIds!.push(x.ids[1]!);
+  await expect(x.action('assign', { id: i.id, reviewerId: x.ids[1] })).rejects.toThrow('участвовал');
+  await expect(x.action('assign', { id: i.id, reviewerId: x.ids[0] })).rejects.toThrow('разными');
+  await expect(x.action('assign', { id: i.id, reviewerId: x.ids[2], noReview: true })).rejects.toThrow('только ревьюера');
+  await expect(x.action('assign', { id: i.id, reviewerId: x.ids[2], developerId: x.ids[1] })).rejects.toThrow('только ревьюера');
+  await expect(x.action('assign', { id: i.id, reviewerId: x.ids[2], repoId: x.project2.id })).rejects.toThrow('только ревьюера');
+  expect(i.reviewerId).toBe(x.ids[2]); expect(i.lock).toBeTruthy();
+  x.fm.team!.setAssignment(true, x.fm.team!.snapshot().revision); x.busy.add(x.ids[2]!);
+  await x.action('assign', { id: i.id, reviewerId: null }); await x.action('start');
+  expect(i.attempt).toBeUndefined(); expect(i.reason).toContain('Нет свободного');
+});
+it('a stopped review question permits replacing its reviewer and keeps the new question with that agent', async () => {
+  const x = await fixture(), i = await x.create(); await x.action('start'); await x.done(i);
+  await expect(x.action('assign', { id: i.id, reviewerId: x.ids[1] })).rejects.toThrow('текущий запуск');
+  await x.q.control(x.ids[2]!, 'stop'); expect(i.attempt).toBeUndefined(); expect(i.stage).toBe('question');
+  await x.action('assign', { id: i.id, reviewerId: x.ids[1] });
+  expect(x.fm.decisions.open()).toHaveLength(1); expect(x.fm.decisions.open()[0]?.agentId).toBe(x.ids[1]);
+  await x.action('retry', { id: i.id, answer: 'Ready for the new reviewer' }); expect(i.attempt?.agentId).toBe(x.ids[1]);
+});
+it('an empty decision answer is rejected without closing or duplicating the question', async () => {
+  const x = await fixture(), i = await x.create(); await x.action('start'); await x.q.control(x.ids[0]!, 'stop');
+  const d = x.fm.decisions.open()[0]!;
+  expect(() => x.fm.decisions.answer(d.id, 'Повторить после проверки')).toThrow('Напиши ответ');
+  expect(x.fm.decisions.open().map(q => q.id)).toEqual([d.id]); expect(d.status).toBe('open');
+});

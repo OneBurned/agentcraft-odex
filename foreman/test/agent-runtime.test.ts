@@ -283,6 +283,10 @@ it('role queue accepts native final JSON through the owning runtime and preserve
   const i = (x.f.store.data.backend.roleQueue as any).items[0];
   await action('approve', { id: i.id }); await action('start');
   expect(i.stage).toBe('coding');
+  x.callbacks.get(developer)!.activity('unavailable', 'Связь недоступна');
+  expect(x.f.agent(developer)?.controls?.hint).toMatch(/^Связь недоступна/);
+  expect(x.f.agent(developer)?.controls?.hint).toContain(i.id);
+  x.callbacks.get(developer)!.activity('working');
   const reply = await x.backend.onChatMessage('Please consider this detail', developer);
   expect(reply.hint).toContain(i.id);
   fs.writeFileSync(path.join(cwd, 'queue-result.txt'), 'implemented');

@@ -352,10 +352,13 @@ public final class StudioScreen extends Screen {
         if (flag(data, "canEnableRoleQueue")) button("Перейти на очередь с ролями", left, top + 132, w - 24, () -> request("queue.enable", new JsonObject(), null));
     }
     private static class AssignmentScreen extends Screen {
-        final StudioScreen parent; final JsonObject payload; final boolean edit; final boolean assignOnly;
+        final StudioScreen parent; final JsonObject payload; final boolean edit; final boolean assignOnly; final boolean reviewerOnly;
+        final List<String> pastDevelopers = new ArrayList<>();
         String repo, developer, reviewer; boolean noReview;
         AssignmentScreen(StudioScreen parent, JsonObject payload, JsonObject item) {
             super(Component.literal("Назначение исполнителей")); this.parent = parent; this.payload = payload; this.edit = item != null; this.assignOnly = item != null && !payload.has("title");
+            reviewerOnly = item != null && flag(item, "canAssignReviewer");
+            if (item != null && item.has("developerIds")) for (var id : item.getAsJsonArray("developerIds")) pastDevelopers.add(id.getAsString());
             repo = item == null ? "" : str(item, "repoId"); developer = item == null ? "" : str(item, "developerId"); reviewer = item == null ? "" : str(item, "reviewerId"); noReview = item != null && flag(item, "noReview");
             if (repo.isEmpty() && !parent.array("repos").isEmpty()) repo = str(parent.array("repos").get(0).getAsJsonObject(), "id");
         }
@@ -364,6 +367,7 @@ public final class StudioScreen extends Screen {
             List<String> ids = new ArrayList<>(); ids.add("");
             for (var v : parent.data.getAsJsonObject("team").getAsJsonArray("agents")) {
                 var a = v.getAsJsonObject(); if (flag(a, "archived") || str(a, "id").equals(other)) continue;
+                if (role.equals("reviewer") && pastDevelopers.contains(str(a, "id"))) continue;
                 if (a.getAsJsonArray("roles").contains(new com.google.gson.JsonPrimitive(role))) ids.add(str(a, "id"));
             }
             return ids.get((ids.indexOf(current) + 1) % ids.size());
@@ -372,13 +376,15 @@ public final class StudioScreen extends Screen {
             clearWidgets(); int w = Math.min(440, width - 24), x = (width - w) / 2, y = Math.max(36, (height - 190) / 2);
             List<String> repos = new ArrayList<>(); String name = repo;
             for (var v : parent.array("repos")) { var r = v.getAsJsonObject(); repos.add(str(r, "id")); if (repo.equals(str(r, "id"))) name = str(r, "name"); }
-            addRenderableWidget(Button.builder(Component.literal("Проект: " + name), b -> { if (!repos.isEmpty()) repo = repos.get((repos.indexOf(repo) + 1) % repos.size()); init(); }).bounds(x, y, w, 20).build());
-            addRenderableWidget(Button.builder(Component.literal("Разработчик: " + parent.agentName(developer)), b -> { developer = nextAgent(developer, "developer", reviewer); init(); }).bounds(x, y + 25, w, 20).build());
+            addRenderableWidget(Button.builder(Component.literal("Проект: " + name), b -> { if (!repos.isEmpty()) repo = repos.get((repos.indexOf(repo) + 1) % repos.size()); init(); }).bounds(x, y, w, 20).build()).active = !reviewerOnly;
+            addRenderableWidget(Button.builder(Component.literal("Разработчик: " + parent.agentName(developer)), b -> { developer = nextAgent(developer, "developer", reviewer); init(); }).bounds(x, y + 25, w, 20).build()).active = !reviewerOnly;
             var review = addRenderableWidget(Button.builder(Component.literal("Ревьюер: " + parent.agentName(reviewer)), b -> { reviewer = nextAgent(reviewer, "reviewer", developer); init(); }).bounds(x, y + 50, w, 20).build()); review.active = !noReview;
-            addRenderableWidget(Button.builder(Component.literal("Без ревью: " + (noReview ? "да" : "нет")), b -> { noReview = !noReview; init(); }).bounds(x, y + 75, w, 20).build());
+            addRenderableWidget(Button.builder(Component.literal("Без ревью: " + (noReview ? "да" : "нет")), b -> { noReview = !noReview; init(); }).bounds(x, y + 75, w, 20).build()).active = !reviewerOnly;
             addRenderableWidget(Button.builder(Component.literal("Сохранить план"), b -> {
-                payload.addProperty("repoId", repo); payload.addProperty("noReview", noReview);
-                payload.add("developerId", developer.isEmpty() ? com.google.gson.JsonNull.INSTANCE : new com.google.gson.JsonPrimitive(developer));
+                if (!reviewerOnly) {
+                    payload.addProperty("repoId", repo); payload.addProperty("noReview", noReview);
+                    payload.add("developerId", developer.isEmpty() ? com.google.gson.JsonNull.INSTANCE : new com.google.gson.JsonPrimitive(developer));
+                }
                 payload.add("reviewerId", reviewer.isEmpty() || noReview ? com.google.gson.JsonNull.INSTANCE : new com.google.gson.JsonPrimitive(reviewer));
                 minecraft.gui.setScreen(parent); parent.request(assignOnly ? "assign" : edit ? "edit" : "create", payload, null);
             }).bounds(x, y + 105, w, 20).build());
@@ -387,6 +393,23 @@ public final class StudioScreen extends Screen {
         @Override public void onClose() { minecraft.gui.setScreen(parent); }
         @Override public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float dt) {
             g.fill(0, 0, width, height, 0xEF292722); g.text(font, title, 16, 15, 0xFFF2EAD8); super.extractRenderState(g, mx, my, dt);
+        }
+    }
+    private static class RecoveryScreen extends Screen {
+        final TaskDetails parent;
+        RecoveryScreen(TaskDetails parent) { super(Component.literal("Продолжение после вопроса ревью")); this.parent = parent; }
+        @Override public boolean isPauseScreen() { return false; }
+        @Override protected void init() {
+            int w = Math.min(480, width - 24), x = (width - w) / 2, y = Math.max(64, (height - 80) / 2);
+            addRenderableWidget(Button.builder(Component.literal(TextUtil.ellipsize(font, "HEAD восстановлен — повторить ревью", w - 12)), b -> parent.retryForm("restore-head")).bounds(x, y, w, 20).build());
+            addRenderableWidget(Button.builder(Component.literal("Вернуть разработчику"), b -> parent.retryForm("developer")).bounds(x, y + 26, w, 20).build());
+            addRenderableWidget(Button.builder(Component.literal("Назад"), b -> onClose()).bounds(x, y + 52, w, 20).build());
+        }
+        @Override public void onClose() { minecraft.gui.setScreen(parent); }
+        @Override public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float dt) {
+            g.fill(0, 0, width, height, 0xEF292722); g.text(font, TextUtil.ellipsize(font, title.getString(), width - 32), 16, 15, 0xFFF2EAD8);
+            g.text(font, TextUtil.ellipsize(font, "Проверялся коммит: " + str(parent.item, "head"), width - 32), 16, 36, 0xFFDFC185);
+            super.extractRenderState(g, mx, my, dt);
         }
     }
     @Override public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float dt) {
@@ -441,28 +464,38 @@ public final class StudioScreen extends Screen {
         @Override public boolean isPauseScreen() { return false; }
         @Override protected void init() {
             int w = Math.min(620, width - 24), x = (width - w) / 2;
-            var body = addRenderableWidget(MultiLineEditBox.builder().setX(x).setY(36).build(font, w, Math.max(40, height - 108), Component.literal("Описание задачи"))); body.setValue(content);
-            body.setValueListener(value -> { if (!value.equals(content)) body.setValue(content); });
             String stage = str(item, "stage"); List<String> ops = new ArrayList<>(); List<String> labels = new ArrayList<>();
             if (stage.equals("plan")) { ops.add("approve"); labels.add("В очередь"); }
             if (stage.equals("plan") || stage.equals("queued") && !parent.dynamicTeam()) { ops.add("edit"); labels.add("Изменить"); }
-            if (stage.equals("queued") && parent.dynamicTeam() && !item.has("lock")) { ops.add("assign"); labels.add("Исполнители"); }
+            if (parent.dynamicTeam() && (stage.equals("queued") && !item.has("lock") || flag(item, "canAssignReviewer"))) { ops.add("assign"); labels.add("Исполнители"); }
+            if (parent.dynamicTeam() && flag(item, "canReleaseProject")) { ops.add("release"); labels.add("Освободить проект"); }
             if (stage.equals("review") && !parent.dynamicTeam()) { ops.add("review"); labels.add("Ревью Claude"); }
             if (stage.equals("question")) { ops.add("retry"); labels.add("Повторить"); ops.add("question"); labels.add("Ответить"); }
             if (!stage.equals("done") && !stage.equals("cancelled")) { ops.add("cancel"); labels.add("Отменить"); }
-            ops.add("back"); labels.add("Назад"); int bw = w / ops.size();
+            ops.add("back"); labels.add("Назад");
+            int columns = Math.min(ops.size(), w >= 480 ? 3 : 2), rows = (ops.size() + columns - 1) / columns;
+            int bw = w / columns, buttonsTop = height - 24 - rows * 24;
+            var body = addRenderableWidget(MultiLineEditBox.builder().setX(x).setY(36).build(font, w, Math.max(40, buttonsTop - 44), Component.literal("Описание задачи"))); body.setValue(content);
+            body.setValueListener(value -> { if (!value.equals(content)) body.setValue(content); });
             for (int i = 0; i < ops.size(); i++) { String op = ops.get(i);
                 addRenderableWidget(Button.builder(Component.literal(TextUtil.ellipsize(font, labels.get(i), bw - 10)), b -> {
                     if (op.equals("edit")) parent.taskForm(item);
                     else if (op.equals("assign")) { JsonObject p = new JsonObject(); p.addProperty("id", str(item, "id")); minecraft.gui.setScreen(new AssignmentScreen(parent, p, item)); }
-                    else if (op.equals("retry") && parent.dynamicTeam()) minecraft.gui.setScreen(new Form(this, "Проверка перед повтором", List.of("Ответ и результат проверки прежнего запуска"), List.of(""), values -> {
-                        JsonObject p = new JsonObject(); p.addProperty("id", str(item, "id")); p.addProperty("answer", values.get(0)); minecraft.gui.setScreen(parent); parent.request("retry", p, null);
-                    }));
+                    else if (op.equals("retry") && parent.dynamicTeam()) {
+                        if (flag(item, "canReturnToDeveloper")) minecraft.gui.setScreen(new RecoveryScreen(this)); else retryForm("restore-head");
+                    }
                     else if (op.equals("question")) { var d = Foreman.state().openDecisions().stream().filter(q -> str(item, "id").equals(q.taskId())).findFirst(); minecraft.gui.setScreen(new dev.agentcraft.client.decisions.DecisionScreen(d.map(q -> q.id()).orElse(null), this)); }
                     else if (op.equals("back")) onClose();
                     else { minecraft.gui.setScreen(parent); JsonObject p = new JsonObject(); p.addProperty("id", str(item, "id")); parent.request(op, p, null); }
-                }).bounds(x + i * bw, height - 57, bw - 3, 20).build());
+                }).bounds(x + i % columns * bw, buttonsTop + i / columns * 24, bw - 3, 20).build());
             }
+        }
+        private void retryForm(String recovery) {
+            minecraft.gui.setScreen(new Form(this, "Проверка перед повтором", List.of("Ответ и результат проверки прежнего запуска"), List.of(""), values -> {
+                if (values.get(0).isBlank()) throw new IllegalArgumentException("Напиши ответ и результат проверки.");
+                JsonObject p = new JsonObject(); p.addProperty("id", str(item, "id")); p.addProperty("answer", values.get(0)); p.addProperty("recovery", recovery);
+                minecraft.gui.setScreen(parent); parent.request("retry", p, null);
+            }));
         }
         @Override public void onClose() { minecraft.gui.setScreen(parent.taskReturn == null ? parent : parent.taskReturn); }
         @Override public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float dt) { g.fill(0, 0, width, height, 0xEF292722); g.text(font, TextUtil.ellipsize(font, title.getString(), width - 24), 12, 15, 0xFFF2EAD8); super.extractRenderState(g, mx, my, dt); }
