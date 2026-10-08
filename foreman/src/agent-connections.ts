@@ -15,8 +15,13 @@ const codex = z.object({ ...base, provider: z.literal('codex'), transport: z.lit
   pipePath: z.string().startsWith('\\\\.\\pipe\\codex-browser-use-') }).strict();
 const claude = z.object({ ...base, provider: z.literal('claude'), transport: z.literal('claude-code'),
   workspace: z.string().refine(path.isAbsolute), sessionId: z.string().uuid(), executable: z.string().refine(path.isAbsolute).optional() }).strict();
-export const Connection = z.discriminatedUnion('provider', [codex, claude]);
+const codexCli = z.object({ ...base, provider: z.literal('codex'), transport: z.literal('codex-cli'),
+  workspace: z.string().refine(path.isAbsolute), sessionId: z.string().uuid(),
+  executable: z.string().refine(path.isAbsolute).refine(p => !/\.(cmd|bat|ps1)$/i.test(p), 'Use the native Codex executable, not a shell wrapper'),
+  sandbox: z.enum(['read-only', 'workspace-write']).default('read-only') }).strict();
+export const Connection = z.discriminatedUnion('transport', [codex, codexCli, claude]);
 export type Connection = z.infer<typeof Connection>;
+export const connectionSession = (c: Connection) => c.transport === 'codex-desktop' ? c.threadId : c.sessionId;
 const request = z.object({ id: TeamId, revision: z.number().int().nonnegative(), connection: z.record(z.string(), z.unknown()) });
 
 /** Immutable records: team.json's reference is the only activation point. No secrets on the wire. */
@@ -35,7 +40,7 @@ export class AgentConnections {
     return record;
   }
   private identity(c: Connection) {
-    return `${c.provider}:${c.provider === 'codex' ? c.threadId.toLowerCase() : c.sessionId.toLowerCase()}`;
+    return `${c.provider}:${connectionSession(c).toLowerCase()}`;
   }
   private workspace(c: Extract<Connection, { provider: 'claude' }>) {
     let real: string;
@@ -52,10 +57,11 @@ export class AgentConnections {
   }
   bind(raw: Record<string, unknown>, idle: (id: string) => void) {
     const { id, revision, connection } = request.strict().parse(raw);
-    const record = Connection.parse({ ...(connection as object), version: 1, agentId: id });
+    const record = Connection.parse({ ...connection, version: 1, agentId: id });
     const agent = this.team.get(id);
     if (!agent || agent.archived || agent.provider !== record.provider) throw new Error('Unknown agent or wrong provider');
     idle(id); this.team.assertUnchanged();
+    if (record.transport === 'codex-cli' && !fs.statSync(record.workspace).isDirectory()) throw new Error('Codex CLI workspace must be a directory');
     if (record.provider === 'claude') {
       claudeWorkspace(record.workspace);
       if (conversation(record.workspace)?.sessionId !== record.sessionId) throw new Error('conversation.json must name this Claude session');
@@ -87,7 +93,7 @@ export class AgentConnections {
     const binding = readBinding(source);
     if (!binding) throw new Error('Legacy Codex binding not found');
     const existing = this.read(id);
-    if (existing && (existing.provider !== 'codex' || existing.threadId !== binding.threadId)) throw new Error('Agent already has another conversation');
+    if (existing && (existing.transport !== 'codex-desktop' || existing.threadId !== binding.threadId)) throw new Error('Agent already has another conversation');
     const cursor = this.file(`agents/${id}/codex-chat-state.json`);
     const oldCursor = path.join(this.root, 'codex-chat-state.json');
     this.team.assertUnchanged();

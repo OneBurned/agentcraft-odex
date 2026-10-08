@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { Foreman } from './foreman.js';
-import { AgentConnections, type Connection } from './agent-connections.js';
+import { AgentConnections, connectionSession, type Connection } from './agent-connections.js';
 import { createAdapter, type AgentAdapter, type AdapterFactory, type ConnectionPhase } from './agent-adapters.js';
 import type { ChatControl } from './codex-desktop.js';
 import { textChunks } from './codex-desktop.js';
@@ -26,7 +26,7 @@ export class AgentRuntime {
   }
   private historyFile(id: string) {
     const c = this.connections.read(id)!;
-    return this.connections.file(`agents/${id}/history/${c.provider}-${c.provider === 'codex' ? c.threadId : c.sessionId}.json`);
+    return this.connections.file(`agents/${id}/history/${c.provider}-${connectionSession(c)}.json`);
   }
   start() { this.reconcile(); }
   reconcile() {
@@ -68,7 +68,7 @@ export class AgentRuntime {
     this.fm.setAgent(id, { controls: { message: !!enabled && ready && !busy && slot?.phase !== 'paused',
       pause: ready && !!working, resume: ready && slot?.phase === 'paused' && !busy,
       stop: (ready && (!!working || slot?.phase === 'paused' || slot?.phase === 'error' || slot?.phase === 'interrupted')) ||
-        slot?.connection.provider === 'claude' && slot.phase === 'unavailable' && slot.adapter.busy(), hint },
+        (slot?.connection.provider === 'claude' || slot?.connection.transport === 'codex-cli') && slot.phase === 'unavailable' && slot.adapter.busy(), hint },
       ...(!slot ? { activity: hint, state: 'idle', paused: false } : {}) });
   }
   private activity(id: string, phase: ConnectionPhase, notice?: string) {
@@ -142,6 +142,13 @@ export class AgentRuntime {
       return { ...result, agentId: id };
     }
     finally { if (this.slots.get(id) === slot) this.controls(id); }
+  }
+  async check(id: string) {
+    const slot = this.slot(id);
+    if (!slot.adapter.check) throw new Error('Для этого подключения используй connection.get.');
+    const result = await slot.adapter.check();
+    this.controls(id);
+    return { agentId: id, result };
   }
   view(id: string) {
     const agent = this.fm.team!.get(id);

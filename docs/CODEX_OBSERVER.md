@@ -98,10 +98,10 @@ bridge must use its matching v1 tools; newer tools deliberately reject it.
 
 ## Per-agent connections (A3 / t39)
 
-Each `team.json` agent can bind one `codex-desktop` or `claude-code` connection. Provider and
+Each `team.json` agent can bind one `codex-desktop`, `codex-cli` or `claude-code` connection. Provider and
 role are independent: assigning a developer role does not grant Claude code-writing tools.
 The current Claude workspace adapter retains its existing constrained review/planning MCP
-tool set. Codex CLI transport and an automatic role-based queue are not implemented here.
+tool set. Codex CLI is described below; an automatic role-based queue remains a separate stage.
 
 `AgentConnections` writes immutable `connections/<agent-id>-<random-id>.json` records, then
 atomically activates the reference through a revision-checked team write. Old files are kept.
@@ -125,10 +125,11 @@ Connection API through `studio.action` / `studio.mjs`:
 | `connection.unbind` | `id`, `revision`; releases an inactive binding, including damaged/archived entries; active work and owned processes still block detachment |
 | `connection.importCodex` | `id`, `revision`; imports the old global/AGENTCRAFT_CHAT_CONFIG binding into exactly this agent |
 | `connection.get` | `id`; returns provider, phase, notice and recent public history, without pipe/workspace paths |
+| `connection.check` | `id`; CLI-only version/capability/login check, no model turn or project changes |
 | `connection.send` | `id`, `text`, optional `purpose: message|task`; explicit user request, not queue approval |
 | `connection.control` | `id`, `control: pause|resume|stop` |
 
-Codex connection fields: `provider:codex`, `transport:codex-desktop`, `threadId` (UUID),
+Desktop Codex connection fields: `provider:codex`, `transport:codex-desktop`, `threadId` (UUID),
 `hostId:local`, `title`, `pipePath`. In the selected authorized desktop chat run
 `node --import ./foreman/node_modules/tsx/dist/loader.mjs tools/connect-codex-chat.ts --agent <id> --port <port>`.
 The connector verifies the desktop thread and sends the binding to the running profile.
@@ -143,6 +144,89 @@ Explicit legacy import keeps the original file, creates a profile-local backup, 
 matching old `codex-chat-state.json` cursor if this agent does not already have one. Repeating
 the import does not duplicate agents or overwrite a newer cursor. This is binding migration
 only: it does not convert an old profile into a team; full profile migration remains A4.
+
+### Codex CLI connection (A3b / t42)
+
+CLI agents do not use the desktop app, named pipes, or desktop control internals. The transport
+uses `codex exec --json` and `codex exec resume --json <native-thread-id> -`, with the prompt on
+stdin, an explicit workspace, and no `--last`. Each configured CLI conversation starts its own
+native thread on its first user message; it is never silently attached to an existing desktop
+conversation. Session IDs are reserved through the same A3 binding checks as other connections.
+
+Connection fields: `provider:codex`, `transport:codex-cli`, absolute `workspace`, absolute
+`executable`, unique UUID `sessionId`, and optional `sandbox:read-only|workspace-write`
+(default `read-only`). Use a Git checkout and the native executable (`codex.exe` on Windows),
+not a `.cmd`, `.bat` or PowerShell wrapper. Two agents may use the same provider/executable,
+but must have different session IDs. Choose separate checkouts/worktrees for simultaneous edits;
+this transport does not create worktrees or serialize shared workspace changes.
+
+The connection `sessionId` is AgentCraft's persistent conversation key. Codex assigns its own
+native thread UUID, saved in `agents/<agent-id>/codex-cli-<sessionId>.json`; subsequent turns and
+explicit Resume use that exact UUID. This file also tracks a pending request and owned process
+PID. Public game history stays in the existing per-agent history directory. Authentication uses
+the user's normal CLI environment/configuration and `codex login`; no auth file or token is read,
+copied to the profile, placed in a binding, or bundled for distribution. The CLI itself is not bundled.
+
+To bind via the existing control API, save a JSON file outside the repository:
+
+```json
+{
+  "id": "<configured-agent-id>",
+  "revision": 4,
+  "connection": {
+    "provider": "codex",
+    "transport": "codex-cli",
+    "sessionId": "<new-unique-UUID>",
+    "workspace": "C:/Projects/my-project",
+    "executable": "C:/Tools/codex.exe",
+    "sandbox": "workspace-write"
+  }
+}
+```
+
+Use the current revision from `node tools/studio.mjs team.get --port <port>`; generate a UUID
+once (`[guid]::NewGuid().ToString()` in PowerShell), keep it for that conversation, and replace
+the placeholders. Run `node tools/studio.mjs connection.bind --port <port> --file <binding.json>`.
+The packaged helper is `studio.mjs` beside `runtime/node.exe`, without the `tools/` prefix.
+Binding does not invoke the model. Automatic startup checks, and explicit `connection.check`
+with a file containing `{"id":"<configured-agent-id>"}`, run only `--version`, `exec --help`,
+`exec resume --help` and `login status` in the temporary directory. They do not create a native
+thread, write CLI state, or run a task; success confirms local login status/capabilities, not model
+entitlement or network availability. After logging in externally, repeat the check. Send requests
+through the existing `connection.send`, game messages and `connection.control` actions.
+
+Runs explicitly select the configured sandbox and `approval_policy=never`: commands requiring
+approval fail instead of being automatically approved. There is no bypass-sandbox option or
+interactive approval UI on this transport. Normal user/project Codex configuration and trusted
+hooks still apply. Only completed public agent-message events are delivered to the game, after
+a successful turn and process exit; reasoning, tool input/output and stderr are not forwarded.
+Malformed/mismatched session streams, nonzero exits and failed turns cannot report success.
+The JSONL stream is bounded to 8 MB per turn and 1 MB per event.
+
+Pause terminates the owned process and retains the request. Resume starts a new process in the
+same native thread with a continuation prompt. Stop terminates the process and clears the pending
+request only after confirmation. Windows uses `taskkill /T /F` for the owned child tree; POSIX uses
+the detached process group. Sending a signal alone is never an acknowledgement: the runner waits
+for process close. Timeout leaves Stop available and blocks further work/detachment while the child
+remains. Output arriving after cancellation is discarded. No automatic resume occurs after bridge
+restart. A surviving saved PID blocks recovery; terminate that old process in your terminal and
+repeat Check. The new bridge never kills an unowned/reused PID. Opening the same native CLI thread
+externally while AgentCraft owns it is not supported; terminal/desktop handoff is not implemented
+for this transport.
+
+Interface choice: [official non-interactive CLI documentation](https://learn.chatgpt.com/docs/non-interactive-mode)
+describes JSONL events, native session IDs and saved CLI authentication. Installed CLI
+`0.162.0-alpha.2` confirms these flags. The read-only connection probe passed on that executable
+with unchanged sentinel files and no model turn. Process mocks cover two agents, exact resume,
+pause/stop, late output, login errors, restart and A3 runtime history/controls. A real local Node
+fixture also confirmed process termination. Live model execution, two authenticated model
+conversations, interactive Minecraft use and other CLI versions have not been manually validated.
+
+Validation: TypeScript and generated protocol documentation checks pass; the full Foreman suite
+passes 738 tests across 42 files, including 13 CLI tests. The portable build and content audit pass,
+as does its isolated studio integration check (no model calls or messages to real chats).
+
+### Claude Code connection
 
 Claude fields: `provider:claude`, `transport:claude-code`, absolute `workspace`, `sessionId`
 (UUID), optional absolute `executable`. Select a separately configured workspace containing

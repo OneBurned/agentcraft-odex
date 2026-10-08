@@ -48,13 +48,13 @@ async function fixture() {
   const backend = new ObserverBackend(f, undefined, (c, store, events) => {
     callbacks.set(c.agentId, events);
     let a: AgentAdapter;
-    if (c.provider === 'codex') {
+    if (c.transport === 'codex-desktop') {
       chats.set(c.threadId, { working: false, turn: randomUUID(), items: [] });
       a = new CodexAdapter(c, store, events, { call, interrupt: async id => { interrupted.push(id); chats.get(id)!.working = false; } });
-    } else {
+    } else if (c.provider === 'claude') {
       const r = runner(c.sessionId); runners.set(c.agentId, r);
       a = new ClaudeAdapter(c, store, events, r.value);
-    }
+    } else throw new Error('Unexpected CLI transport in desktop fixture');
     adapters.set(c.agentId, a); return a;
   });
   await f.start(backend);
@@ -232,7 +232,7 @@ it.each(['workspace', 'connection'])('starts with a damaged %s, serves healthy a
   const f = new Foreman({ config: x.f.config, logger: silentLogger }); cores.push(f);
   const backend = new ObserverBackend(f, undefined, (c, store, events) => c.provider === 'claude'
     ? new ClaudeAdapter(c, store, events, runner(c.sessionId).value)
-    : new CodexAdapter(c, store, events, { call: async (binding, tool) => tool === 'read_thread'
+    : new CodexAdapter(c as Extract<typeof c, { transport: 'codex-desktop' }>, store, events, { call: async (binding, tool) => tool === 'read_thread'
       ? { thread: { id: binding.threadId, status: { type: 'idle' } }, turns: [] } : { threadId: binding.threadId } }));
   await f.start(backend);
   for (const id of x.ids.filter(id => id !== broken)) await until(() => f.agent(id)?.controls?.message === true);

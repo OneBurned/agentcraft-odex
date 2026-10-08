@@ -13,6 +13,7 @@ export class TeamStudio {
     if (action === 'get') return { team: this.fm.team!.snapshot(), profiles: this.fm.agents(), mode: 'planning', items: [], skins: this.fm.agents().map(a => a.skin),
       notice: 'Подключения адресуются по ID агента. Автоматическая очередь команды — отдельный этап.' };
     if (action === 'connection.get') return this.runtime.view(selected.parse(payload).id);
+    if (action === 'connection.check') return this.runtime.check(selected.parse(payload).id);
     let team;
     if (action === 'connection.bind') team = this.runtime.connections.bind(payload, idle);
     else if (action === 'connection.unbind' || action === 'connection.importCodex') {

@@ -6,6 +6,7 @@ import { ARTIFACT_STYLE_RULE } from './persona-prompt.js';
 import type { ConversationMessage } from './claude-conversation.js';
 import type { Connection, AgentConnections } from './agent-connections.js';
 import { readJson, writeJsonAtomic } from './util/fsx.js';
+import { CodexCliAdapter } from './codex-cli.js';
 
 export type ConnectionPhase = ChatActivity['phase'] | 'external';
 export interface AdapterEvents {
@@ -20,13 +21,14 @@ export interface AgentAdapter {
   control(action: ChatControl): Promise<Record<string, unknown>>;
   /** Pending local operations also prevent changing an agent before a poll observes work. */
   busy(): boolean;
+  check?(): Promise<unknown>;
 }
 export type AdapterFactory = (c: Connection, store: AgentConnections, events: AdapterEvents) => AgentAdapter;
 
 export class CodexAdapter implements AgentAdapter {
   readonly chat: DesktopChat;
   private pending = false;
-  constructor(c: Extract<Connection, { provider: 'codex' }>, store: AgentConnections, events: AdapterEvents,
+  constructor(c: Extract<Connection, { transport: 'codex-desktop' }>, store: AgentConnections, events: AdapterEvents,
     overrides: Partial<ConstructorParameters<typeof DesktopChat>[0]> = {}) {
     this.chat = new DesktopChat({ configFile: store.file(store.team.get(c.agentId)!.connectionRef!),
       stateFile: store.file(`agents/${c.agentId}/codex-chat-state.json`),
@@ -153,5 +155,6 @@ export class ClaudeAdapter implements AgentAdapter {
   }
 }
 
-export const createAdapter: AdapterFactory = (c, store, events) => c.provider === 'codex'
+export const createAdapter: AdapterFactory = (c, store, events) => c.transport === 'codex-cli'
+  ? new CodexCliAdapter(c, store, events) : c.transport === 'codex-desktop'
   ? new CodexAdapter(c, store, events) : new ClaudeAdapter(c, store, events);
