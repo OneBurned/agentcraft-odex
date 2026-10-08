@@ -6,7 +6,7 @@ import { Foreman } from '../src/foreman.js';
 import { RoleQueue } from '../src/role-queue.js';
 import type { AgentRuntime } from '../src/agent-runtime.js';
 import { silentLogger } from '../src/context.js';
-import { testConfig, tempDir, rmrf } from './helpers.js';
+import { testConfig, tempDir, rmrf, until } from './helpers.js';
 import { workArguments } from '../src/claude-dialog.js';
 import { writeJsonAtomic } from '../src/util/fsx.js';
 
@@ -31,6 +31,7 @@ async function fixture() {
   const busy = new Set<string>(), keys = new Map(ids.map(id => [id, id]));
   const calls: { id: string; text: string; work: any }[] = [];
   const runtime = { idle: (id: string) => !busy.has(id), workUnavailable: (id: string) => busy.has(id) ? 'Агент занят' : undefined,
+    assertIdle: (id: string) => { if (busy.has(id)) throw new Error('Агент занят'); return true; },
     connectionKey: (id: string) => keys.get(id)!,
     sendWork: vi.fn(async (id: string, text: string, work: any) => { calls.push({ id, text, work }); busy.add(id); return { chatDelivered: true }; }),
     control: vi.fn(async (id: string, action: string) => { if (action === 'resume') busy.add(id); else busy.delete(id); return { agentId: id, chatControl: action }; }),
@@ -246,9 +247,9 @@ it('reviewer reassignment cannot bypass review, change project/developer, or sel
   i.developerIds!.push(x.ids[1]!);
   await expect(x.action('assign', { id: i.id, reviewerId: x.ids[1] })).rejects.toThrow('участвовал');
   await expect(x.action('assign', { id: i.id, reviewerId: x.ids[0] })).rejects.toThrow('разными');
-  await expect(x.action('assign', { id: i.id, reviewerId: x.ids[2], noReview: true })).rejects.toThrow('только ревьюера');
-  await expect(x.action('assign', { id: i.id, reviewerId: x.ids[2], developerId: x.ids[1] })).rejects.toThrow('только ревьюера');
-  await expect(x.action('assign', { id: i.id, reviewerId: x.ids[2], repoId: x.project2.id })).rejects.toThrow('только ревьюера');
+  await expect(x.action('assign', { id: i.id, reviewerId: x.ids[2], noReview: true })).rejects.toThrow('требование ревью');
+  await expect(x.action('assign', { id: i.id, reviewerId: x.ids[2], developerId: x.ids[1] })).rejects.toThrow('явного подтверждения');
+  await expect(x.action('assign', { id: i.id, reviewerId: x.ids[2], repoId: x.project2.id })).rejects.toThrow('проект');
   expect(i.reviewerId).toBe(x.ids[2]); expect(i.lock).toBeTruthy();
   x.fm.team!.setAssignment(true, x.fm.team!.snapshot().revision); x.busy.add(x.ids[2]!);
   await x.action('assign', { id: i.id, reviewerId: null }); await x.action('start');
@@ -267,4 +268,99 @@ it('an empty decision answer is rejected without closing or duplicating the ques
   const d = x.fm.decisions.open()[0]!;
   expect(() => x.fm.decisions.answer(d.id, 'Повторить после проверки')).toThrow('Напиши ответ');
   expect(x.fm.decisions.open().map(q => q.id)).toEqual([d.id]); expect(d.status).toBe('open');
+});
+async function correctionRound(x: Awaited<ReturnType<typeof fixture>>) {
+  const i = await x.create(); await x.action('start'); await x.done(i); await x.action('pause');
+  await x.action('review.report', { id: i.id, run: i.attempt!.run, agentId: x.ids[2], head: i.head, verdict: 'changes', summary: 'Fix the issue' });
+  x.busy.delete(x.ids[2]!); return i;
+}
+function unavailableBetweenAttempts(x: Awaited<ReturnType<typeof fixture>>, mode: string, id: string) {
+  // The core UI also guards task pointers. Model a restored/externally changed roster here;
+  // the queue must recover this state regardless of how the assignment became unavailable.
+  x.fm.team!.change(mode, { id, revision: x.fm.team!.snapshot().revision }, agent => {
+    x.q.assertIdle(agent); x.runtime.assertIdle(agent);
+  });
+  x.fm.syncTeam();
+}
+async function attachQueueBackend(x: Awaited<ReturnType<typeof fixture>>) {
+  await x.fm.start({ name: 'observer', start: async () => {}, stop: async () => {}, submitGoal: async () => {},
+    assertAgentIdle: id => { x.q.assertIdle(id); return x.runtime.assertIdle(id); },
+    onUserMessage: () => {}, onTaskAction: () => {}, onAgentAction: () => {}, onDecisionSettled: d => x.q.onDecision(d) });
+}
+it.each(['disable', 'archive'])('replaces a %s reviewer during corrections without losing project ownership or drain confirmation', async mode => {
+  const x = await fixture(), i = await correctionRound(x);
+  const lock = i.lock, ranges = structuredClone(i.ranges), authors = [...i.developerIds!];
+  unavailableBetweenAttempts(x, mode, x.ids[2]!);
+  // Removing a disabled adapter makes runtime.idle false, even though its prior stop was confirmed.
+  vi.spyOn(x.runtime, 'idle').mockImplementation(id => id !== x.ids[2] && !x.busy.has(id));
+  expect(x.q.view().items[0]?.canAssignReviewer).toBe(true);
+  await x.action('assign', { id: i.id, reviewerId: x.ids[1] });
+  expect(i.lock).toBe(lock); expect(i.ranges).toEqual(ranges); expect(i.developerIds).toEqual(authors);
+  expect(x.q.data.draining).not.toContain(x.ids[2]);
+  await x.action('start'); expect(i.stage).toBe('coding'); expect(i.attempt?.agentId).toBe(x.ids[0]);
+  await x.done(i); expect(i.attempt?.agentId).toBe(x.ids[1]);
+});
+it.each(['disable', 'archive'])('explicitly replaces a %s developer after changes and keeps both authors out of review', async mode => {
+  const x = await fixture(), i = await correctionRound(x); await x.q.tick();
+  const lock = i.lock, ranges = structuredClone(i.ranges);
+  unavailableBetweenAttempts(x, mode, x.ids[0]!);
+  await x.action('start'); expect(i.attempt).toBeUndefined(); expect(i.reason).toContain('выключен');
+  expect(x.q.view().items[0]?.canAssignDeveloper).toBe(true);
+  await expect(x.action('assign', { id: i.id, developerId: x.ids[1] })).rejects.toThrow('подтверждения');
+  const assign = { id: i.id, developerId: x.ids[1], confirmDeveloperChange: true };
+  fs.appendFileSync(path.join(x.cwd, 'file.txt'), '\ndirty');
+  await expect(x.action('assign', assign)).rejects.toThrow();
+  expect(i.developerId).toBe(x.ids[0]); expect(i.ranges).toEqual(ranges);
+  fs.writeFileSync(path.join(x.cwd, 'file.txt'), git(x.cwd, 'show', 'HEAD:file.txt'));
+  x.change(); await expect(x.action('assign', assign)).rejects.toThrow('HEAD');
+  git(x.cwd, 'checkout', '--detach', i.head!); // the test branch retains the extra commit
+  await x.action('assign', assign); expect(i.attempt?.agentId).toBe(x.ids[1]);
+  expect(i.lock).toBe(lock); expect(i.ranges).toEqual(ranges); expect(i.developerIds).toEqual([x.ids[0], x.ids[1]]);
+  await x.action('pause'); await x.done(i);
+  await expect(x.action('assign', { id: i.id, reviewerId: x.ids[0] })).rejects.toThrow('участвовал');
+  await expect(x.action('assign', { id: i.id, reviewerId: x.ids[1] })).rejects.toThrow('разными');
+});
+it('changes reviewer during a developer question without changing its owner, and transfers developer only after explicit confirmation', async () => {
+  const x = await fixture(), i = await x.create(); await x.action('start'); await x.action('pause');
+  await x.q.control(x.ids[0]!, 'stop'); await x.action('retry', { id: i.id, answer: 'Stopped and checked' });
+  // A pre-dispatch question has no live attempt; emulate the dirty-Git gate on the next dispatch.
+  fs.appendFileSync(path.join(x.cwd, 'file.txt'), '\ndirty'); await x.action('start');
+  expect(i.stage).toBe('question'); expect(i.attempt).toBeUndefined();
+  const question = x.fm.decisions.open()[0]!;
+  await x.action('assign', { id: i.id, reviewerId: x.ids[1] });
+  expect(x.fm.decisions.open()[0]?.id).toBe(question.id); expect(question.agentId).toBe(x.ids[0]);
+  fs.writeFileSync(path.join(x.cwd, 'file.txt'), git(x.cwd, 'show', 'HEAD:file.txt'));
+  await x.action('assign', { id: i.id, developerId: x.ids[2], confirmDeveloperChange: true });
+  expect(x.fm.decisions.open()).toHaveLength(1); expect(x.fm.decisions.open()[0]?.agentId).toBe(x.ids[2]);
+  expect(i.stage).toBe('question'); expect(i.lock).toBeTruthy(); expect(i.developerIds).toContain(x.ids[0]);
+});
+it('reopens the same question through Foreman.answerDecision when review retry rejects changed HEAD', async () => {
+  const x = await fixture();
+  await attachQueueBackend(x);
+  const i = await x.create(); await x.action('start'); await x.done(i);
+  await x.q.control(x.ids[2]!, 'stop'); const d = x.fm.decisions.open()[0]!; x.change();
+  await x.fm.answerDecision(d.id, 'Повторить после проверки', 'Проверь');
+  await until(() => d.status === 'open');
+  expect(d.context).toContain('HEAD'); expect(d.answer).toBeUndefined();
+  expect(x.fm.decisions.open().map(q => q.id)).toEqual([d.id]);
+  expect(x.fm.store.data.decisions.filter(q => q.taskId === i.id)).toHaveLength(1);
+  expect(i.stage).toBe('question'); expect(x.calls).toHaveLength(2);
+});
+it('permits explicit developer replacement for a pre-dispatch question with no project lock yet', async () => {
+  const x = await fixture(), i = await x.create({ noReview: true, reviewerId: null });
+  fs.appendFileSync(path.join(x.cwd, 'file.txt'), '\ndirty'); await x.action('start');
+  expect(i.stage).toBe('question'); expect(i.lock).toBeUndefined();
+  expect(x.q.view().items[0]?.canAssignDeveloper).toBe(true);
+  fs.writeFileSync(path.join(x.cwd, 'file.txt'), git(x.cwd, 'show', 'HEAD:file.txt'));
+  await x.action('assign', { id: i.id, developerId: x.ids[1], confirmDeveloperChange: true });
+  expect(i.stage).toBe('question'); expect(i.developerIds).toEqual([]);
+  expect(x.fm.decisions.open()[0]?.agentId).toBe(x.ids[1]); expect(x.calls).toHaveLength(0);
+});
+it('pause on a question reaches the real executor without setting the task pause flag', async () => {
+  const x = await fixture(), i = await x.create(); await x.action('start');
+  await x.action('report', { id: i.id, run: i.attempt!.run, agentId: x.ids[0], status: 'question', summary: 'Need an answer' });
+  expect(i.stage).toBe('question'); const before = i.attempt!.paused;
+  await x.q.control(x.ids[0]!, 'pause');
+  expect(x.runtime.control).toHaveBeenCalledWith(x.ids[0], 'pause'); expect(i.attempt!.paused).toBe(before);
+  await expect(x.q.control(x.ids[0]!, 'resume')).rejects.toThrow('вопрос');
 });

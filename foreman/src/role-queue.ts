@@ -82,7 +82,7 @@ export class RoleQueue {
     this.fm.store.markDirty(); this.fm.store.flush();
   }
   view() { return { ...structuredClone(this.data), items: this.data.items.map(i => ({ ...this.fm.tasks.require(i.id), ...structuredClone(i),
-    run: i.attempt?.run, blockedReason: i.reason, canAssignReviewer: this.canAssignReviewer(i),
+    run: i.attempt?.run, blockedReason: i.reason, canAssignReviewer: this.canAssignReviewer(i), canAssignDeveloper: this.canAssignDeveloper(i),
     canReleaseProject: !!i.lock && ['done', 'cancelled'].includes(i.stage), canReturnToDeveloper: i.stage === 'question' && i.resumePhase === 'reviewer',
     project: this.fm.repos.get(this.fm.tasks.require(i.id).repoId ?? '')?.name ?? 'Выбери проект' })) }; }
   private item(id: unknown) { const i = this.data.items.find(i => i.id === id); if (!i) throw new Error('Задача не найдена в пуле.'); return i; }
@@ -96,7 +96,8 @@ export class RoleQueue {
   private cwd(i: Item) { return this.fm.repos.require(this.fm.tasks.require(i.id).repoId!).path; }
   private directory(cwd: string) { const p = fs.realpathSync(cwd); return process.platform === 'win32' ? p.toLowerCase() : p; }
   private phase(i: Item): Phase { return i.stage === 'review' || i.resumePhase === 'reviewer' ? 'reviewer' : 'developer'; }
-  private canAssignReviewer(i: Item) { return !i.attempt && !i.noReview && (i.stage === 'review' || i.stage === 'question' && i.resumePhase === 'reviewer'); }
+  private canAssignReviewer(i: Item) { return !i.attempt && !i.noReview && (i.stage === 'review' || i.stage === 'question' || i.stage === 'queued' && !!i.lock); }
+  private canAssignDeveloper(i: Item) { return !i.attempt && (i.stage === 'queued' && !!i.lock || i.stage === 'question' && i.resumePhase === 'developer'); }
   private validate(i: Pick<Item, 'developerId' | 'reviewerId' | 'noReview' | 'developerIds'>, reviewerOnly = false) {
     if (i.developerId && i.developerId === i.reviewerId) throw new Error('Разработчик и ревьюер должны быть разными агентами.');
     if (i.reviewerId && i.developerIds?.includes(i.reviewerId)) throw new Error('Самопроверка запрещена: этот агент участвовал в разработке задачи.');
@@ -258,18 +259,37 @@ export class RoleQueue {
         const i = this.item(payload.id); if (i.stage !== 'plan') throw new Error('Согласовать можно только план.'); i.stage = 'queued';
       } else if (action === 'assign') {
         const i = this.item(payload.id);
-        const reviewerOnly = this.canAssignReviewer(i);
-        if (!reviewerOnly && (i.attempt || i.lock || !['plan', 'queued'].includes(i.stage))) throw new Error('Сначала заверши или останови текущий запуск.');
-        const p = z.object({ id: text, developerId: text.nullable().optional(), reviewerId: text.nullable().optional(), noReview: z.boolean().optional(), repoId: text.optional() }).strict().parse(payload);
+        const startedAssignment = this.canAssignReviewer(i) || this.canAssignDeveloper(i);
+        if (!startedAssignment && (i.attempt || i.lock || !['plan', 'queued'].includes(i.stage))) throw new Error('Сначала заверши или останови текущий запуск.');
+        const p = z.object({ id: text, developerId: text.nullable().optional(), reviewerId: text.nullable().optional(), noReview: z.boolean().optional(), repoId: text.optional(), confirmDeveloperChange: z.boolean().optional() }).strict().parse(payload);
         const next = { developerId: p.developerId === undefined ? i.developerId : p.developerId ?? undefined,
           reviewerId: p.reviewerId === undefined ? i.reviewerId : p.reviewerId ?? undefined, noReview: p.noReview ?? i.noReview, developerIds: i.developerIds };
-        if (reviewerOnly && (next.developerId !== i.developerId || next.noReview !== i.noReview || p.repoId !== undefined && p.repoId !== this.fm.tasks.require(i.id).repoId))
-          throw new Error('После разработки можно изменить только ревьюера; проект, разработчик и требование ревью сохраняются.');
-        this.validate(next, reviewerOnly);
+        const changedDeveloper = next.developerId !== i.developerId, changedReviewer = next.reviewerId !== i.reviewerId;
+        if (startedAssignment && (next.noReview !== i.noReview || p.repoId !== undefined && p.repoId !== this.fm.tasks.require(i.id).repoId))
+          throw new Error('После разработки проект и требование ревью сохраняются.');
+        if (startedAssignment && changedDeveloper) {
+          if (!this.canAssignDeveloper(i) || !next.developerId || p.confirmDeveloperChange !== true)
+            throw new Error('Замена разработчика требует явного подтверждения между попытками разработки.');
+          if (i.developerId) this.runtime.assertIdle(i.developerId);
+          const head = await cleanHead(this.cwd(i));
+          const expected = i.ranges.at(-1)?.head ?? i.head;
+          if (expected && head !== expected) throw new Error('HEAD изменился после последней попытки. Сначала восстанови проверенный коммит перед заменой разработчика.');
+        }
+        if (startedAssignment && changedReviewer && i.reviewerId && i.settlingAgentId === i.reviewerId)
+          this.runtime.assertIdle(i.reviewerId);
+        this.validate(next, startedAssignment && !changedDeveloper);
         if (p.repoId !== undefined) { this.fm.repos.require(p.repoId); this.fm.tasks.update(i.id, { repoId: p.repoId }); }
-        const changedReviewer = i.reviewerId !== next.reviewerId;
+        // A replaced settling owner passed the runtime idle check, even if its slot was removed.
+        // Retire its drain marker; project ownership stays with the task.
+        const replaced = [changedDeveloper && i.developerId, changedReviewer && i.reviewerId].filter(Boolean);
+        if (startedAssignment && i.settlingAgentId && replaced.includes(i.settlingAgentId)) {
+          this.data.draining = this.data.draining?.filter(id => id !== i.settlingAgentId);
+          delete i.settlingAgentId;
+        }
         Object.assign(i, next);
-        if (changedReviewer && i.stage === 'question') { this.closeQuestions(i); this.question(i, i.reason ?? 'Нужна проверка перед продолжением ревью.', 'reviewer'); }
+        if (i.stage === 'question' && (i.resumePhase === 'reviewer' ? changedReviewer : changedDeveloper)) {
+          this.closeQuestions(i); this.question(i, i.reason ?? 'Нужна проверка перед продолжением задачи.', i.resumePhase);
+        }
       } else if (action === 'prioritize') {
         const i = this.item(payload.id);
         this.fm.tasks.update(i.id, { priority: Math.max(0, ...this.fm.tasks.list().map(t => t.priority)) + 1 });
@@ -328,7 +348,7 @@ export class RoleQueue {
           this.question(i, 'Исполнение остановлено. Проверь Git и реши, повторять ли задачу.');
           if (i.attempt.phase === 'reviewer') delete i.attempt;
         }
-        else i.attempt.paused = action === 'pause';
+        else if (i.stage !== 'question') i.attempt.paused = action === 'pause';
         this.save();
       }
       return result;

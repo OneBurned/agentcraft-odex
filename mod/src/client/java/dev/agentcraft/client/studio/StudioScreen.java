@@ -352,42 +352,48 @@ public final class StudioScreen extends Screen {
         if (flag(data, "canEnableRoleQueue")) button("Перейти на очередь с ролями", left, top + 132, w - 24, () -> request("queue.enable", new JsonObject(), null));
     }
     private static class AssignmentScreen extends Screen {
-        final StudioScreen parent; final JsonObject payload; final boolean edit; final boolean assignOnly; final boolean reviewerOnly;
+        final StudioScreen parent; final JsonObject payload; final boolean edit; final boolean assignOnly; final boolean reviewerOnly; final boolean lockedAssignment;
+        final String originalDeveloper;
         final List<String> pastDevelopers = new ArrayList<>();
-        String repo, developer, reviewer; boolean noReview;
+        String repo, developer, reviewer; boolean noReview, confirmDeveloperChange;
         AssignmentScreen(StudioScreen parent, JsonObject payload, JsonObject item) {
             super(Component.literal("Назначение исполнителей")); this.parent = parent; this.payload = payload; this.edit = item != null; this.assignOnly = item != null && !payload.has("title");
-            reviewerOnly = item != null && flag(item, "canAssignReviewer");
+            lockedAssignment = item != null && (flag(item, "canAssignReviewer") || flag(item, "canAssignDeveloper"));
+            reviewerOnly = lockedAssignment && !flag(item, "canAssignDeveloper");
             if (item != null && item.has("developerIds")) for (var id : item.getAsJsonArray("developerIds")) pastDevelopers.add(id.getAsString());
             repo = item == null ? "" : str(item, "repoId"); developer = item == null ? "" : str(item, "developerId"); reviewer = item == null ? "" : str(item, "reviewerId"); noReview = item != null && flag(item, "noReview");
+            originalDeveloper = developer;
             if (repo.isEmpty() && !parent.array("repos").isEmpty()) repo = str(parent.array("repos").get(0).getAsJsonObject(), "id");
         }
         @Override public boolean isPauseScreen() { return false; }
         private String nextAgent(String current, String role, String other) {
-            List<String> ids = new ArrayList<>(); ids.add("");
+            List<String> ids = new ArrayList<>(); if (!lockedAssignment || !role.equals("developer")) ids.add("");
             for (var v : parent.data.getAsJsonObject("team").getAsJsonArray("agents")) {
                 var a = v.getAsJsonObject(); if (flag(a, "archived") || str(a, "id").equals(other)) continue;
                 if (role.equals("reviewer") && pastDevelopers.contains(str(a, "id"))) continue;
                 if (a.getAsJsonArray("roles").contains(new com.google.gson.JsonPrimitive(role))) ids.add(str(a, "id"));
             }
-            return ids.get((ids.indexOf(current) + 1) % ids.size());
+            return ids.isEmpty() ? current : ids.get((ids.indexOf(current) + 1) % ids.size());
         }
         @Override protected void init() {
             clearWidgets(); int w = Math.min(440, width - 24), x = (width - w) / 2, y = Math.max(36, (height - 190) / 2);
             List<String> repos = new ArrayList<>(); String name = repo;
             for (var v : parent.array("repos")) { var r = v.getAsJsonObject(); repos.add(str(r, "id")); if (repo.equals(str(r, "id"))) name = str(r, "name"); }
-            addRenderableWidget(Button.builder(Component.literal("Проект: " + name), b -> { if (!repos.isEmpty()) repo = repos.get((repos.indexOf(repo) + 1) % repos.size()); init(); }).bounds(x, y, w, 20).build()).active = !reviewerOnly;
-            addRenderableWidget(Button.builder(Component.literal("Разработчик: " + parent.agentName(developer)), b -> { developer = nextAgent(developer, "developer", reviewer); init(); }).bounds(x, y + 25, w, 20).build()).active = !reviewerOnly;
+            addRenderableWidget(Button.builder(Component.literal("Проект: " + name), b -> { if (!repos.isEmpty()) repo = repos.get((repos.indexOf(repo) + 1) % repos.size()); init(); }).bounds(x, y, w, 20).build()).active = !lockedAssignment;
+            addRenderableWidget(Button.builder(Component.literal("Разработчик: " + parent.agentName(developer)), b -> { developer = nextAgent(developer, "developer", reviewer); confirmDeveloperChange = false; init(); }).bounds(x, y + 25, w, 20).build()).active = !reviewerOnly;
             var review = addRenderableWidget(Button.builder(Component.literal("Ревьюер: " + parent.agentName(reviewer)), b -> { reviewer = nextAgent(reviewer, "reviewer", developer); init(); }).bounds(x, y + 50, w, 20).build()); review.active = !noReview;
-            addRenderableWidget(Button.builder(Component.literal("Без ревью: " + (noReview ? "да" : "нет")), b -> { noReview = !noReview; init(); }).bounds(x, y + 75, w, 20).build()).active = !reviewerOnly;
-            addRenderableWidget(Button.builder(Component.literal("Сохранить план"), b -> {
-                if (!reviewerOnly) {
+            boolean changingDeveloper = lockedAssignment && !developer.equals(originalDeveloper);
+            if (changingDeveloper) addRenderableWidget(Button.builder(Component.literal(confirmDeveloperChange ? "Смена разработчика подтверждена" : "Подтвердить смену разработчика"), b -> { confirmDeveloperChange = !confirmDeveloperChange; init(); }).bounds(x, y + 75, w, 20).build());
+            else addRenderableWidget(Button.builder(Component.literal("Без ревью: " + (noReview ? "да" : "нет")), b -> { noReview = !noReview; init(); }).bounds(x, y + 75, w, 20).build()).active = !lockedAssignment;
+            addRenderableWidget(Button.builder(Component.literal(assignOnly ? "Сохранить назначения" : "Сохранить план"), b -> {
+                if (!lockedAssignment) {
                     payload.addProperty("repoId", repo); payload.addProperty("noReview", noReview);
                     payload.add("developerId", developer.isEmpty() ? com.google.gson.JsonNull.INSTANCE : new com.google.gson.JsonPrimitive(developer));
                 }
+                if (changingDeveloper) { payload.addProperty("developerId", developer); payload.addProperty("confirmDeveloperChange", confirmDeveloperChange); }
                 payload.add("reviewerId", reviewer.isEmpty() || noReview ? com.google.gson.JsonNull.INSTANCE : new com.google.gson.JsonPrimitive(reviewer));
                 minecraft.gui.setScreen(parent); parent.request(assignOnly ? "assign" : edit ? "edit" : "create", payload, null);
-            }).bounds(x, y + 105, w, 20).build());
+            }).bounds(x, y + 105, w, 20).build()).active = !changingDeveloper || confirmDeveloperChange;
             addRenderableWidget(Button.builder(Component.literal("Назад"), b -> onClose()).bounds(x, y + 130, w, 20).build());
         }
         @Override public void onClose() { minecraft.gui.setScreen(parent); }
@@ -467,7 +473,7 @@ public final class StudioScreen extends Screen {
             String stage = str(item, "stage"); List<String> ops = new ArrayList<>(); List<String> labels = new ArrayList<>();
             if (stage.equals("plan")) { ops.add("approve"); labels.add("В очередь"); }
             if (stage.equals("plan") || stage.equals("queued") && !parent.dynamicTeam()) { ops.add("edit"); labels.add("Изменить"); }
-            if (parent.dynamicTeam() && (stage.equals("queued") && !item.has("lock") || flag(item, "canAssignReviewer"))) { ops.add("assign"); labels.add("Исполнители"); }
+            if (parent.dynamicTeam() && (stage.equals("queued") && !item.has("lock") || flag(item, "canAssignReviewer") || flag(item, "canAssignDeveloper"))) { ops.add("assign"); labels.add("Исполнители"); }
             if (parent.dynamicTeam() && flag(item, "canReleaseProject")) { ops.add("release"); labels.add("Освободить проект"); }
             if (stage.equals("review") && !parent.dynamicTeam()) { ops.add("review"); labels.add("Ревью Claude"); }
             if (stage.equals("question")) { ops.add("retry"); labels.add("Повторить"); ops.add("question"); labels.add("Ответить"); }
