@@ -11,7 +11,8 @@ import type { ConversationMessage } from '../src/claude-conversation.js';
 import { silentLogger } from '../src/context.js';
 import { writeJsonAtomic } from '../src/util/fsx.js';
 import { parseClientMessage, type Outbound } from '../src/protocol.js';
-import { testConfig, tempDir, rmrf, until } from './helpers.js';
+import { testConfig, tempDir, rmrf, until, demoRepo } from './helpers.js';
+import { execFileSync } from 'node:child_process';
 
 const dirs: string[] = [], cores: Foreman[] = [];
 const dir = () => { const d = tempDir('agent-runtime-'); dirs.push(d); return d; };
@@ -271,4 +272,32 @@ it('polls read only their connection and reuse the parsed common team revision',
     for (const id of x.ids.slice(1)) expect(files).not.toContain(path.join(x.f.config.dataDir, x.f.team!.get(id)!.connectionRef!));
     expect(files.filter(f => f === x.f.team!.file).length).toBeLessThanOrEqual(1);
   } finally { read.mockRestore(); }
+});
+
+it('role queue accepts native final JSON through the owning runtime and preserves busy-project messaging', async () => {
+  const x = await fixture(), developer = x.ids[0]!, reviewer = x.ids[1]!;
+  x.f.teamAction('team.update', { id: reviewer, revision: x.f.team!.snapshot().revision, patch: { roles: ['reviewer'] } });
+  const cwd = await demoRepo(); dirs.push(path.dirname(cwd)); const repo = await x.f.repos.add(cwd);
+  const action = (name: string, payload: any = {}) => x.backend.onStudioAction(name, payload);
+  await action('create', { title: 'Native queue', description: 'Change file', expected: 'Tests pass', repoId: repo.id, developerId: developer, reviewerId: reviewer });
+  const i = (x.f.store.data.backend.roleQueue as any).items[0];
+  await action('approve', { id: i.id }); await action('start');
+  expect(i.stage).toBe('coding');
+  const reply = await x.backend.onChatMessage('Please consider this detail', developer);
+  expect(reply.hint).toContain(i.id);
+  fs.writeFileSync(path.join(cwd, 'queue-result.txt'), 'implemented');
+  for (const args of [['add', '.'], ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-m', 'task result']])
+    execFileSync('git', args, { cwd, windowsHide: true, stdio: 'pipe' });
+  const report = { id: i.id, run: i.attempt.run, agentId: developer, status: 'done', summary: 'Implemented', checks: 'targeted checks', ci: 'pass' };
+  x.callbacks.get(developer)!.text(JSON.stringify(report), true);
+  x.chats.get(x.connections[0].threadId)!.working = false;
+  x.callbacks.get(developer)!.activity('completed');
+  await until(() => i.attempt?.phase === 'reviewer');
+  expect(i.attempt.agentId).toBe(reviewer);
+  await x.backend.onChatControl('pause', reviewer); expect(i.attempt.paused).toBe(true);
+  expect(x.interrupted.at(-1)).toBe(x.connections[1].threadId);
+  await x.backend.onChatControl('resume', reviewer); expect(i.attempt.paused).toBe(false);
+  x.callbacks.get(reviewer)!.text(JSON.stringify({ id: i.id, run: i.attempt.run, head: i.head, verdict: 'pass', summary: 'Reviewed' }), true);
+  await until(() => i.stage === 'done');
+  expect(x.f.tasks.require(i.id).studioReview?.reviewerId).toBe(reviewer);
 });

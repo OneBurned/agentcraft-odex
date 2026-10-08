@@ -47,6 +47,7 @@ for (const id of cosmeticIds) if (!jar.some(e=>e.name===`assets/agentcraft/textu
 await fs.mkdir(path.join(out,'mods'),{recursive:true});
 await fs.writeFile(path.join(out,`mods/agentcraft-${version}.jar`),writeZip(jar));
 await copy(path.join(templates,'personas.json'),path.join(out,'personas.example.json'));
+await copy(path.join(root,'docs/ROLE_QUEUE.md'),path.join(out,'ROLE_QUEUE.md'));
 // Optional private asset pack. Schematics remain user-owned files outside the public mod JAR.
 if(buildingSource) {
   for(const name of await fs.readdir(buildingSource)) {

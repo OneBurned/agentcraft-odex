@@ -9,6 +9,7 @@ import { readJson, writeJsonAtomic } from './util/fsx.js';
 import { CodexCliAdapter } from './codex-cli.js';
 
 export type ConnectionPhase = ChatActivity['phase'] | 'external';
+export interface WorkRequest { role: 'developer' | 'reviewer'; cwd: string; }
 export interface AdapterEvents {
   activity(phase: ConnectionPhase, detail?: string): void;
   text(text: string, final: boolean): void;
@@ -18,6 +19,7 @@ export interface AgentAdapter {
   start(): void;
   dispose(): Promise<void>;
   send(text: string, purpose: 'message' | 'task'): Promise<Record<string, unknown>>;
+  execute?(text: string, work: WorkRequest): Promise<Record<string, unknown>>;
   control(action: ChatControl): Promise<Record<string, unknown>>;
   /** Pending local operations also prevent changing an agent before a poll observes work. */
   busy(): boolean;
@@ -50,7 +52,7 @@ export class CodexAdapter implements AgentAdapter {
   }
 }
 
-interface ClaudeState { sessionId: string; cursor?: string; pending?: string; purpose?: 'message' | 'task'; paused?: boolean; }
+interface ClaudeState { sessionId: string; cursor?: string; pending?: string; purpose?: 'message' | 'task'; paused?: boolean; work?: WorkRequest; }
 export class ClaudeAdapter implements AgentAdapter {
   private runner: DialogRunner;
   private timer?: NodeJS.Timeout;
@@ -104,18 +106,19 @@ export class ClaudeAdapter implements AgentAdapter {
     this.historyReady = true;
     this.state.cursor = rows.at(-1)?.id; this.save();
   }
-  async send(text: string, purpose: 'message' | 'task', retry = false): Promise<Record<string, unknown>> {
+  execute(text: string, work: WorkRequest) { return this.send(text, 'task', false, work); }
+  async send(text: string, purpose: 'message' | 'task', retry = false, work?: WorkRequest): Promise<Record<string, unknown>> {
     this.store.assertCurrent(this.c);
     if (this.closed || this.busy() || this.polling) throw new Error(this.runner.externalStatus?.() || 'Агент занят. Дождись завершения команды.');
     if (!this.ready) throw new Error('Подключение Claude ещё не подтверждено.');
     if (this.state.paused && !retry) throw new Error('Сначала продолжи или останови приостановленный ответ.');
-    this.state.pending = text; this.state.purpose = purpose; this.state.paused = false; this.save();
+    this.state.pending = text; this.state.purpose = purpose; this.state.work = work; this.state.paused = false; this.save();
     this.abort = new AbortController();
     this.phase('working');
     const signal = this.abort.signal;
     // Store running synchronously before any completion handler can publish a result.
     this.running = Promise.resolve().then(async () => {
-      const result = await this.runner.run(text, signal, { text, context: '', retry, style: ARTIFACT_STYLE_RULE });
+      const result = await this.runner.run(text, signal, { text, context: '', retry, style: ARTIFACT_STYLE_RULE, work });
       if (this.closed || this.controlling || signal.aborted) return;
       this.store.assertCurrent(this.c);
       if (this.runner.shared?.()) await this.syncHistory();
@@ -133,7 +136,7 @@ export class ClaudeAdapter implements AgentAdapter {
     if (this.closed || this.controlling || this.polling) throw new Error('Предыдущая команда ещё выполняется.');
     if (action === 'resume') {
       if (!this.state.paused || !this.state.pending) throw new Error('У агента нет приостановленного ответа.');
-      return this.send(this.state.pending, this.state.purpose ?? 'message', true);
+      return this.send(this.state.pending, this.state.purpose ?? 'message', true, this.state.work);
     }
     this.controlling = true;
     try {

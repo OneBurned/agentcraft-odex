@@ -1706,3 +1706,11 @@ including Windows line endings, so the existing repo test runner retains actual 
 The Windows launcher preserves ISO timestamp strings when reading run records under PowerShell
 7.5+, retaining timezone and precision for safe process identity checks. Run
 `tools/test/procs-smoke.ps1` with both `pwsh` and Windows PowerShell to verify this path.
+
+## Role-based queue (A5)
+
+Configurable teams now use the persisted role queue described in [ROLE_QUEUE.md](ROLE_QUEUE.md).
+The planning screen assigns a project, developer and reviewer or opts a task out of review;
+auto-selection is an explicit team setting. Queue controls and provider controls are separate.
+Existing migrated pairs opt in with `queue.enable` after resolving old work and pauses.
+Building source does not restart the personal bridge or install a mod.

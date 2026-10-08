@@ -113,6 +113,19 @@ try {
   await client.waitForState(s => s.agents.get(secondClaude)?.controls?.message, { timeoutMs: 12000 });
   const secondView = (await client.send('studio.action', { action: 'connection.get', payload: { id: secondClaude } })).result;
   assert(secondView.history.some(e => e.text === 'Second isolated answer'), 'Per-agent history survives bridge restart');
+  // Role queue planning must work offline without sending a model task.
+  const roleView = (await client.send('studio.action', { action: 'get' })).result;
+  const planned = (await client.send('studio.action', { action: 'create', payload: {
+    title: 'Role queue package check', description: 'Do not run a model', expected: 'Persist draft',
+    repoId: roleView.repos[0].id, developerId: null, reviewerId: null, noReview: true,
+  } })).result.items.at(-1);
+  await client.send('studio.action', { action: 'approve', payload: { id: planned.id } });
+  await client.send('studio.action', { action: 'start' });
+  const waiting = (await client.send('studio.action', { action: 'get' })).result;
+  assert.equal(waiting.active, undefined); assert.match(waiting.items.at(-1).blockedReason, /Назначь/);
+  await stop(); await launch('team-smoke');
+  const resumed = (await client.send('studio.action', { action: 'get' })).result;
+  assert.equal(resumed.mode, 'paused'); assert.equal(resumed.items.at(-1).id, planned.id);
   // Legacy smoke below expects the latest native cursor at startup.
   const legacyCursor = parent;
   await stop();

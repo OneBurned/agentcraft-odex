@@ -110,3 +110,10 @@ UUID разговоров и сессий, почтовые адреса, фай
 Отдельно проверяются неизменность шести PNG в готовом JAR, PowerShell-синтаксис запускателей,
 проверки моста и сборка мода. Отрисовка, масштаб интерфейса и ручной выбор PNG в Minecraft
 требуют отдельной игровой проверки и не следуют из успешной автоматической проверки импорта.
+
+## Role queue
+
+New v2 team profiles include project/developer/reviewer selection in planning, optional
+no-review tasks and explicit automatic assignment. See [ROLE_QUEUE.md](ROLE_QUEUE.md)
+for commands and provider permission differences. Migrated legacy pairs retain their
+old workflow until `queue.enable`; packaging never activates that transition.

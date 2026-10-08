@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { Foreman } from './foreman.js';
 import { AgentConnections, connectionSession, type Connection } from './agent-connections.js';
@@ -9,6 +9,11 @@ import type { ConversationMessage } from './claude-conversation.js';
 import { conversationLease } from './claude-conversation.js';
 import type { ObserverUpdate, AgentState, Station } from './protocol.js';
 import { readJson, writeJsonAtomic } from './util/fsx.js';
+import { sameDirectory } from './claude-planning.js';
+import { WorkspaceConfig } from './claude-workspace.js';
+import type { WorkRequest } from './agent-adapters.js';
+import fs from 'node:fs';
+import path from 'node:path';
 
 interface Slot { connection: Connection; ref: string; adapter: AgentAdapter; phase: ConnectionPhase; notice: string; history: ConversationMessage[]; rest?: NodeJS.Timeout; }
 const History = z.array(z.object({ id: z.string(), role: z.enum(['user', 'assistant']), text: z.string() }));
@@ -16,6 +21,8 @@ const stations: Record<ObserverUpdate['state'], Station> = { thinking: 'meeting'
 
 /** Each slot owns its adapter, control state, history and callbacks. No provider-global recipient. */
 export class AgentRuntime {
+  onFinal?: (id: string, text: string) => void;
+  projectHint?: (id: string) => string | undefined;
   readonly connections: AgentConnections;
   private slots = new Map<string, Slot>();
   private errors = new Map<string, string>();
@@ -64,7 +71,7 @@ export class AgentRuntime {
     const ready = !!slot && !['unavailable', 'external'].includes(slot.phase);
     const busy = !!slot?.adapter.busy();
     const working = slot && ['working', 'waiting'].includes(slot.phase);
-    const hint = slot?.notice || this.errors.get(id) || (enabled ? 'Не подключён' : 'Выключен');
+    const hint = this.projectHint?.(id) || slot?.notice || this.errors.get(id) || (enabled ? 'Не подключён' : 'Выключен');
     this.fm.setAgent(id, { controls: { message: !!enabled && ready && !busy && slot?.phase !== 'paused',
       pause: ready && !!working, resume: ready && slot?.phase === 'paused' && !busy,
       stop: (ready && (!!working || slot?.phase === 'paused' || slot?.phase === 'error' || slot?.phase === 'interrupted')) ||
@@ -99,6 +106,7 @@ export class AgentRuntime {
     this.append(id, 'assistant', text);
     this.fm.bus.feed('message', text, { agentId: id, to: 'user' });
     for (const chunk of textChunks(text, 1900)) this.fm.agentLog(id, final ? 'result' : 'text', chunk);
+    if (final) this.onFinal?.(id, text);
   }
   private slot(id: string): Slot {
     const a = this.fm.team!.get(id);
@@ -117,11 +125,32 @@ export class AgentRuntime {
     if (c?.provider === 'claude' && conversationLease(c.workspace)) throw new Error('Разговор занят. Сначала верни его из терминала/Code.');
     return true;
   }
-  async send(id: string, text: string, purpose: 'message' | 'task' = 'message') {
+  connectionKey(id: string) { const s = this.slot(id); return createHash('sha256').update(JSON.stringify({ ref: s.ref, connection: s.connection })).digest('hex'); }
+  idle(id: string) {
+    const s = this.slots.get(id);
+    return !!s && !s.adapter.busy() && ['idle', 'completed', 'stopped'].includes(s.phase);
+  }
+  workUnavailable(id: string, role: WorkRequest['role'], cwd: string): string | undefined {
+    try {
+      const s = this.slot(id), c = s.connection;
+      if (!this.idle(id)) return s.notice || 'Агент занят';
+      if (c.transport === 'codex-cli') {
+        if (!sameDirectory(c.workspace, cwd)) return 'Рабочая папка Codex CLI отличается от проекта задачи.';
+        if (role === 'developer' && c.sandbox !== 'workspace-write') return 'Для разработки подключи Codex CLI с workspace-write.';
+      }
+      if (c.provider === 'claude') {
+        const access = WorkspaceConfig.parse(JSON.parse(fs.readFileSync(path.join(c.workspace, 'access.json'), 'utf8')));
+        if (!access.repositories.some(r => sameDirectory(r.path, cwd))) return 'Проект не разрешён в рабочем пространстве Claude.';
+      }
+      return undefined;
+    } catch (e) { return (e as Error).message; }
+  }
+  sendWork(id: string, text: string, work: WorkRequest) { return this.send(id, text, 'task', work); }
+  async send(id: string, text: string, purpose: 'message' | 'task' = 'message', work?: WorkRequest) {
     const slot = this.slot(id);
     text = z.string().trim().min(1).max(12000).parse(text);
     let result;
-    try { result = await slot.adapter.send(text, purpose); }
+    try { result = work && slot.adapter.execute ? await slot.adapter.execute(text, work) : await slot.adapter.send(text, purpose); }
     catch (e) {
       // A timeout is not proof of non-delivery; expose uncertainty rather than a false success.
       if (!this.closed && this.slots.get(id) === slot) this.activity(id, 'unavailable', (e as Error).message);
@@ -132,7 +161,7 @@ export class AgentRuntime {
     for (const chunk of textChunks('Вы: ' + text, 1900)) this.fm.agentLog(id, 'text', chunk);
     this.fm.store.data.replyAgentId = id; this.fm.store.markDirty();
     this.activity(id, 'working');
-    return { ...result, agentId: id };
+    return { ...result, agentId: id, ...(this.projectHint?.(id) ? { hint: this.projectHint(id) } : {}) };
   }
   async control(id: string, action: ChatControl) {
     const slot = this.slot(id);

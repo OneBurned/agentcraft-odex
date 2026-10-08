@@ -322,3 +322,22 @@ it('allows appearance edits during a dialog but refuses disabling through both p
     finish!('Synthetic reply'); await until(() => fm.agent('wren')?.state === 'done'); finish = undefined;
   } finally { finish?.('Synthetic reply'); await fm.close(); }
 });
+
+it('explicitly activates the role queue only after legacy work is resolved and keeps cards and cursor', async () => {
+  const f = fixture(); await migrateTeam(f.options, f.checks);
+  vi.spyOn(DesktopChat.prototype, 'start').mockImplementation(() => {});
+  const fm = new Foreman({ config: f.cfg, logger: silentLogger });
+  const backend = new ObserverBackend(fm, undefined, (_c, _store, events) => ({ start: () => events.activity('idle'), dispose: async () => {}, busy: () => false, send: vi.fn(), control: vi.fn() }));
+  try {
+    await fm.start(backend);
+    await expect(backend.onStudioAction('queue.enable', {})).rejects.toThrow('незаконченный');
+    const saved: any = fm.store.data.backend.studio;
+    delete saved.dialog.pending; saved.personalPaused = []; saved.suspended = {}; saved.items[0].stage = 'queued';
+    const view: any = await backend.onStudioAction('queue.enable', {});
+    expect(view.mode).toBe('paused'); expect(view.team.agents).toHaveLength(2);
+    expect(view.items[0]).toMatchObject({ id: 't1', developerId: 'marlow', reviewerId: 'wren', stage: 'queued' });
+    expect(view.notes).toHaveLength(1); expect(fm.migratedPair).toBe(false);
+    expect(read(path.join(f.profile, 'agents/marlow/codex-chat-state.json'))).toEqual(read(path.join(f.profile, 'codex-chat-state.json')));
+    expect(fm.store.data.backend.studio).toBe(saved);
+  } finally { await fm.close(); }
+});

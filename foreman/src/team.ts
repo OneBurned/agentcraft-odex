@@ -133,4 +133,10 @@ export class TeamRegistry {
     this.data = next;
     return this.snapshot();
   }
+  setAssignment(autoSelect: boolean, revision: number): TeamData {
+    this.assertUnchanged();
+    if (revision !== this.data.revision) throw new TeamError('Team revision conflict: reload team.get');
+    const next = this.snapshot(); next.assignment.autoSelect = autoSelect; next.revision++;
+    writeJsonAtomic(this.file, next); this.data = next; return this.snapshot();
+  }
 }

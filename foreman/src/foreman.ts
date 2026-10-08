@@ -188,7 +188,7 @@ export class Foreman {
 
   get migratedPair(): boolean {
     const marker = this.store.data.backend.teamMigration as { version?: number; kind?: string } | undefined;
-    return !!this.team && marker?.version === 1 && marker.kind === 'legacy-pair';
+    return !!this.team && marker?.version === 1 && marker.kind === 'legacy-pair' && !this.store.data.backend.roleQueue;
   }
 
   syncTeam(): void {
@@ -584,7 +584,7 @@ export class Foreman {
 
   private async dispatch(msg: ClientMessage, reply: Reply): Promise<Record<string, unknown> | undefined> {
     if (msg.type === 'studio.action' && msg.action.startsWith('team.')) return this.teamAction(msg.action, msg.payload);
-    if (this.team && !this.migratedPair && !['hello', 'repo.add', 'diff.request', 'agent.scene', 'studio.action', 'user.message', 'agent.action', 'observer.update'].includes(msg.type))
+    if (this.team && !this.migratedPair && !['hello', 'repo.add', 'diff.request', 'agent.scene', 'studio.action', 'user.message', 'agent.action', 'observer.update', 'decision.answer'].includes(msg.type))
       throw new ClientError('Агент не подключён. Выполнение ролей для новой команды будет доступно после настройки подключений.');
     if (this.team && !this.migratedPair && (msg.type === 'user.message' || msg.type === 'agent.action')) {
       const id = this.resolveAgentId(msg.type === 'user.message' ? msg.to : msg.agentId);
@@ -624,7 +624,7 @@ export class Foreman {
         msg.type === 'user.message' && msg.reply === true);
     }
     if (this.config.backend === 'observer' && msg.type === 'decision.answer' &&
-      this.decisions.get(msg.decisionId)?.tool === 'studio') {
+      ['studio', 'role-queue'].includes(this.decisions.get(msg.decisionId)?.tool ?? '')) {
       await this.answerDecision(msg.decisionId, msg.option, msg.text);
       return { decisionId: msg.decisionId };
     }

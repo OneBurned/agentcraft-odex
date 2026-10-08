@@ -224,7 +224,6 @@ public final class StudioScreen extends Screen {
         return out;
     }
     private void tasks() {
-        if (dynamicTeam()) { label(str(data, "notice"), x + 12, top, w - 24); return; }
         int left = x + 12, cy = top, bw = (w - 30) / 4;
         if (tab == 2) {
             button("Новая задача", left, cy, bw * 2, () -> taskForm(null));
@@ -260,13 +259,20 @@ public final class StudioScreen extends Screen {
             JsonObject p = new JsonObject(); p.addProperty("title", v.get(0)); p.addProperty("description", v.get(1)); p.addProperty("expected", v.get(2)); p.addProperty("priority", Integer.parseInt(v.get(4)));
             JsonArray a = new JsonArray(); for (String id : v.get(3).split(",")) if (!id.isBlank()) a.add(id.trim()); p.add("deps", a);
             if (item != null) p.addProperty("id", str(item, "id"));
+            if (dynamicTeam()) { minecraft.gui.setScreen(new AssignmentScreen(this, p, item)); return; }
             minecraft.gui.setScreen(this); request(item == null ? "create" : "edit", p, null);
         }));
     }
     private void taskDetails(JsonObject item) {
         String content = str(item, "title") + "\n\n" + stage(str(item, "stage")) + " · " + str(item, "project") + "\n\n" + str(item, "description") + "\n\nОжидается:\n" + str(item, "expected")
             + "\n\nПроверки:\n" + str(item, "checks") + "\n\nРезультат:\n" + str(item, "summary") + "\n\nРевью:\n" + str(item, "review") + "\n\n" + str(item, "blockedReason");
+        if (dynamicTeam()) content += "\n\nРазработчик: " + agentName(str(item, "developerId")) + "\nРевьюер: " + (flag(item, "noReview") ? "Без ревью" : agentName(str(item, "reviewerId")));
         minecraft.gui.setScreen(new TaskDetails(this, item, content));
+    }
+    private String agentName(String id) {
+        if (id.isEmpty()) return "Автоматически";
+        for (var p : array("profiles")) if (str(p.getAsJsonObject(), "id").equals(id)) return str(p.getAsJsonObject(), "name");
+        return id;
     }
     private void places() {
         selectAgent(); int left = x + 12, cy = top + 28;
@@ -322,7 +328,15 @@ public final class StudioScreen extends Screen {
         toggle.active = true; // a local option also works without a bridge connection
     }
     private void settings() {
-        if (dynamicTeam()) { speechChatSetting(x + 12, top, w - 24); label("Подключения задаются отдельно для каждого агента в профиле моста.", x + 12, top + 28, w - 24); return; }
+        if (dynamicTeam()) {
+            speechChatSetting(x + 12, top, w - 24);
+            var team = data.getAsJsonObject("team"); boolean auto = flag(team.getAsJsonObject("assignment"), "autoSelect");
+            button("Мост выбирает агентов сам: " + (auto ? "да" : "нет"), x + 12, top + 27, w - 24, () -> {
+                JsonObject p = new JsonObject(); p.addProperty("autoSelect", !auto); p.add("revision", team.get("revision")); request("settings", p, null);
+            });
+            label("Назначения и «Без ревью» задаются в плане каждой задачи.", x + 12, top + 56, w - 24);
+            label("Пауза очереди не прерывает работающего агента.", x + 12, top + 72, w - 24); return;
+        }
         int left = x + 12; String mode = str(data, "reviewMode");
         int half = (w - 28) / 2;
         button("Ревью: " + (mode.equals("auto") ? "автоматически" : mode.equals("manual") ? "по кнопке" : "выключено"), left, top, half, () -> {
@@ -335,6 +349,45 @@ public final class StudioScreen extends Screen {
         button("Войти / проверить вход", left + (w - 28) / 2 + 4, top + 68, (w - 28) / 2, () -> request("claude-login", new JsonObject(), null));
         label("Проект: " + str(data, "repo"), left, top + 96, w - 24);
         label("Подключение Codex: " + str(data, "chat"), left, top + 110, w - 24);
+        if (flag(data, "canEnableRoleQueue")) button("Перейти на очередь с ролями", left, top + 132, w - 24, () -> request("queue.enable", new JsonObject(), null));
+    }
+    private static class AssignmentScreen extends Screen {
+        final StudioScreen parent; final JsonObject payload; final boolean edit; final boolean assignOnly;
+        String repo, developer, reviewer; boolean noReview;
+        AssignmentScreen(StudioScreen parent, JsonObject payload, JsonObject item) {
+            super(Component.literal("Назначение исполнителей")); this.parent = parent; this.payload = payload; this.edit = item != null; this.assignOnly = item != null && !payload.has("title");
+            repo = item == null ? "" : str(item, "repoId"); developer = item == null ? "" : str(item, "developerId"); reviewer = item == null ? "" : str(item, "reviewerId"); noReview = item != null && flag(item, "noReview");
+            if (repo.isEmpty() && !parent.array("repos").isEmpty()) repo = str(parent.array("repos").get(0).getAsJsonObject(), "id");
+        }
+        @Override public boolean isPauseScreen() { return false; }
+        private String nextAgent(String current, String role, String other) {
+            List<String> ids = new ArrayList<>(); ids.add("");
+            for (var v : parent.data.getAsJsonObject("team").getAsJsonArray("agents")) {
+                var a = v.getAsJsonObject(); if (flag(a, "archived") || str(a, "id").equals(other)) continue;
+                if (a.getAsJsonArray("roles").contains(new com.google.gson.JsonPrimitive(role))) ids.add(str(a, "id"));
+            }
+            return ids.get((ids.indexOf(current) + 1) % ids.size());
+        }
+        @Override protected void init() {
+            clearWidgets(); int w = Math.min(440, width - 24), x = (width - w) / 2, y = Math.max(36, (height - 190) / 2);
+            List<String> repos = new ArrayList<>(); String name = repo;
+            for (var v : parent.array("repos")) { var r = v.getAsJsonObject(); repos.add(str(r, "id")); if (repo.equals(str(r, "id"))) name = str(r, "name"); }
+            addRenderableWidget(Button.builder(Component.literal("Проект: " + name), b -> { if (!repos.isEmpty()) repo = repos.get((repos.indexOf(repo) + 1) % repos.size()); init(); }).bounds(x, y, w, 20).build());
+            addRenderableWidget(Button.builder(Component.literal("Разработчик: " + parent.agentName(developer)), b -> { developer = nextAgent(developer, "developer", reviewer); init(); }).bounds(x, y + 25, w, 20).build());
+            var review = addRenderableWidget(Button.builder(Component.literal("Ревьюер: " + parent.agentName(reviewer)), b -> { reviewer = nextAgent(reviewer, "reviewer", developer); init(); }).bounds(x, y + 50, w, 20).build()); review.active = !noReview;
+            addRenderableWidget(Button.builder(Component.literal("Без ревью: " + (noReview ? "да" : "нет")), b -> { noReview = !noReview; init(); }).bounds(x, y + 75, w, 20).build());
+            addRenderableWidget(Button.builder(Component.literal("Сохранить план"), b -> {
+                payload.addProperty("repoId", repo); payload.addProperty("noReview", noReview);
+                payload.add("developerId", developer.isEmpty() ? com.google.gson.JsonNull.INSTANCE : new com.google.gson.JsonPrimitive(developer));
+                payload.add("reviewerId", reviewer.isEmpty() || noReview ? com.google.gson.JsonNull.INSTANCE : new com.google.gson.JsonPrimitive(reviewer));
+                minecraft.gui.setScreen(parent); parent.request(assignOnly ? "assign" : edit ? "edit" : "create", payload, null);
+            }).bounds(x, y + 105, w, 20).build());
+            addRenderableWidget(Button.builder(Component.literal("Назад"), b -> onClose()).bounds(x, y + 130, w, 20).build());
+        }
+        @Override public void onClose() { minecraft.gui.setScreen(parent); }
+        @Override public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float dt) {
+            g.fill(0, 0, width, height, 0xEF292722); g.text(font, title, 16, 15, 0xFFF2EAD8); super.extractRenderState(g, mx, my, dt);
+        }
     }
     @Override public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float dt) {
         g.fill(x, y, x + w, y + h, 0xF22B2925); g.fill(x, y, x + w, y + 2, 0xFFBC984B);
@@ -392,14 +445,19 @@ public final class StudioScreen extends Screen {
             body.setValueListener(value -> { if (!value.equals(content)) body.setValue(content); });
             String stage = str(item, "stage"); List<String> ops = new ArrayList<>(); List<String> labels = new ArrayList<>();
             if (stage.equals("plan")) { ops.add("approve"); labels.add("В очередь"); }
-            if (stage.equals("plan") || stage.equals("queued")) { ops.add("edit"); labels.add("Изменить"); }
-            if (stage.equals("review")) { ops.add("review"); labels.add("Ревью Claude"); }
+            if (stage.equals("plan") || stage.equals("queued") && !parent.dynamicTeam()) { ops.add("edit"); labels.add("Изменить"); }
+            if (stage.equals("queued") && parent.dynamicTeam() && !item.has("lock")) { ops.add("assign"); labels.add("Исполнители"); }
+            if (stage.equals("review") && !parent.dynamicTeam()) { ops.add("review"); labels.add("Ревью Claude"); }
             if (stage.equals("question")) { ops.add("retry"); labels.add("Повторить"); ops.add("question"); labels.add("Ответить"); }
             if (!stage.equals("done") && !stage.equals("cancelled")) { ops.add("cancel"); labels.add("Отменить"); }
             ops.add("back"); labels.add("Назад"); int bw = w / ops.size();
             for (int i = 0; i < ops.size(); i++) { String op = ops.get(i);
                 addRenderableWidget(Button.builder(Component.literal(TextUtil.ellipsize(font, labels.get(i), bw - 10)), b -> {
                     if (op.equals("edit")) parent.taskForm(item);
+                    else if (op.equals("assign")) { JsonObject p = new JsonObject(); p.addProperty("id", str(item, "id")); minecraft.gui.setScreen(new AssignmentScreen(parent, p, item)); }
+                    else if (op.equals("retry") && parent.dynamicTeam()) minecraft.gui.setScreen(new Form(this, "Проверка перед повтором", List.of("Ответ и результат проверки прежнего запуска"), List.of(""), values -> {
+                        JsonObject p = new JsonObject(); p.addProperty("id", str(item, "id")); p.addProperty("answer", values.get(0)); minecraft.gui.setScreen(parent); parent.request("retry", p, null);
+                    }));
                     else if (op.equals("question")) { var d = Foreman.state().openDecisions().stream().filter(q -> str(item, "id").equals(q.taskId())).findFirst(); minecraft.gui.setScreen(new dev.agentcraft.client.decisions.DecisionScreen(d.map(q -> q.id()).orElse(null), this)); }
                     else if (op.equals("back")) onClose();
                     else { minecraft.gui.setScreen(parent); JsonObject p = new JsonObject(); p.addProperty("id", str(item, "id")); parent.request(op, p, null); }

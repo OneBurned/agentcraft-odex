@@ -133,3 +133,10 @@ Third-party license notices, including their authors' public contact details, ar
 Build and PNG import checks do not establish visual correctness in a running game.
 A disconnected bridge does not confirm task completion. Provider permissions and
 capabilities depend on the provider's own application.
+
+ROLE QUEUE
+Select a project, developer and reviewer when planning, or explicitly skip review.
+Enable automatic agent assignment separately in settings. Approve before starting.
+Queue pause prevents new dispatches; agent card controls affect its real execution.
+Interrupted work requires reconciliation after restart, never automatic replay.
+See ROLE_QUEUE.md for commands and provider permission boundaries.

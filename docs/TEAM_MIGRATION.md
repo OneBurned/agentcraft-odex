@@ -138,3 +138,9 @@ PID или отказ доступа может блокировать опер�
 и возврат блокировки умершего владельца game с последующим откатом. TypeScript проходит.
 Документация протокола актуальна. Переносимый пакет прошёл сборку, аудит содержимого,
 изолированную проверку studio и проверки отказов команды переноса без исходных зависимостей.
+
+## Activating the role queue
+
+The migrated pair can opt in to A5 via `queue.enable` in Studio or the settings button.
+Resolve old work/questions and pending conversations, then remove personal pauses first.
+The new queue imports existing cards and pauses before execution. See [ROLE_QUEUE.md](ROLE_QUEUE.md).
