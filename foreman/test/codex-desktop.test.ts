@@ -45,6 +45,28 @@ it('adds the current Codex persona to game messages but not task delivery, and p
 });
 
 describe('desktop chat relay', () => {
+  it('ignores a stale idle poll that finishes after a newer send', async () => {
+    const f = fixture(); await f.chat.poll();
+    let release!: (value: any) => void;
+    f.call.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    const pending = f.chat.poll();
+    await f.chat.send('New work');
+    const before = f.onActivity.mock.calls.length;
+    release(f.response); await pending;
+    expect(f.onActivity.mock.calls).toHaveLength(before);
+    f.response.turns[0]!.status = 'inProgress'; await f.chat.poll();
+    expect(f.onActivity).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'working' }));
+  });
+  it('does not replace a confirmed pause with an older failed poll', async () => {
+    const f = fixture(); await f.chat.poll();
+    let reject!: (error: Error) => void;
+    f.call.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+    const pending = f.chat.poll();
+    await f.chat.control('pause');
+    reject(new Error('old timeout')); await pending;
+    expect(f.onActivity).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'paused' }));
+    await expect(f.chat.control('resume')).resolves.toMatchObject({ chatDelivered: true });
+  });
   it('confirms a real interruption, persists pause across restart, and resumes only on request', async () => {
     const f = fixture(); f.response.turns[0]!.status = 'inProgress'; await f.chat.poll();
     expect(await f.chat.control('pause')).toMatchObject({ chatControl: 'paused' });

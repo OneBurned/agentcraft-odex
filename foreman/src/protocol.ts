@@ -428,6 +428,7 @@ export const RepoAddMsg = z.object({ ...envelope('repo.add'), path: z.string().m
 
 export const ObserverUpdateMsg = z.object({
   ...envelope('observer.update'),
+  agentId: Id.optional(),
   key: z.string().trim().min(1).max(160),
   title: z.string().trim().min(1).max(200),
   state: z.enum(['thinking', 'reading', 'editing', 'running', 'testing', 'waiting_user', 'blocked', 'review', 'done', 'error']),

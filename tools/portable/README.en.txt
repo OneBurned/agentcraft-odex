@@ -1,16 +1,15 @@
 AgentCraft — portable Windows package
 
-A2 — TEAM DATA MODEL
+A3 — PER-AGENT CONNECTIONS
 A new profile creates an empty team.json. Manage agents with studio.mjs actions
-team.get/create/update/disable/archive/restore. New-agent connections, queue execution
-and the team setup UI are subsequent stages. Protocol 2 requires matching mod, bridge
-and tools. The chat, desk and connection workflow below applies only to existing
-legacy profiles, not a new team. Legacy migration is a separate stage.
+team.get/create/update/disable/archive/restore. Each agent has its own connection through
+connection.bind/get/send/control/unbind/importCodex. Two agents of one provider need distinct
+conversations. The role queue and setup UI are subsequent stages. Protocol 2 requires matching
+mod, bridge and tools. Legacy migration is a separate stage.
 
 This is a neutral build of the existing observer mode: Codex performs work in a
-connected desktop conversation and Claude can review changes. An arbitrary team
-and its setup wizard are separate development stages, not completed features of
-this package. No account logins are included.
+connected desktop conversation and Claude can review changes. Arbitrary teams are configured
+through the API; the graphical setup wizard is not ready. No account logins are included.
 
 INSTALL AND START
 1. Install Minecraft Java 26.3, Fabric Loader 0.19.5 or newer, and Java 25.
@@ -21,14 +20,24 @@ INSTALL AND START
 3. Run Install-Mod.cmd and select your Fabric profile's game directory.
    AgentCraft and Fabric API are installed; replaced mods are backed up.
    Existing settings are preserved. Minecraft is not launched automatically.
-4. In the chosen Codex desktop conversation, ask it to connect that conversation by
-   running Connect-Codex.ps1 from this package in that conversation's environment.
-   Double-clicking the script cannot supply the desktop conversation identity.
-   The local binding is saved to data/portable/codex-chat.json.
-5. Run Start-Bridge.cmd. To select a Git repository, run this instead from PowerShell
+4. Run Start-Bridge.cmd. To select a Git repository, run this instead from PowerShell
    in the package folder:
    .\Start-Bridge.ps1 -Repository <full-path-to-your-repository>
    The bridge listens on 127.0.0.1:7878 only. Stop another bridge if the port is busy.
+5. Create an agent using runtime/node.exe studio.mjs team.create --file agent.json.
+   Payload: revision from team.get and agent with name, provider (codex/claude),
+   roles (array of planner/developer/reviewer), enabled, visible and appearance
+   (skin, #RRGGBB color, slim). All fields are required.
+   Get its ID using runtime/node.exe studio.mjs team.get.
+   In the chosen authorized desktop chat run Connect-Codex.ps1 -Agent <id>.
+   Bindings live in data/portable/connections. Double-click cannot supply the chat identity.
+   Claude requires a separately configured workspace with instructions, MEMORY.md,
+   access.json and conversation.json naming an existing native session created in that cwd.
+   connection.bind payload: id, revision, connection: {provider:"claude",
+   transport:"claude-code",workspace:"absolute path",sessionId:"UUID"}.
+   Send with runtime/node.exe studio.mjs connection.bind --file binding.json.
+   Open-Agent.ps1 -Agent <id> continues that conversation in the terminal; -Desktop
+   hands off to Code, -Return returns after closing its Code session. No duplicate session.
 6. Start your Fabric profile and open an ordinary single-player world.
    Find the command desk, console, monitor and workspace configurator in the creative
    inventory. Check the recipient before sending a console message with Enter.

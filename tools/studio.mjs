@@ -10,6 +10,6 @@ try {
   client = await ForemanClient.connect({ port: Number(values.port), timeoutMs: 10000, client: 'studio-control' });
   const ack = await client.send('studio.action', { action, payload });
   // Reports don't expose the whole roster, local paths or notes in the developer's command output.
-  console.log(JSON.stringify(action === 'get' ? ack.result : { ok: ack.ok, action }));
+  console.log(JSON.stringify(['get', 'team.get', 'connection.get'].includes(action) ? ack.result : { ok: ack.ok, action }));
 } catch (error) { console.error(JSON.stringify({ ok: false, error: error.message })); process.exitCode = 1; }
 finally { client?.close(); }

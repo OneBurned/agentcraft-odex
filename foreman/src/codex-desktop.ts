@@ -115,8 +115,11 @@ export class DesktopChat {
   private state: ChatState;
   private sending = false;
   private controlling = false;
+  private commandEpoch = 0;
   constructor(private options: {
     configFile: string; stateFile: string; call?: AppCall;
+    /** Team connections validate immutable ownership before every operation. */
+    binding?: () => ChatBinding;
     onText: (text: string, final: boolean) => void;
     onStatus: (message: string) => void;
     onActivity?: (activity: ChatActivity) => void;
@@ -136,10 +139,11 @@ export class DesktopChat {
   }
   stop() { this.stopped = true; clearInterval(this.timer); }
   async poll() {
-    if (this.polling || this.stopped || this.controlling) return;
+    if (this.polling || this.stopped || this.controlling || this.sending) return;
     this.polling = true;
+    const epoch = this.commandEpoch;
     try {
-      const binding = readBinding(this.options.configFile);
+      const binding = this.options.binding?.() ?? readBinding(this.options.configFile);
       if (!binding) {
         this.online = false;
         this.options.onActivity?.({ key: '', phase: 'unavailable' });
@@ -148,7 +152,7 @@ export class DesktopChat {
       const data = await (this.options.call ?? appCall)(binding, 'read_thread', {
         turnLimit: 3, includeOutputs: false, maxOutputCharsPerItem: 20000,
       });
-      if (this.stopped || this.controlling) return;
+      if (this.stopped || this.controlling || this.sending || epoch !== this.commandEpoch) return;
       if (data.thread?.id !== binding.threadId || !Array.isArray(data.turns)) throw new Error('Codex вернул другой чат или неизвестный формат.');
       const baseline = this.state.threadId !== binding.threadId;
       if (baseline) this.state = { threadId: binding.threadId, seen: [] };
@@ -175,6 +179,7 @@ export class DesktopChat {
       this.online = true;
       this.status(`Чат Codex: ${binding.title}. Пиши задачу в консоли; Enter — отправить.`);
     } catch (e) {
+      if (this.stopped || this.controlling || this.sending || epoch !== this.commandEpoch) return;
       this.online = false;
       if (!this.stopped) this.options.onActivity?.({ key: '', phase: 'unavailable' });
       this.status((e as Error).message);
@@ -183,7 +188,7 @@ export class DesktopChat {
   }
   async send(text: string, purpose: 'message' | 'task' = 'message'): Promise<Record<string, unknown>> {
     if (this.stopped) throw new Error('Мост остановлен.');
-    const binding = readBinding(this.options.configFile);
+    const binding = this.options.binding?.() ?? readBinding(this.options.configFile);
     if (!binding) throw new Error('Чат не подключён. Попроси Codex: «Подключи этот чат к игре».');
     if (!this.online) throw new Error('Связь с чатом ещё не готова. Открой Codex и дождись подключения.');
     if (this.state.threadId !== binding.threadId) throw new Error('Чат переключается; дождись подключения.');
@@ -191,6 +196,7 @@ export class DesktopChat {
     if (this.controlling) throw new Error('Предыдущая команда ещё обрабатывается.');
     if (!text.trim() || text.length > 12000) throw new Error('Сообщение должно содержать от 1 до 12000 символов.');
     this.sending = true;
+    this.commandEpoch++;
     try {
       const style = purpose === 'message' ? personaPrompt(this.options.personaDescription?.()) : '';
       const result = await (this.options.call ?? appCall)(binding, 'send_message_to_thread', {
@@ -203,7 +209,7 @@ export class DesktopChat {
 
   async control(action: ChatControl): Promise<Record<string, unknown>> {
     if (this.stopped || this.controlling || this.sending) throw new Error('Мост остановлен или предыдущая команда ещё обрабатывается.');
-    const binding = readBinding(this.options.configFile);
+    const binding = this.options.binding?.() ?? readBinding(this.options.configFile);
     if (!binding || !this.online || binding.threadId !== this.state.threadId) throw new Error('Нет подтверждённой связи с выбранным чатом Codex.');
     if (action === 'resume') {
       if (this.state.control?.mode !== 'paused') throw new Error('Этот чат не поставлен на паузу из игры.');
@@ -213,6 +219,7 @@ export class DesktopChat {
       return result;
     }
     this.controlling = true;
+    this.commandEpoch++;
     try {
       await (this.options.interrupt ?? interruptDesktop)(binding.threadId, action === 'stop');
       // An IPC acknowledgement is only acceptance. Confirm that the real chat stopped.

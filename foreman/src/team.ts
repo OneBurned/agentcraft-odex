@@ -27,7 +27,7 @@ function rejectLink(file: string) {
   try { if (fs.lstatSync(file).isSymbolicLink()) throw new TeamError('Team paths cannot traverse symbolic links or junctions'); }
   catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
 }
-function validateReference(root: string, ref: string) {
+export function validateReference(root: string, ref: string) {
   if (!ref || ref.includes('\\') || ref.includes(':') || ref.startsWith('/') || ref.split('/').some(p => !p || p === '.' || p === '..'))
     throw new TeamError('Invalid team path: use a relative path inside the profile');
   let current = root;
@@ -59,7 +59,23 @@ export class TeamRegistry {
     } catch (e) { throw new TeamError(`Cannot read team.json; original file preserved: ${(e as Error).message}`); }
   }
   snapshot(): TeamData { return structuredClone(this.data); }
+  assertUnchanged(): void {
+    if (!isDeepStrictEqual(this.read(), this.data)) throw new TeamError('team.json changed outside the bridge: restart before editing');
+  }
   get(id: string): TeamAgent | undefined { return this.snapshot().agents.find(a => a.id === id); }
+  /** Connection records are committed first; this atomic reference is the activation point. */
+  connect(id: string, ref: string | null, revision: number, assertIdle: (id: string) => void): TeamData {
+    if (!isDeepStrictEqual(this.read(), this.data)) throw new TeamError('team.json changed outside the bridge: restart before editing');
+    if (revision !== this.data.revision) throw new TeamError('Team revision conflict: reload team.get');
+    const next = this.snapshot();
+    const agent = next.agents.find(a => a.id === id && !a.archived);
+    if (!agent) throw new TeamError('Unknown or archived agent');
+    assertIdle(id);
+    if (ref) validateReference(this.root, ref);
+    agent.connectionRef = ref; next.revision++;
+    writeJsonAtomic(this.file, next); this.data = next;
+    return this.snapshot();
+  }
   change(action: string, raw: Record<string, unknown>, assertIdle: (id: string) => void): TeamData {
     let request;
     try { request = z.object({ revision: z.number().int().nonnegative(), id: TeamId.optional(),

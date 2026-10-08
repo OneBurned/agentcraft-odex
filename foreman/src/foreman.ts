@@ -35,6 +35,8 @@ import { truncate } from './util/text.js';
 import { PersonaSpeech } from './personas.js';
 
 export interface Backend {
+  assertAgentIdle?(id: string): void;
+  onTeamChanged?(): void;
   readonly name: 'sim' | 'claude' | 'observer';
   onObserverUpdate?(update: ObserverUpdate): Record<string, unknown>;
   onChatMessage?(text: string, agentId?: string, reply?: boolean): Promise<Record<string, unknown>>;
@@ -197,20 +199,24 @@ export class Foreman {
     for (const a of next) this.emit({ type: 'agent.upsert', agent: a });
     if (!next.some(a => a.id === this.store.data.replyAgentId && a.enabled)) delete this.store.data.replyAgentId;
     this.store.markDirty();
+    this.backend?.onTeamChanged?.();
   }
 
   teamAction(action: string, payload: Record<string, unknown>): Record<string, unknown> {
     if (!this.team) throw new ClientError('Этот профиль ещё использует прежнюю команду. Сначала нужен перенос A4.');
     if (action === 'team.get') return { ...this.team.snapshot() };
-    const result = this.team.change(action.replace(/^team\./, ''), payload, id => {
+    const result = this.team.change(action.replace(/^team\./, ''), payload, id => this.assertTeamAgentIdle(id));
+    this.syncTeam();
+    return { ...result };
+  }
+
+  assertTeamAgentIdle(id: string): void {
+      try { this.backend?.assertAgentIdle?.(id); } catch (e) { throw new TeamError((e as Error).message); }
       const a = this.agent(id);
       if (a && (!['idle', 'done'].includes(a.state) || a.taskId && !['done', 'cancelled'].includes(this.tasks.get(a.taskId)?.status ?? '')) ||
         this.tasks.list().some(t => t.assignee === id && !['done', 'cancelled'].includes(t.status)) ||
         this.decisions.open().some(d => d.agentId === id))
         throw new TeamError('Агент занят или назначен на незавершённую задачу. Заверши или переназначь работу перед изменением.');
-    });
-    this.syncTeam();
-    return { ...result };
   }
 
   agents(): Agent[] {
@@ -559,8 +565,15 @@ export class Foreman {
 
   private async dispatch(msg: ClientMessage, reply: Reply): Promise<Record<string, unknown> | undefined> {
     if (msg.type === 'studio.action' && msg.action.startsWith('team.')) return this.teamAction(msg.action, msg.payload);
-    if (this.team && !['hello', 'repo.add', 'diff.request', 'agent.scene', 'studio.action'].includes(msg.type))
+    if (this.team && !['hello', 'repo.add', 'diff.request', 'agent.scene', 'studio.action', 'user.message', 'agent.action', 'observer.update'].includes(msg.type))
       throw new ClientError('Агент не подключён. Выполнение ролей для новой команды будет доступно после настройки подключений.');
+    if (this.team && (msg.type === 'user.message' || msg.type === 'agent.action')) {
+      const id = this.resolveAgentId(msg.type === 'user.message' ? msg.to : msg.agentId);
+      if (!id || !this.team.get(id)?.enabled) throw new ClientError('Выбери включённого агента по ID или уникальному имени.');
+      if (msg.type === 'user.message') return this.backend?.onChatMessage?.(msg.text, id, msg.reply);
+      if (!['pause', 'resume', 'stop'].includes(msg.action)) throw new ClientError('Доступны pause, resume, stop.');
+      return this.backend?.onChatControl?.(msg.action as 'pause' | 'resume' | 'stop', id);
+    }
     if (msg.type === 'agent.scene') {
       if (!this.personas) throw new ClientError('Реплики сцен доступны в режиме наблюдения.');
       const resting = (id: string) => {

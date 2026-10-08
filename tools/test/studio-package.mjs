@@ -72,6 +72,49 @@ try {
   assert.equal(client.state.agents.size, 2);
   await client.send('studio.action', { action: 'team.restore', payload: { revision: team.revision, id: archivedId } });
   assert.equal(client.state.agents.get(archivedId).enabled, false);
+  // Real bundled adapters, isolated native SDK transcripts; no model calls or user's chats.
+  team = (await client.send('studio.action', { action: 'team.get', payload: {} })).result;
+  const codexBinding = { provider: 'codex', transport: 'codex-desktop', threadId: randomUUID(),
+    pipePath: '\\\\.\\pipe\\codex-browser-use-missing-fixture', hostId: 'local', title: 'Fixture' };
+  const bind = async (id, connection) => {
+    const t = (await client.send('studio.action', { action: 'team.get', payload: {} })).result;
+    return client.send('studio.action', { action: 'connection.bind', payload: { id, revision: t.revision, connection } });
+  };
+  await bind(archivedId, codexBinding);
+  await assert.rejects(bind(team.agents[1].id, codexBinding), /уже назначен/);
+  await bind(team.agents[1].id, { ...codexBinding, threadId: randomUUID() });
+  const firstClaude = team.agents[2].id;
+  await bind(firstClaude, { provider: 'claude', transport: 'claude-code', workspace, sessionId });
+  team = (await client.send('studio.action', { action: 'team.get', payload: {} })).result;
+  team = (await client.send('studio.action', { action: 'team.create', payload: { revision: team.revision, agent: {
+    name: 'Second Claude', provider: 'claude', roles: ['reviewer'], enabled: true, visible: true,
+    appearance: { skin: 'wren', color: '#654321', slim: false },
+  } } })).result;
+  const secondClaude = team.agents.at(-1).id, secondWorkspace = path.join(temp, 'second-workspace'), secondSession = randomUUID();
+  await fs.cp(workspace, secondWorkspace, { recursive: true });
+  await fs.writeFile(path.join(secondWorkspace, 'conversation.json'), JSON.stringify({ version: 1, sessionId: secondSession }));
+  const secondProject = path.join(claudeHome, 'projects', secondWorkspace.replace(/[^a-zA-Z0-9]/g, '-'));
+  await fs.mkdir(secondProject, { recursive: true });
+  const secondTranscript = path.join(secondProject, secondSession + '.jsonl'); let secondParent = null;
+  async function secondMessage(role, text) {
+    const uuid = randomUUID(); await fs.appendFile(secondTranscript, JSON.stringify({ type: role, uuid, parentUuid: secondParent,
+      sessionId: secondSession, cwd: secondWorkspace, timestamp: new Date().toISOString(), message: { role, content: [{ type: 'text', text }] } }) + '\n'); secondParent = uuid;
+  }
+  await secondMessage('user', 'Second previous message'); await secondMessage('assistant', 'Second previous reply');
+  await bind(secondClaude, { provider: 'claude', transport: 'claude-code', workspace: secondWorkspace, sessionId: secondSession });
+  await client.waitForState(s => [firstClaude, secondClaude].every(id => s.agents.get(id)?.controls?.message), { timeoutMs: 12000 });
+  await nativeMessage('user', 'First new input'); await nativeMessage('assistant', 'First isolated answer');
+  await secondMessage('user', 'Second new input'); await secondMessage('assistant', 'Second isolated answer');
+  await client.waitForState(s => s.feed.some(e => e.agentId === firstClaude && e.fullText === 'First isolated answer') &&
+    s.feed.some(e => e.agentId === secondClaude && e.fullText === 'Second isolated answer'), { timeoutMs: 12000 });
+  const firstView = (await client.send('studio.action', { action: 'connection.get', payload: { id: firstClaude } })).result;
+  assert.equal(JSON.stringify(firstView.history).includes('Second isolated answer'), false);
+  await stop(); await launch('team-smoke');
+  await client.waitForState(s => s.agents.get(secondClaude)?.controls?.message, { timeoutMs: 12000 });
+  const secondView = (await client.send('studio.action', { action: 'connection.get', payload: { id: secondClaude } })).result;
+  assert(secondView.history.some(e => e.text === 'Second isolated answer'), 'Per-agent history survives bridge restart');
+  // Legacy smoke below expects the latest native cursor at startup.
+  const legacyCursor = parent;
   await stop();
   // Explicit pre-A2 profile fixture: compatibility testing must not rely on a new profile having a cast.
   await fs.writeFile(path.join(home, 'smoke', 'state.json'), JSON.stringify({ version: 1, agents: [{
@@ -80,8 +123,8 @@ try {
   }] }));
   await launch();
   const get = () => client.send('studio.action', { action: 'get' }).then(a => a.result);
-  for (let n = 0; n < 80 && (await get()).dialog?.sessionCursor !== originalCursor; n++) await new Promise(r => setTimeout(r, 100));
-  assert.equal((await get()).dialog.sessionCursor, originalCursor, 'Bundled SDK must read the bound native session');
+  for (let n = 0; n < 80 && (await get()).dialog?.sessionCursor !== legacyCursor; n++) await new Promise(r => setTimeout(r, 100));
+  assert.equal((await get()).dialog.sessionCursor, legacyCursor, 'Bundled SDK must read the bound native session');
   assert.equal((await get()).version, 1);
   const created = await client.send('studio.action', { action: 'create', payload: { title: 'Проверка пакета', description: 'Не выполнять', expected: 'Черновик на доске' } });
   const id = created.result.items[0].id;
@@ -92,7 +135,7 @@ try {
   const restored = await get();
   assert.equal(restored.mode, 'paused'); assert.equal(restored.items[0].stage, 'queued');
   assert.equal(restored.notes[0].body, 'Проверка сохранения'); assert.equal(restored.active, undefined);
-  assert.equal(restored.dialog.sessionCursor, originalCursor);
+  assert.equal(restored.dialog.sessionCursor, legacyCursor);
   const longReply = 'New terminal reply\n\n' + 'Подробный пункт списка\n'.repeat(80) + '\nПоследний абзац';
   await nativeMessage('user', 'New terminal message'); const nextCursor = await nativeMessage('assistant', longReply);
   for (let n = 0; n < 80 && (await get()).dialog?.sessionCursor !== nextCursor; n++) await new Promise(r => setTimeout(r, 100));
@@ -119,7 +162,7 @@ try {
     assert.equal((await call()).duplicate, true, 'Bundled planning deduplication must survive restart');
     assert.equal((await get()).items[1].stage, 'plan');
   } finally { await mcp.close(); }
-  await stop(); console.log('Portable studio: empty team, three agents, archive/restore/restart, legacy profile protocol, draft approval, memory, native session projection, helper and bundled MCP draft creation/restart passed. No chat messages sent.');
+  await stop(); console.log('Portable studio: four agents, distinct Codex bindings, duplicate rejection, two native Claude histories/restart, archive/restore, legacy queue/memory, helper and bundled MCP checks passed. No model calls or real chat messages sent.');
 } finally {
   client?.close(); if (child && child.exitCode === null) { const exited = new Promise(resolve => child.once('exit', resolve)); child.kill(); await exited; }
   assert.ok(path.resolve(temp).startsWith(path.resolve(os.tmpdir()) + path.sep));

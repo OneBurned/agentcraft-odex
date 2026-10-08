@@ -9,6 +9,7 @@ try {
     key: { type: 'string' }, title: { type: 'string' }, state: { type: 'string' },
     activity: { type: 'string' }, log: { type: 'string' }, summary: { type: 'string' },
     ci: { type: 'string' }, 'repo-id': { type: 'string' }, port: { type: 'string', default: '7878' },
+    agent: { type: 'string' },
     optional: { type: 'boolean', default: false }, help: { type: 'boolean' },
   } });
   if (values.help) {
@@ -26,7 +27,7 @@ try {
     }
     if (fm.state.foreman?.backend !== 'observer') throw new Error('Connected Foreman is not in observer mode');
     const { key, title, state, activity, log, summary, ci } = values;
-    const ack = await fm.send('observer.update', { key, title, state, activity, log, summary, ci, repoId: values['repo-id'] });
+    const ack = await fm.send('observer.update', { key, title, state, activity, log, summary, ci, repoId: values['repo-id'], agentId: values.agent });
     console.log(JSON.stringify({ ok: true, ...ack.result }));
   }
 } catch (error) {

@@ -46,11 +46,10 @@ Visibility is independent of enabled: a disabled but visible character can remai
 Team slim-arm settings are authoritative when supplied; local PNG/display preferences remain
 local and are not deleted or migrated here.
 
-**A2 scope:** CRUD is available through the bridge API/tool, not a new team-management screen.
-New agents have connectionRef=null and disabled execution controls. The dynamic observer does
-not start the old singleton Codex/Claude transports or execute queued work. Per-agent adapters,
-role execution, memory consumers, personality editors and management UI belong to subsequent
-stages. The legacy workflow remains available only to existing profiles pending A4.
+CRUD is available through the bridge API/tool, not a new team-management screen. New agents
+have connectionRef=null until explicitly connected. A3 adds per-agent adapters below. Role
+queue execution, personality editors and management UI remain subsequent stages. The legacy
+workflow remains available only to existing profiles pending A4.
 
 **Protocol 2:** update the mod, bridge and tools together. Version 1 peers are incompatible and
 receive an actionable mismatch error. `agent.remove` removes an archived NPC from the live
@@ -62,6 +61,90 @@ the first roster member. Peer scenes supply `peerAgentId`; the speech event addr
 validated peer. Missing/self peer targets do not emit speech. Do not restart an installed v1 bridge
 against these sources before updating its mod. Development reports to a still-running v1
 bridge must use its matching v1 tools; newer tools deliberately reject it.
+
+## Per-agent connections (A3 / t39)
+
+Each `team.json` agent can bind one `codex-desktop` or `claude-code` connection. Provider and
+role are independent: assigning a developer role does not grant Claude code-writing tools.
+The current Claude workspace adapter retains its existing constrained review/planning MCP
+tool set. Codex CLI transport and an automatic role-based queue are not implemented here.
+
+`AgentConnections` writes immutable `connections/<agent-id>-<random-id>.json` records, then
+atomically activates the reference through a revision-checked team write. Old files are kept.
+The record includes `version:1`, `agentId`, `provider`, `transport`, plus provider-specific
+fields. It is local configuration and is never returned in game snapshots. Duplicate Codex
+thread IDs or Claude session IDs/workspace realpaths are rejected, including archived bindings.
+Unbind deliberately releases the reservation while preserving files and history. External
+team/connection edits cause errors; there is no silent fallback to another conversation.
+
+Connection API through `studio.action` / `studio.mjs`:
+
+| Action | Payload |
+| --- | --- |
+| `connection.bind` | `id`, current team `revision`, `connection` as below; version/agentId are assigned by the bridge |
+| `connection.unbind` | `id`, `revision`; active or unconfirmed work blocks detachment |
+| `connection.importCodex` | `id`, `revision`; imports the old global/AGENTCRAFT_CHAT_CONFIG binding into exactly this agent |
+| `connection.get` | `id`; returns provider, phase, notice and recent public history, without pipe/workspace paths |
+| `connection.send` | `id`, `text`, optional `purpose: message|task`; explicit user request, not queue approval |
+| `connection.control` | `id`, `control: pause|resume|stop` |
+
+Codex connection fields: `provider:codex`, `transport:codex-desktop`, `threadId` (UUID),
+`hostId:local`, `title`, `pipePath`. In the selected authorized desktop chat run
+`node --import ./foreman/node_modules/tsx/dist/loader.mjs tools/connect-codex-chat.ts --agent <id> --port <port>`.
+The connector verifies the desktop thread and sends the binding to the running profile.
+The no-argument connector remains the legacy global-file path; do not use it for a new team.
+After an app restart, the same thread's pipe can be refreshed while unavailable, provided no
+local command is in flight. An unknown/busy agent cannot be rebound to a different thread.
+
+Explicit legacy import keeps the original file, creates a profile-local backup, and copies a
+matching old `codex-chat-state.json` cursor if this agent does not already have one. Repeating
+the import does not duplicate agents or overwrite a newer cursor. This is binding migration
+only: it does not convert an old profile into a team; full profile migration remains A4.
+
+Claude fields: `provider:claude`, `transport:claude-code`, absolute `workspace`, `sessionId`
+(UUID), optional absolute `executable`. Select a separately configured workspace containing
+`CLAUDE.md`, `PROJECTS.md`, `MEMORY.md`, `access.json` and `conversation.json`. Its native
+Claude session must exist with that workspace as cwd. The bridge validates native history
+before enabling message controls; binding alone is not evidence of a valid login/session.
+Keep an existing workspace in place rather than copying a session to a different cwd.
+The setup wizard that provisions a new workspace/session is a later stage.
+
+Each workspace owns its `conversation-lock.json`; game, terminal and Code use the same
+exclusive lease. A terminal/Code owner blocks only its agent. The bridge never terminates
+another owner's process or automatically removes abandoned locks. Continue a selected agent:
+`tools/open-klava.ps1 -ProfileDir <profile-dir> -Agent <id>`; add `-Desktop` to hand off to Code,
+or `-Return` after closing its Code session. The legacy `-Workspace` parameter is preserved.
+The portable equivalent is `Open-Agent.ps1 -Agent <id>` (optional `-ProfileDir`).
+
+Runtime state and reading cursors are under `agents/<id>/`; recent history is separated again
+by provider/session in `agents/<id>/history/`. History retains up to 200 public messages:
+Codex messages observed by the bridge plus game submissions; Claude native public conversation
+text. Full native conversations remain with their provider. Tool outputs and reasoning are
+not imported. Initial attachment populates Claude history without flooding the feed with old
+answers. Restart never automatically retries a pending Claude request; explicit resume uses
+the existing session and avoids replaying an already-submitted prompt.
+
+Messages, task-purpose sends, answers, feed/log entries, rest timers and controls use the
+selected agent's immutable ID. `observer.update` requires `agentId` for dynamic teams, and
+task keys are namespaced by it (`codex-progress.mjs --agent <id>`). Ambiguous names and `all`
+are not accepted as a recipient. Status changes do not claim a real stop: Codex confirms the
+specific thread is no longer running; Claude confirms its own child process has exited and
+prevents a delayed spawn after cancellation. Failed confirmation remains unavailable and
+blocks reassignment; retry Stop. Disposing the bridge's Codex watcher does not stop that chat.
+
+`agents/observer.ts` and `studio.ts` route dynamic teams. Pre-team behavior is isolated in
+`agents/legacy-observer.ts` and `legacy-studio.ts`; existing local profiles keep that path until
+explicit migration. This stage does not install/restart the user's live bridge or mod.
+
+Validation: 714 tests passed in the full bridge suite; after the final stale-poll guard,
+43 focused adapter/connection tests passed, including one additional regression. TypeScript,
+protocol documentation verification, two CLI transport tests and PowerShell launcher parsing
+passed. The neutral portable package passed its privacy audit and isolated integration test:
+four agents, duplicate-binding rejection, two independent native Claude SDK transcript fixtures,
+history after restart, and the legacy queue/MCP workflow. No real model messages were sent.
+Live simultaneous conversations with two signed-in Codex and two Claude instances, and manual
+terminal/Code handoff for the new agent selector, remain unverified. Java sources were unchanged;
+the package uses the existing tested protocol-2 mod artifact.
 
 ## Legacy observer workflow
 

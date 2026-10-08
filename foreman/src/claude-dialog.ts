@@ -8,6 +8,7 @@ import { acquireConversation, conversation, conversationLease, conversationMessa
 export interface DialogRequest { text: string; context: string; retry: boolean; style?: string; }
 
 export interface DialogRunner {
+  isRunning?(): boolean;
   run(prompt: string, signal: AbortSignal, request?: DialogRequest): Promise<string>;
   stop(): Promise<void>;
   shared?(): string | undefined;
@@ -19,6 +20,7 @@ export interface DialogRunner {
 export class ClaudeDialog implements DialogRunner {
   private child?: ChildProcess;
   private exited?: Promise<void>;
+  isRunning() { return !!this.child; }
   constructor(private executable: () => string | undefined, private workspace: () => ClaudeWorkspace | undefined = () => undefined) {}
   shared() { const w = this.workspace(); return w ? conversation(w.directory)?.sessionId : undefined; }
   externalStatus() {

@@ -949,6 +949,7 @@ Publish a real external Codex task status. Only accepted by the observer backend
 | field | type | required | notes |
 | --- | --- | --- | --- |
 | `id` | string | no | client correlation id; the Foreman answers with `ack` {re: id} |
+| `agentId` | string | no |  |
 | `key` | string | yes |  |
 | `title` | string | yes |  |
 | `state` | `thinking` \| `reading` \| `editing` \| `running` \| `testing` \| `waiting_user` \| `blocked` \| `review` \| `done` \| `error` | yes |  |
