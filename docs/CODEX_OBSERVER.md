@@ -3,10 +3,14 @@
 ## Team model (A2 / t38)
 
 New observer profiles start with an empty `<profile>/team.json` (schema 1), without
-loading the six demo characters. An existing profile with saved agents and no team file
+loading the six demo characters. An existing profile with a state file and no team file
 continues using the legacy two-agent workflow below. This is a compatibility path, not
 a migration: A4 will transfer that profile explicitly. Do not create a team file over a
 personal profile to simulate migration. Sim and Claude SDK backends retain their demo cast.
+The bridge checks for a state file before loading it: an empty or damaged legacy state does
+not create a team file. A quarantined `state.json.corrupt-*` also marks an existing profile
+after an interrupted recovery. The original damaged contents remain in that backup; the
+existing Store recovery behavior is unchanged.
 
 The team registry implements the data model in [TEAM_MODEL.md](TEAM_MODEL.md).
 Provider (`codex`/`claude`), unique role set (`planner`/`developer`/`reviewer`), name,
@@ -51,7 +55,11 @@ stages. The legacy workflow remains available only to existing profiles pending 
 **Protocol 2:** update the mod, bridge and tools together. Version 1 peers are incompatible and
 receive an actionable mismatch error. `agent.remove` removes an archived NPC from the live
 roster; restore emits `agent.upsert`. Snapshots omit archives, retain task identities, and use
-arbitrary reply IDs. Peer scenes supply `peerAgentId`. Do not restart an installed v1 bridge
+arbitrary reply IDs. Removing an agent publishes a client removal notification and increments
+the state revision so open screens, task-board caches and monitors refresh. A snapshot without
+a reply ID or a user-directed reply in its feed leaves the recipient unset, rather than choosing
+the first roster member. Peer scenes supply `peerAgentId`; the speech event addresses that
+validated peer. Missing/self peer targets do not emit speech. Do not restart an installed v1 bridge
 against these sources before updating its mod. Development reports to a still-running v1
 bridge must use its matching v1 tools; newer tools deliberately reject it.
 

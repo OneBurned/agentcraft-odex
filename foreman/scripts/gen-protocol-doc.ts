@@ -70,8 +70,13 @@ function render(s: AnySchema): string {
   const d = def(s);
   switch (d.type) {
     case 'string': {
-      const regex = (d.checks ?? []).some((c) => (c as { _zod?: { def?: { format?: string } } })._zod?.def?.format === 'regex');
-      return regex ? 'string (#RRGGBB)' : 'string';
+      const patterns = (d.checks ?? []).flatMap(c => {
+        const check = (c as { _zod?: { def?: { format?: string; pattern?: RegExp } } })._zod?.def;
+        return check?.format === 'regex' && check.pattern ? [check.pattern.source] : [];
+      });
+      if (patterns.includes('^#[0-9A-Fa-f]{6}$')) return 'string (#RRGGBB)';
+      if (patterns.includes('^[a-z0-9_-]{1,64}$')) return 'agent id ([a-z0-9_-]{1,64})';
+      return patterns.length ? 'string (pattern: ' + patterns.map(p => JSON.stringify(p).replaceAll('|', '\\|')).join(', ') + ')' : 'string';
     }
     case 'number': {
       const isInt = (d.checks ?? []).some((c) => {

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { TeamRegistry } from '../src/team.js';
 import { Foreman } from '../src/foreman.js';
@@ -20,6 +20,37 @@ function fresh() {
   const f = new Foreman({ config: testConfig(dir(), ['--backend', 'observer']), logger: silentLogger });
   cores.push(f); return f;
 }
+
+it.each(['{broken', '{"version":99}', '{"version":1,"agents":[]}'])('never converts an existing empty or damaged state into a team profile: %s', async contents => {
+  const config = testConfig(dir(), ['--backend', 'observer']);
+  fs.mkdirSync(config.dataDir, { recursive: true });
+  fs.writeFileSync(path.join(config.dataDir, 'state.json'), contents);
+  const warning = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    const fm = new Foreman({ config, logger: silentLogger }); cores.push(fm);
+    expect(fm.team).toBeUndefined();
+    expect(fs.existsSync(path.join(config.dataDir, 'team.json'))).toBe(false);
+    if (contents !== '{"version":1,"agents":[]}') {
+      const backup = fs.readdirSync(config.dataDir).find(name => name.startsWith('state.json.corrupt-'))!;
+      expect(fs.readFileSync(path.join(config.dataDir, backup), 'utf8')).toBe(contents);
+    }
+    await fm.close();
+    const restarted = new Foreman({ config, logger: silentLogger }); cores.push(restarted);
+    expect(restarted.team).toBeUndefined();
+    expect(fs.existsSync(path.join(config.dataDir, 'team.json'))).toBe(false);
+  } finally { warning.mockRestore(); }
+});
+
+it('retains the legacy model if a previous interrupted recovery left only a quarantined state', () => {
+  const config = testConfig(dir(), ['--backend', 'observer']);
+  fs.mkdirSync(config.dataDir, { recursive: true });
+  const backup = path.join(config.dataDir, 'state.json.corrupt-fixture');
+  fs.writeFileSync(backup, '{broken');
+  const fm = new Foreman({ config, logger: silentLogger }); cores.push(fm);
+  expect(fm.team).toBeUndefined();
+  expect(fs.readFileSync(backup, 'utf8')).toBe('{broken');
+  expect(fs.existsSync(path.join(config.dataDir, 'team.json'))).toBe(false);
+});
 
 it('fresh observer starts empty, uses arbitrary provider/roles, and survives restart without demo NPCs', async () => {
   const f = fresh(); await f.start(new ObserverBackend(f));

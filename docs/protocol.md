@@ -84,8 +84,8 @@ Exact option labels: merge decisions use `Merge`, `Request changes`, `Reject`; p
 
 | field | type | required | notes |
 | --- | --- | --- | --- |
-| `assigneeIdentity` | { id: string (#RRGGBB), name: string, provider: `codex` \| `claude` } | no | Identity at assignment; retained after rename, provider change or archive. |
-| `creatorIdentity` | { id: string (#RRGGBB), name: string, provider: `codex` \| `claude` } | no |  |
+| `assigneeIdentity` | { id: agent id ([a-z0-9_-]{1,64}), name: string, provider: `codex` \| `claude` } | no | Identity at assignment; retained after rename, provider change or archive. |
+| `creatorIdentity` | { id: agent id ([a-z0-9_-]{1,64}), name: string, provider: `codex` \| `claude` } | no |  |
 | `id` | string | yes | e.g. "t3" |
 | `observerKey` | string | no | Stable external task key for the Codex observer; survives restarts. |
 | `queueStage` | `plan` \| `queued` \| `coding` \| `review` \| `question` \| `done` \| `cancelled` | no |  |
@@ -258,7 +258,7 @@ Full state. Sent in reply to every `hello`; the mod rebuilds its view from it.
 | field | type | required | notes |
 | --- | --- | --- | --- |
 | `id` | string | no | client correlation id; the Foreman answers with `ack` {re: id} |
-| `replyAgentId` | string (#RRGGBB) | no | Last observer agent to address the user; persisted across restarts; omitted when no current recipient exists |
+| `replyAgentId` | agent id ([a-z0-9_-]{1,64}) | no | Last observer agent to address the user; persisted across restarts; omitted when no current recipient exists |
 | `foreman` | [ForemanStatus](#foremanstatus) | yes |  |
 | `agents` | [Agent](#agent)[] | yes |  |
 | `tasks` | [Task](#task)[] | yes |  |
@@ -427,7 +427,7 @@ Remove this agent from the live roster and world. Preserve task and message hist
 | field | type | required | notes |
 | --- | --- | --- | --- |
 | `id` | string | no | client correlation id; the Foreman answers with `ack` {re: id} |
-| `agentId` | string (#RRGGBB) | yes |  |
+| `agentId` | agent id ([a-z0-9_-]{1,64}) | yes |  |
 
 ```json
 {
@@ -909,8 +909,8 @@ Local observer NPC entered a rest/dance/nearby-colleague scene. Presentation onl
 | field | type | required | notes |
 | --- | --- | --- | --- |
 | `id` | string | no | client correlation id; the Foreman answers with `ack` {re: id} |
-| `agentId` | string (#RRGGBB) | yes |  |
-| `peerAgentId` | string (#RRGGBB) | no |  |
+| `agentId` | agent id ([a-z0-9_-]{1,64}) | yes |  |
+| `peerAgentId` | agent id ([a-z0-9_-]{1,64}) | no |  |
 | `event` | `rest` \| `dance` \| `peer` | yes |  |
 
 ```json

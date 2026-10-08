@@ -9,8 +9,18 @@ import {
   ServerMessage,
 } from '../src/protocol.js';
 import { CLIENT_EXAMPLES, SERVER_EXAMPLES } from '../src/protocol-examples.js';
+import fs from 'node:fs';
 
 describe('protocol v2', () => {
+  it('documents agent identifiers separately from hexadecimal colours', () => {
+    const doc = fs.readFileSync(new URL('../../docs/protocol.md', import.meta.url), 'utf8');
+    for (const field of ['replyAgentId', 'agentId', 'peerAgentId', 'assigneeIdentity', 'creatorIdentity']) {
+      const rows = doc.split('\n').filter(line => line.startsWith(`| \`${field}\` |`));
+      expect(rows.some(line => line.includes('agent id ([a-z0-9_-]{1,64})'))).toBe(true);
+      expect(rows.some(line => line.includes('#RRGGBB'))).toBe(false);
+    }
+    expect(doc).toContain('| `color` | string (#RRGGBB) |');
+  });
   it('has an example for every message type', () => {
     expect(Object.keys(SERVER_EXAMPLES).sort()).toEqual(Object.keys(SERVER_MESSAGES).sort());
     expect(Object.keys(CLIENT_EXAMPLES).sort()).toEqual(Object.keys(CLIENT_MESSAGES).sort());

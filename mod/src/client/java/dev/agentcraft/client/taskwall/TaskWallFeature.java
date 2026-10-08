@@ -72,6 +72,9 @@ public final class TaskWallFeature {
 			}
 
 			@Override
+			public void onAgentRemoved(Agent previous) { agentSeq++; }
+
+			@Override
 			public void onAgent(@Nullable Agent previous, Agent agent) {
 				// names and live state dots on the cards
 				if (previous == null || previous.state() != agent.state() || previous.isActive() != agent.isActive() || !previous.name().equals(agent.name())

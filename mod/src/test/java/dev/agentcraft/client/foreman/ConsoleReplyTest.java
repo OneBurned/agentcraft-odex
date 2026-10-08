@@ -20,7 +20,7 @@ public class ConsoleReplyTest {
     }
     @Test public void latestUserDirectedAnswerOrQuestionWinsEvenAtSameTimestamp() {
         ForemanState s = state();
-        assertEquals("marlow", message(s, "Привет").to());
+        assertEquals("", message(s, "Привет").to());
         feed(s, "message", "wren", "user");
         assertEquals("wren", message(s, "Привет").to());
         assertEquals("ответ: Клава", ConsoleCommands.describe(message(s, "Привет"), s));

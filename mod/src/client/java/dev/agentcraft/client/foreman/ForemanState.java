@@ -384,9 +384,10 @@ public final class ForemanState {
             case "agent.remove" -> {
                 AgentRemove m = ForemanJson.read(json, AgentRemove.class);
                 if (m.agentId() != null) {
-                    agents.remove(m.agentId());
+                    Agent previous = agents.remove(m.agentId());
                     lastSay.remove(m.agentId());
                     if (m.agentId().equals(replyAgentId)) replyAgentId = "";
+                    if (previous != null) fire(l -> l.onAgentRemoved(previous));
                 }
             }
 			case "agent.upsert" -> {
@@ -528,7 +529,6 @@ public final class ForemanState {
 				bounded(feed, f, FEED_TAIL);
 			}
 		}
-		if (replyAgentId.isBlank() && !agents.isEmpty()) replyAgentId = agents.keySet().iterator().next();
 		if (s.replyAgentId() != null && s.replyAgentId().matches("[a-z0-9_-]{1,64}")) replyAgentId = s.replyAgentId();
 		for (AgentLogs l : s.logs()) {
 			if (l != null && l.agentId() != null) {

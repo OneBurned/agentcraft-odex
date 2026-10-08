@@ -123,12 +123,31 @@ it('selects only the actual event, rate-limits per stable ID and never repeats a
   h.advance(); // suppressed events are never queued and replayed later
   expect(h.emitted).toHaveLength(4);
 });
-it('selects all event pools and directs peer cues to the other role without feeding a conversation', () => {
+it('selects all event pools and directs peer cues to the supplied nearby agent without feeding a conversation', () => {
   const h = setup();
-  for (const event of PERSONA_EVENTS) { h.speech.say('wren', event); h.advance(); }
+  for (const event of PERSONA_EVENTS) { h.speech.say('wren', event, 'kit'); h.advance(); }
   expect(h.emitted.map(m => m.type === 'agent.say' && m.text)).toEqual(PERSONA_EVENTS.map(event => `${event}: first`));
-  expect(h.emitted.at(-1)).toMatchObject({ type: 'agent.say', agentId: 'wren', to: 'marlow' });
+  expect(h.emitted.at(-1)).toMatchObject({ type: 'agent.say', agentId: 'wren', to: 'kit' });
   expect(h.emitted.every(m => m.type === 'agent.say')).toBe(true);
+});
+it('does not invent a peer recipient or consume the cooldown when the recipient is missing', () => {
+  const h = setup();
+  expect(h.speech.say('wren', 'peer')).toBe(false);
+  expect(h.speech.say('wren', 'peer', 'wren')).toBe(false);
+  expect(h.emitted).toEqual([]);
+  expect(h.speech.say('wren', 'peer', 'agent_new')).toBe(true);
+  expect(h.emitted.at(-1)).toMatchObject({ type: 'agent.say', agentId: 'wren', to: 'agent_new' });
+});
+
+it('routes a validated peer scene to the actual nearby agent without changing execution', async () => {
+  const h = makeForeman(tempDir('ac-persona-peer-'), ['--backend', 'observer']);
+  cleanup.push(async () => { await h.fm.close(); rmrf(h.home); });
+  h.fm.setAgent('wren', { active: true, paused: false, state: 'idle', station: 'lounge' });
+  h.fm.setAgent('kit', { active: true, paused: false, state: 'idle', station: 'lounge' });
+  const before = JSON.stringify(h.fm.store.data);
+  await h.fm.handle({ v: 2, type: 'agent.scene', agentId: 'wren', peerAgentId: 'kit', event: 'peer' }, () => {});
+  expect(h.events).toContainEqual(expect.objectContaining({ type: 'agent.say', agentId: 'wren', to: 'kit' }));
+  expect(JSON.stringify(h.fm.store.data)).toBe(before);
 });
 it('hot-reloads edits, falls back on a malformed file and recovers without repeating warnings', () => {
   const h = setup(); h.speech.say('marlow', 'error');

@@ -96,6 +96,9 @@ export class Foreman {
   constructor(opts: ForemanOptions) {
     this.config = opts.config;
     this.log = opts.logger ?? consoleLogger('foreman', { debug: opts.config.debug, quiet: opts.config.quiet });
+    // Capture provenance before Store can quarantine an unreadable state and return an empty model.
+    const stateExisted = fs.existsSync(path.join(opts.config.dataDir, 'state.json')) ||
+      (fs.existsSync(opts.config.dataDir) && fs.readdirSync(opts.config.dataDir).some(name => name.startsWith('state.json.corrupt-')));
     this.store = new Store(opts.config.dataDir);
     const now = opts.now ?? Date.now;
     this.ctx = { store: this.store, emit: (m) => this.emit(m), now, log: this.log };
@@ -107,7 +110,7 @@ export class Foreman {
     this.notifier =
       opts.notifier ??
       new Notifier({ enabled: opts.config.notify, silent: opts.config.toastSilent, log: this.log, now });
-    const dynamicTeam = opts.config.backend === 'observer' && (fs.existsSync(path.join(opts.config.dataDir, 'team.json')) || !this.store.data.agents.length);
+    const dynamicTeam = opts.config.backend === 'observer' && (fs.existsSync(path.join(opts.config.dataDir, 'team.json')) || !stateExisted);
     const { cast, source } = dynamicTeam ? { cast: [], source: 'team.json' } : loadCast(opts.config.projectRoot);
     this.cast = cast;
     this.log.debug(`cast from ${source}`);
@@ -567,7 +570,7 @@ export class Foreman {
       };
       if (!resting(msg.agentId) || (msg.event === 'peer' && (!msg.peerAgentId || msg.peerAgentId === msg.agentId || !resting(msg.peerAgentId))))
         return { spoken: false };
-      return { spoken: this.personas.say(msg.agentId, msg.event) };
+      return { spoken: msg.event === 'peer' ? this.personas.say(msg.agentId, msg.event, msg.peerAgentId) : this.personas.say(msg.agentId, msg.event) };
     }
     if (msg.type === 'studio.action') {
       if (!this.backend?.onStudioAction) throw new ClientError('Пульт доступен в режиме Codex.');

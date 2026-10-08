@@ -70,6 +70,12 @@ public final class MonitorFeature {
 			}
 
 			@Override
+			public void onAgentRemoved(Agent previous) {
+				AGENT_SEQ.merge(previous.id(), 1L, Long::sum);
+				AGENT_SEQ.merge("feed", 1L, Long::sum);
+			}
+
+			@Override
 			public void onAgent(@Nullable Agent previous, Agent agent) {
 				AGENT_SEQ.merge(agent.id(), 1L, Long::sum);
 				AGENT_SEQ.merge("feed", 1L, Long::sum);

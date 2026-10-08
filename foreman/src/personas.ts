@@ -114,8 +114,9 @@ export class PersonaSpeech {
     return this.edit(agentId);
   }
 
-  say(agentId: string, event: PersonaEvent): boolean {
+  say(agentId: string, event: PersonaEvent, peerAgentId?: string): boolean {
     if (agentId !== 'marlow' && agentId !== 'wren') return false;
+    if (event === 'peer' && (!peerAgentId || peerAgentId === agentId)) return false;
     this.reload();
     const now = this.options.now(), last = this.last.get(agentId);
     if (last && now - last.at < this.config.minIntervalSeconds * 1000) return false;
@@ -124,7 +125,7 @@ export class PersonaSpeech {
     const index = Number.isFinite(sample) ? Math.max(0, Math.min(choices.length - 1, Math.floor(sample * choices.length))) : 0;
     const text = choices[index]!;
     this.last.set(agentId, { at: now, text });
-    this.options.emit({ type: 'agent.say', agentId, text, ts: now, to: event === 'peer' ? agentId === 'marlow' ? 'wren' : 'marlow' : 'user' });
+    this.options.emit({ type: 'agent.say', agentId, text, ts: now, to: event === 'peer' ? peerAgentId! : 'user' });
     return true;
   }
 }
