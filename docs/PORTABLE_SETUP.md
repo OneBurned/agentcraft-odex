@@ -81,3 +81,7 @@ validation, staged failure, local-only project access and no Git mutation.
 The packaged setup is also loaded from its bundled entry point, alongside the
 portable studio/migration checks. These tests do not claim an interactive manual
 wizard run, live Minecraft UI verification or model/account authorization tests.
+
+The scenario matrix, clean installed-bridge trial and remaining acceptance work
+are recorded in [PORTABLE_TRIAL.md](PORTABLE_TRIAL.md). Passing automated setup
+checks alone is not a public-release acceptance decision.

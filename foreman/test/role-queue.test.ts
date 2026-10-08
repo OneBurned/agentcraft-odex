@@ -83,6 +83,22 @@ it('selects first free enabled agents in roster order and never chooses the deve
 it('rejects self-review before task creation', async () => {
   const x = await fixture(); await expect(x.create({ reviewerId: x.ids[0] })).rejects.toThrow('разными'); expect(x.q.data.items).toHaveLength(0);
 });
+it.each([[0, 1], [1, 2]])('portable trial: developer %i and reviewer %i finish across provider boundaries', async (dev, review) => {
+  const x = await fixture(), developerId = x.ids[dev]!, reviewerId = x.ids[review]!;
+  expect(x.fm.team!.get(developerId)!.provider).not.toBe(x.fm.team!.get(reviewerId)!.provider);
+  const i = await x.create({ developerId, reviewerId }); await x.action('start');
+  expect(x.calls[0]?.id).toBe(developerId); await x.done(i);
+  expect(i.stage).toBe('review'); expect(x.calls[1]?.id).toBe(reviewerId);
+  await x.action('review.report', { id: i.id, run: i.attempt!.run, agentId: reviewerId, head: i.head, verdict: 'pass', summary: 'Checked provider matrix' });
+  expect(i.stage).toBe('done'); expect(x.fm.tasks.require(i.id).status).toBe('done');
+});
+it('portable trial: a planner/reviewer may review another developer but cannot review itself', async () => {
+  const x = await fixture(), id = x.ids[2]!;
+  x.fm.teamAction('team.update', { id, revision: x.fm.team!.snapshot().revision, patch: { roles: ['planner', 'developer', 'reviewer'] } });
+  await expect(x.create({ developerId: id, reviewerId: id })).rejects.toThrow('разными');
+  const i = await x.create({ reviewerId: id }); await x.action('start'); await x.done(i);
+  expect(i.attempt?.agentId).toBe(id); expect(x.fm.team!.get(id)!.roles).toContain('planner');
+});
 it('waits with a board reason when automatic assignment is off or a reviewer is unavailable', async () => {
   const x = await fixture(), i = await x.create({ developerId: null }); await x.action('start');
   expect(i.reason).toContain('Назначь'); expect(x.calls).toHaveLength(0);

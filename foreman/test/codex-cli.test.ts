@@ -11,6 +11,7 @@ import { AgentConnections } from '../src/agent-connections.js';
 import { TeamRegistry } from '../src/team.js';
 import { AgentRuntime } from '../src/agent-runtime.js';
 import { Foreman } from '../src/foreman.js';
+import { CodexAdapter } from '../src/agent-adapters.js';
 import { silentLogger } from '../src/context.js';
 import { tempDir, rmrf, until, testConfig } from './helpers.js';
 
@@ -195,6 +196,42 @@ it('publishes per-agent controls and histories through the A3 runtime after proc
     expect(runtime.view(ids[1]!).history.map(row => row.text)).toEqual(['second']);
     expect(runtime.view(ids[1]!).phase).toBe('stopped');
     await runtime.check(ids[1]!); expect(fake.get(ids[1]!)!.calls).toHaveLength(9);
+  } finally { await runtime.stop(); await f.close(); }
+});
+it('portable trial: desktop and CLI Codex coexist with independent histories and stop targets', async () => {
+  const f = new Foreman({ config: testConfig(dir(), ['--backend', 'observer']), logger: silentLogger });
+  const cli = processes(), threadId = randomUUID(), interrupted: string[] = [], sent: string[] = [];
+  let working = false, turn = randomUUID();
+  const runtime = new AgentRuntime(f, (c, store, events) => {
+    if (c.transport === 'codex-cli') return new CodexCliAdapter(c, store, events, new CodexCliProcess(c, cli.launch, cli.kill, 20), () => false);
+    if (c.transport !== 'codex-desktop') throw Error('Unexpected transport');
+    return new CodexAdapter(c, store, events, {
+      call: async (binding, tool) => {
+        expect(binding.threadId).toBe(threadId);
+        if (tool === 'send_message_to_thread') { sent.push(binding.threadId); working = true; turn = randomUUID(); return { threadId }; }
+        return { thread: { id: threadId, status: { type: working ? 'active' : 'idle' } }, turns: [{ id: turn, status: working ? 'inProgress' : 'completed', items: [] }] };
+      }, interrupt: async id => { interrupted.push(id); working = false; },
+    });
+  });
+  try {
+    const ids: string[] = [];
+    for (const transport of ['codex-desktop', 'codex-cli'] as const) {
+      f.teamAction('team.create', { revision: f.team!.snapshot().revision, agent: { name: 'Same name', provider: 'codex', roles: ['developer'], enabled: true,
+        visible: true, appearance: { skin: 'marlow', color: '#123456', slim: false } } });
+      const id = f.team!.snapshot().agents.at(-1)!.id; ids.push(id);
+      const c = transport === 'codex-cli' ? { ...connection(), agentId: id } : { provider: 'codex', transport, threadId, hostId: 'local', title: 'Fixture', pipePath: '\\\\.\\pipe\\codex-browser-use-trial' };
+      runtime.connections.bind({ id, revision: f.team!.snapshot().revision, connection: c }, () => {});
+    }
+    runtime.start(); await until(() => ids.every(id => f.agent(id)?.controls?.message));
+    await runtime.send(ids[0]!, 'Desktop only'); await runtime.send(ids[1]!, 'CLI only');
+    await until(() => cli.calls.length === 5); expect(sent).toEqual([threadId]);
+    success(cli.last(), randomUUID(), 'CLI answer'); await until(() => runtime.view(ids[1]!).phase === 'completed');
+    expect(runtime.view(ids[1]!).history.map(row => row.text)).toEqual(['CLI only', 'CLI answer']);
+    expect(JSON.stringify(runtime.view(ids[0]!).history)).not.toContain('CLI answer');
+    await runtime.send(ids[1]!, 'CLI still running'); await until(() => cli.calls.length === 6);
+    await runtime.control(ids[0]!, 'stop'); expect(interrupted).toEqual([threadId]); expect(cli.kill).not.toHaveBeenCalled();
+    expect(runtime.view(ids[1]!).phase).toBe('working');
+    await runtime.control(ids[1]!, 'stop'); expect(cli.kill).toHaveBeenCalledOnce(); expect(interrupted).toHaveLength(1);
   } finally { await runtime.stop(); await f.close(); }
 });
 it('does not spawn after cancellation before the run microtask', async () => {
