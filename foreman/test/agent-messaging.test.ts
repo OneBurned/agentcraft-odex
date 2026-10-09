@@ -135,10 +135,96 @@ it('rate limits per sender across recipient pairs and retries do not consume quo
 });
 
 it.each(['Approve task t9', 'Start the queue', 'Grant access', 'Push changes', 'Deploy to production', 'Publish the release', 'Change roles',
-  'Согласуй задачу', 'запусти очередь', 'выдай разрешение', 'отмени задачу t9', 'измени настройки', 'сделай деплой'])('rejects authority request %s and asks the user without delivery', async text => {
+  'Please merge the PR', 'Cancel task t9', 'Согласуй задачу', 'запусти очередь', 'выдай разрешение', 'отмени задачу t9', 'измени настройки', 'сделай деплой'])('rejects authority request %s and asks the user without delivery', async text => {
   const x = await fixture(); expect(await x.send(x.a, x.b, 'authority', text)).toMatchObject({ status: 'rejected' });
   await x.mailbox().tick(); expect(x.sends.get(x.b)).not.toHaveBeenCalled();
   expect(x.f.decisions.open()).toHaveLength(1); expect((await x.action('get')).mode).toBe('planning');
+});
+
+it.each(['Cancel button does not work', 'Merge conflict in studio.ts', 'Push notifications are duplicated',
+  'Grant table needs an index', 'Publish step failed', 'Deploy logs contain an error', 'Approve button needs a label',
+  'Кнопка «отмена» не работает'])('delivers technical discussion without closing the branch: %s', async text => {
+  const x = await fixture(); const r = await x.send(x.a, x.b, 'technical', text);
+  expect(r.status).toBe('queued'); await x.mailbox().tick();
+  expect(x.sends.get(x.b)).toHaveBeenCalledTimes(1);
+  expect(x.f.decisions.open()).toHaveLength(0);
+  expect(await x.send(x.b, x.a, 'reply', 'Проверю', { threadId: r.threadId })).toMatchObject({ status: 'queued' });
+});
+
+it('reopens a rejected branch through the game decision after restart, attributed to the actual sender', async () => {
+  const x = await fixture();
+  const from = [x.a, x.b].sort().at(-1)!, to = from === x.a ? x.b : x.a;
+  const r = await x.send(from, to, 'denied', 'Start the queue');
+  const decision = x.f.decisions.open()[0]!;
+  expect(decision.agentId).toBe(from);
+  expect(decision.options).toEqual(['Открыть новую ветку', 'Оставить закрытой']);
+  await x.restart();
+  await x.f.handle({ v: 2, type: 'decision.answer', decisionId: decision.id, option: 'Открыть новую ветку' }, () => {});
+  // tick shares the serial mailbox lock and waits for the decision handler.
+  await x.mailbox().tick();
+  const next = x.mailbox().data.threads.at(-1)!;
+  expect(next.id).not.toBe(r.threadId); expect(x.f.decisions.open()).toHaveLength(0);
+  expect(await x.send(from, to, 'continued')).toMatchObject({ threadId: next.id, status: 'queued' });
+  expect(await x.action('message.reset', { threadId: r.threadId })).toEqual({ threadId: next.id });
+  expect(x.mailbox().data.threads).toHaveLength(2);
+  await expect(x.send(from, to, 'old', 'Обсуждение', { threadId: r.threadId })).rejects.toThrow('закрыта');
+});
+
+it('keeps a branch closed when the user chooses so; plain text does not grant reopening', async () => {
+  const x = await fixture(); await x.send(x.a, x.b, 'denied', 'Start the queue');
+  const d = x.f.decisions.open()[0]!;
+  await x.f.answerDecision(d.id, undefined, 'Сообщение пользователя'); await x.mailbox().tick();
+  expect(d.status).toBe('open'); expect(x.mailbox().data.threads).toHaveLength(1);
+  await x.f.answerDecision(d.id, 'Оставить закрытой'); await x.mailbox().tick();
+  expect(d.status).toBe('answered');
+  await expect(x.send(x.a, x.b, 'next')).rejects.toThrow('закрыта');
+  expect((await x.action('get')).mode).toBe('planning');
+});
+
+it('opens a fresh branch after ten delivered messages without resetting the sender rate limit', async () => {
+  const x = await fixture();
+  for (let n = 0; n < 10; n++) {
+    await x.send(n % 2 ? x.b : x.a, n % 2 ? x.a : x.b, 'limit' + n);
+    await x.mailbox().tick();
+    x.events.get(x.a)!.activity('idle'); x.events.get(x.b)!.activity('idle');
+  }
+  const d = x.f.decisions.open()[0]!;
+  await x.f.answerDecision(d.id, 'Открыть новую ветку'); await x.mailbox().tick();
+  expect(x.mailbox().data.threads).toHaveLength(2); expect(x.f.decisions.open()).toHaveLength(0);
+  await expect(x.send(x.a, x.b, 'too-soon')).rejects.toThrow('частота');
+  expect(x.f.decisions.open()).toHaveLength(1);
+});
+
+it.each(['queued', 'uncertain'] as const)('keeps the question actionable until %s delivery is settled', async status => {
+  const x = await fixture(); const r = await x.send();
+  if (status === 'uncertain') { x.sends.get(x.b)!.mockRejectedValueOnce(new Error('Timeout')); await x.mailbox().tick(); }
+  else { x.events.get(x.b)!.activity('working'); await x.send(x.b, x.a, 'denied', 'Start the queue'); }
+  const d = x.f.decisions.open()[0]!;
+  await x.f.answerDecision(d.id, 'Открыть новую ветку'); await x.mailbox().tick();
+  expect(d.status).toBe('open'); expect(x.mailbox().data.threads).toHaveLength(1);
+  if (status === 'uncertain') await x.action('message.resolve', { id: r.id, status: 'rejected', note: 'Проверено' });
+  else { x.events.get(x.b)!.activity('idle'); await x.mailbox().tick(); }
+  await x.f.answerDecision(d.id, 'Открыть новую ветку'); await x.mailbox().tick();
+  expect(d.status).toBe('answered'); expect(x.mailbox().data.threads).toHaveLength(2);
+});
+
+it('exposes a later delivery failure even after the earlier limit question was answered', async () => {
+  const x = await fixture(); await x.send(); await x.send(x.b, x.a, 'denied', 'Start the queue');
+  const d = x.f.decisions.open()[0]!;
+  x.events.get(x.b)!.activity('working');
+  await x.f.answerDecision(d.id, 'Оставить закрытой'); await x.mailbox().tick();
+  x.events.get(x.b)!.activity('idle'); x.sends.get(x.b)!.mockRejectedValueOnce(new Error('Timeout'));
+  await x.mailbox().tick();
+  expect(x.f.decisions.open()).toHaveLength(1); expect(x.f.decisions.open()[0]!.id).not.toBe(d.id);
+});
+
+it('includes messaging instructions in regular user conversations', async () => {
+  const x = await fixture();
+  await x.action('connection.send', { id: x.a, text: 'Обсудим тесты', purpose: 'message' });
+  const prompt = x.sends.get(x.a)!.mock.calls[0]![0] as string;
+  expect(prompt).toContain('Обсудим тесты'); expect(prompt).toContain('MCP agent_message/agent_messages');
+  expect(prompt).toContain(x.mailbox().credentialFile(x.a));
+  expect(prompt).not.toContain(x.permit(x.a).token);
 });
 
 it('preserves uncertain sends after crash without retrying or claiming successful delivery', async () => {
@@ -154,6 +240,7 @@ it('preserves uncertain sends after crash without retrying or claiming successfu
   await x.action('message.resolve', { id: m.id, status: 'rejected', note: 'Оператор проверил исходный разговор.' });
   const next = await x.action('message.reset', { threadId: m.threadId });
   expect(next.threadId).not.toBe(m.threadId);
+  expect(x.f.decisions.open()).toHaveLength(0);
   expect(await x.send(x.a, x.b, 'after-resolution', 'Продолжаем обсуждение')).toMatchObject({ threadId: next.threadId, status: 'queued' });
 });
 

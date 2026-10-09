@@ -68,6 +68,9 @@ export class ObserverBackend extends LegacyObserverBackend {
     }
     try { return await this.teamStudio!.action(action, payload); } catch (e) { throw new ClientError((e as Error).message); }
   }
-  override onDecisionSettled(d: import('../protocol.js').Decision) { if (this.teamStudio) this.teamStudio.queue.onDecision(d); else super.onDecisionSettled(d); }
+  override onDecisionSettled(d: import('../protocol.js').Decision) {
+    if (this.teamStudio) { this.teamStudio.queue.onDecision(d); this.teamStudio.messaging.onDecision(d); }
+    else super.onDecisionSettled(d);
+  }
   override async stop() { if (this.teamStudio) { await this.teamStudio.stop(); await this.runtime?.stop(); } else await super.stop(); }
 }

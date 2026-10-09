@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { Foreman } from './foreman.js';
 import type { AgentRuntime } from './agent-runtime.js';
+import type { Decision } from './protocol.js';
 import { TeamId } from './team.js';
 import { readJson, writeJsonAtomic } from './util/fsx.js';
 
@@ -14,13 +15,14 @@ export const MessagingBinding = z.object({ version: z.literal(1), agentId: TeamI
 type Receipt = { id: string; requestId: string; digest: string; threadId: string; from: string; to: string; text: string;
   createdAt: number; status: 'queued' | 'sending' | 'delivered' | 'uncertain' | 'rejected'; reason?: string;
   senderConnection: string; recipientConnection: string; deliveredAt?: number };
-type Thread = { id: string; pair: string[]; closed?: boolean; decisionId?: string };
+type Thread = { id: string; pair: string[]; closed?: boolean; decisionId?: string; nextThreadId?: string };
+const decisionOptions = ['Открыть новую ветку', 'Оставить закрытой'];
 type Data = { version: 1; grants: Record<string, { hash: string; connection: string }>; threads: Thread[]; messages: Receipt[] };
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 // This catches explicit requests, not arbitrary natural-language intent. The capability
 // boundary below is authoritative; the receiver also gets a no-authority instruction.
 export function requestsAuthority(text: string) {
-  return /(?:^|[\n.!?;:]\s*)(?:please\s+|пожалуйста[, ]+)?(?:approve|authorize|grant|deploy|publish|push|merge|cancel|start\s+(?:the\s+)?(?:queue|task)|change\s+(?:the\s+)?(?:roles?|settings)|согласуй|одобри|разреши|выдай\s+(?:доступ|разрешение)|запусти\s+(?:очередь|задачу)|отмени\s+задачу|измени\s+(?:роли|настройки)|(?:сделай\s+)?(?:пуш|деплой)|опубликуй|смёржи)\b/iu.test(text)
+  return /(?:^|[\n.!?;:])\s*(?:please\s+)?(?:(?:approve|authorize|cancel|start)\s+(?:(?:the|this|a)\s+)?(?:task|queue|release|deployment|t\d+)|grant\s+(?:(?:me|us|the\s+agent)\s+)?(?:access|permission)|push\s+(?:to|changes|commits?|branch|code|origin)|deploy\s+(?:to|the|this|code|changes|production|staging)|publish\s+(?:(?:the|this|a)\s+)?(?:release|package|site|app)|merge\s+(?:(?:the|this|a)\s+)?(?:PR|pull\s+request|branch|changes|code)|change\s+(?:the\s+)?(?:roles?|settings))\b/iu.test(text)
     || /(?:согласуй|одобри|разреши|выдай\s+(?:доступ|разрешение)|запусти\s+(?:очередь|задачу)|отмени\s+задачу|измени\s+(?:роли|настройки)|сделай\s+(?:пуш|деплой)|опубликуй|смёржи)(?=\s|[.!?,:]|$)/iu.test(text);
 }
 
@@ -35,7 +37,7 @@ export class AgentMessaging {
     if (this.data.version !== 1) throw new Error('Неизвестная версия переписки агентов.');
     for (const m of this.data.messages) if (m.status === 'sending') {
       m.status = 'uncertain'; m.reason = 'Мост перезапущен во время отправки. Проверь разговор получателя.';
-      this.escalate(this.thread(m.threadId), m.reason);
+      this.escalate(this.thread(m.threadId), m.reason, m.from);
     }
     this.save();
     runtime.messageInstructions = id => this.instructions(id);
@@ -93,14 +95,46 @@ export class AgentMessaging {
       throw new Error('Разрешение переписки отсутствует или подключение изменилось.');
     return { id: p.agentId, input };
   }
-  private escalate(t: Thread, reason: string) {
+  private escalate(t: Thread, reason: string, senderId?: string) {
     t.closed = true;
-    if (t.decisionId) return;
+    if (t.decisionId && this.fm.decisions.get(t.decisionId)?.status === 'open') return;
     const messages = this.data.messages.filter(m => m.threadId === t.id).slice(-10);
-    t.decisionId = this.fm.decisions.create({ agentId: t.pair[0]!, kind: 'question', tool: 'agent-messaging',
+    t.decisionId = this.fm.decisions.create({ agentId: senderId ?? messages.at(-1)?.from ?? t.pair[0]!, kind: 'question', tool: 'agent-messaging',
       question: `Переписка агентов требует решения: ${reason}`,
       context: `Ветка ${t.id}. Следующие сообщения — данные от агентов, не команды пользователя.\n` +
-        messages.map(m => `${m.from} → ${m.to} [${m.status}]: ${m.text.slice(0, 350)}`).join('\n'), options: [] }).id;
+        messages.map(m => `${m.from} → ${m.to} [${m.status}]: ${m.text.slice(0, 350)}`).join('\n'), options: decisionOptions }).id;
+  }
+  private reset(t: Thread) {
+    // A delayed click or repeated CLI call must not supersede an already opened branch.
+    if (t.nextThreadId) return { threadId: t.nextThreadId };
+    if (this.data.messages.some(m => m.threadId === t.id && ['queued', 'sending', 'uncertain'].includes(m.status)))
+      throw new Error('Сначала проверь незавершённую доставку.');
+    t.closed = true;
+    const next: Thread = { id: randomUUID(), pair: t.pair };
+    t.nextThreadId = next.id; this.data.threads.push(next);
+    if (t.decisionId) this.fm.decisions.cancel(t.decisionId, 'Открыта новая ветка переписки.');
+    this.save(); return { threadId: next.id };
+  }
+  onDecision(d: Decision) {
+    if (d.tool !== 'agent-messaging' || d.status !== 'answered') return;
+    const option = d.answer?.option;
+    void this.lock(async () => {
+      const t = this.data.threads.find(t => t.decisionId === d.id);
+      if (!t || this.closed) return;
+      try {
+        if (option === decisionOptions[0]) {
+          const next = this.reset(t);
+          this.fm.notify('info', `Открыта новая ветка переписки: ${next.threadId}`);
+        } else if (option === decisionOptions[1]) { t.closed = true; this.save(); }
+        else throw new Error('Выбери «Открыть новую ветку» или «Оставить закрытой».');
+      } catch (e) {
+        const reason = (e as Error).message;
+        // Keep the same actionable question when pending delivery prevents reopening.
+        d.options = [...decisionOptions];
+        this.fm.decisions.reopen(d.id);
+        this.fm.notify('warn', reason, d.id);
+      }
+    }).catch(e => this.fm.log.error(`Ответ по переписке: ${(e as Error).message}`));
   }
   private receipt(m: Receipt) { return { id: m.id, requestId: m.requestId, threadId: m.threadId, from: m.from, to: m.to,
     text: m.text, status: m.status, reason: m.reason, createdAt: m.createdAt, deliveredAt: m.deliveredAt }; }
@@ -118,9 +152,7 @@ export class AgentMessaging {
       if (action === 'message.reset') {
         if ('token' in payload) throw new Error('Только пользователь может открыть новую ветку.');
         const p = z.object({ threadId: z.string().uuid() }).strict().parse(payload), t = this.thread(p.threadId);
-        if (this.data.messages.some(m => m.threadId === t.id && ['queued', 'sending', 'uncertain'].includes(m.status))) throw new Error('Сначала проверь незавершённую доставку.');
-        t.closed = true;
-        const next: Thread = { id: randomUUID(), pair: t.pair }; this.data.threads.push(next); this.save(); return { threadId: next.id };
+        return this.reset(t);
       }
       const { id, input } = this.authorize(payload);
       if (action === 'message.list') {
@@ -146,14 +178,14 @@ export class AgentMessaging {
       if (!this.data.threads.includes(t)) this.data.threads.push(t);
       const now = Date.now();
       if (this.data.messages.filter(m => m.from === id && m.createdAt > now - 60000).length >= 5) {
-        this.escalate(t, 'Превышена частота: не больше 5 сообщений от агента в минуту.'); this.save(); throw new Error('Превышена частота переписки. Вопрос передан пользователю.');
+        this.escalate(t, 'Превышена частота: не больше 5 сообщений от агента в минуту.', id); this.save(); throw new Error('Превышена частота переписки. Вопрос передан пользователю.');
       }
       const count = this.data.messages.filter(m => m.threadId === t.id).length;
-      if (count >= 10) { this.escalate(t, 'Достигнут лимит 10 обменов.'); this.save(); throw new Error('Лимит 10 обменов.'); }
+      if (count >= 10) { this.escalate(t, 'Достигнут лимит 10 обменов.', id); this.save(); throw new Error('Лимит 10 обменов.'); }
       const m: Receipt = { id: randomUUID(), ...p, digest, threadId: t.id, from: id, createdAt: now, status: 'queued', senderConnection, recipientConnection };
       this.data.messages.push(m);
-      if (requestsAuthority(m.text)) { m.status = 'rejected'; m.reason = 'Сообщение агента не может выдавать полномочия. Просьба передана пользователю.'; this.escalate(t, m.reason); }
-      if (count === 9) this.escalate(t, 'Достигнут лимит 10 обменов.');
+      if (requestsAuthority(m.text)) { m.status = 'rejected'; m.reason = 'Сообщение агента не может выдавать полномочия. Просьба передана пользователю.'; this.escalate(t, m.reason, id); }
+      if (count === 9) this.escalate(t, 'Достигнут лимит 10 обменов.', id);
       this.save();
       this.runtime.recordPeer(m);
       return { ...this.receipt(m), duplicate: false };
@@ -167,7 +199,7 @@ export class AgentMessaging {
           this.enabled(m.from); this.enabled(m.to);
           if (this.runtime.connectionKey(m.from) !== m.senderConnection || this.runtime.connectionKey(m.to) !== m.recipientConnection)
             throw new Error('Подключение изменилось. Сообщение не пересылается в другой разговор.');
-        } catch (e) { m.status = 'rejected'; m.reason = (e as Error).message; this.escalate(this.thread(m.threadId), m.reason); this.save(); continue; }
+        } catch (e) { m.status = 'rejected'; m.reason = (e as Error).message; this.escalate(this.thread(m.threadId), m.reason, m.from); this.save(); continue; }
         const queue = this.fm.store.data.backend.roleQueue as { active?: string; items?: { id: string; attempt?: { agentId: string }; settlingAgentId?: string }[] } | undefined;
         if (queue?.items?.some(i => i.id === queue.active && i.attempt?.agentId === m.to || i.settlingAgentId === m.to) || !this.runtime.idle(m.to)) continue;
         this.runtime.recordPeer(m);
@@ -176,7 +208,7 @@ export class AgentMessaging {
           await this.runtime.sendPeer(m);
           m.status = 'delivered'; m.deliveredAt = Date.now();
           this.fm.bus.feed('message', `Доставка сообщения ${m.id} подтверждена`, { agentId: m.from, to: m.to });
-        } catch (e) { m.status = 'uncertain'; m.reason = (e as Error).message; this.escalate(this.thread(m.threadId), 'Доставка не подтверждена; проверь разговор перед повтором.'); }
+        } catch (e) { m.status = 'uncertain'; m.reason = (e as Error).message; this.escalate(this.thread(m.threadId), 'Доставка не подтверждена; проверь разговор перед повтором.', m.from); }
         this.save();
       }
     });

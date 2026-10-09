@@ -211,7 +211,7 @@ export class AgentRuntime {
     const slot = this.slot(id);
     text = z.string().trim().min(1).max(12000).parse(text);
     slot.peerTurn = false;
-    if (purpose === 'task' && this.messageInstructions) text += '\n' + this.messageInstructions(id);
+    if (this.messageInstructions) text += '\n' + this.messageInstructions(id);
     let result;
     try { result = work && slot.adapter.execute ? await slot.adapter.execute(text, work) : await slot.adapter.send(text, purpose); }
     catch (e) {

@@ -103,7 +103,8 @@ it('edits any team persona without changing work or roster and isolates style to
   for (const id of x.ids.slice(2)) {
     await until(() => vi.mocked(x.runners.get(id)!.value.run).mock.calls.length > 0);
     const request = vi.mocked(x.runners.get(id)!.value.run).mock.calls[0]![2];
-    expect(request?.text).toBe('Hello'); expect(request?.style).toContain(`Style ${id}`);
+    expect(request?.text).toMatch(/^Hello\nПереписка с агентами:/);
+    expect(request?.text).not.toContain('Style '); expect(request?.style).toContain(`Style ${id}`);
     expect(request?.style).toContain('артефакты');
   }
   for (const id of [x.ids[0]!, x.ids[2]!]) {
