@@ -52,6 +52,28 @@ async function fixture() {
   return { root, cwd, other, project, project2, fm, ids, busy, keys, calls, runtime, q, action, create, change, done };
 }
 
+it('publishes planned role assignments before execution and clears reassigned roles in task updates', async () => {
+  const x = await fixture();
+  const emit = vi.spyOn(x.fm.ctx, 'emit');
+  const i = await x.create();
+  const initial = { developerId: x.ids[0], reviewerId: x.ids[2], noReview: false };
+  expect(x.fm.snapshot().tasks.find(t => t.id === i.id)?.queueAssignment).toEqual(initial);
+  expect(x.fm.tasks.require(i.id).assignee).toBeUndefined();
+  expect(emit).toHaveBeenCalledWith(expect.objectContaining({ type: 'task.upsert', task: expect.objectContaining({ queueAssignment: initial }) }));
+  emit.mockClear();
+  await x.action('assign', { id: i.id, developerId: x.ids[1], reviewerId: null, noReview: true });
+  const changed = { developerId: x.ids[1], noReview: true };
+  expect(JSON.parse(JSON.stringify(x.fm.tasks.require(i.id).queueAssignment))).toEqual(changed);
+  expect(emit).toHaveBeenCalledWith(expect.objectContaining({ type: 'task.upsert', task: expect.objectContaining({ queueAssignment: expect.objectContaining(changed) }) }));
+  expect(x.calls).toHaveLength(0);
+  // Existing saved queues gain the projection on restart without launching work.
+  delete x.fm.tasks.require(i.id).queueAssignment;
+  await x.q.stop();
+  const restored = new RoleQueue(x.fm, x.runtime as unknown as AgentRuntime); queues.push(restored);
+  expect(x.fm.tasks.require(i.id).queueAssignment).toMatchObject(changed);
+  expect(restored.data.mode).toBe('paused'); expect(x.calls).toHaveLength(0);
+});
+
 it('an asynchronous SDK failure opens a question while retaining the attempt and project', async () => {
   const x = await fixture(), i = await x.create(); x.q.start(); await x.action('start');
   const attempt = i.attempt;

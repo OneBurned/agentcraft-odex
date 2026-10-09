@@ -130,6 +130,8 @@ export const Task = z.object({
   id: Id.describe('e.g. "t3"'),
   observerKey: z.string().optional().describe('Stable external task key for the Codex observer; survives restarts.'),
   queueStage: z.enum(['plan', 'queued', 'coding', 'review', 'question', 'done', 'cancelled']).optional(),
+  queueAssignment: z.object({ developerId: TeamId.optional(), reviewerId: TeamId.optional(), noReview: z.boolean() }).optional()
+    .describe('Planned role assignments from the queue, including before execution. Distinct from the current assignee; absent on older bridges.'),
   studioReview: ReviewProgress.optional().describe('Latest studio review attempt. Optional field carried by snapshot and task.upsert; historical tasks may omit it. MERGE decisions are unchanged.'),
   title: z.string(),
   description: z.string().optional(),

@@ -103,8 +103,12 @@ export class RoleQueue {
     this.fm.store.data.backend.roleQueue = this.data;
     for (const i of this.data.items) {
       const t = this.fm.tasks.get(i.id); if (!t) continue;
-      if (t.queueStage !== i.stage || (t.blockedReason ?? '') !== (i.reason ?? '')) {
-        t.queueStage = i.stage; this.fm.tasks.update(i.id, { blockedReason: i.reason ?? null });
+      const queueAssignment = { developerId: i.developerId, reviewerId: i.reviewerId, noReview: i.noReview };
+      if (t.queueStage !== i.stage || (t.blockedReason ?? '') !== (i.reason ?? '') ||
+          t.queueAssignment?.developerId !== i.developerId || t.queueAssignment?.reviewerId !== i.reviewerId ||
+          t.queueAssignment?.noReview !== i.noReview) {
+        t.queueStage = i.stage; t.queueAssignment = queueAssignment;
+        this.fm.tasks.update(i.id, { blockedReason: i.reason ?? null });
       }
     }
     this.fm.store.markDirty(); this.fm.store.flush();

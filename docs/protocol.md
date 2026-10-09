@@ -90,6 +90,7 @@ Exact option labels: merge decisions use `Merge`, `Request changes`, `Reject`; p
 | `id` | string | yes | e.g. "t3" |
 | `observerKey` | string | no | Stable external task key for the Codex observer; survives restarts. |
 | `queueStage` | `plan` \| `queued` \| `coding` \| `review` \| `question` \| `done` \| `cancelled` | no |  |
+| `queueAssignment` | { developerId?: agent id ([a-z0-9_-]{1,64}), reviewerId?: agent id ([a-z0-9_-]{1,64}), noReview: boolean } | no | Planned role assignments from the queue, including before execution. Distinct from the current assignee; absent on older bridges. |
 | `studioReview` | [ReviewProgress](#reviewprogress) | no | Latest studio review attempt. Optional field carried by snapshot and task.upsert; historical tasks may omit it. MERGE decisions are unchanged. |
 | `title` | string | yes |  |
 | `description` | string | no |  |

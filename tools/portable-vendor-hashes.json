@@ -49,5 +49,7 @@
   "mods/fabric-api-0.161.0+26.3.jar!META-INF/jars/fabric-tag-api-v1-2.1.10+fcdff87f5d.jar!assets/fabric-tag-api-v1/icon.png": "e5b8c2338f0260165e322cbff7a7bde5e1236788a343732ca1aa46bdf03087f2",
   "mods/fabric-api-0.161.0+26.3.jar!META-INF/jars/fabric-transfer-api-v1-8.0.25+fcdff87f5d.jar!assets/fabric-transfer-api-v1/icon.png": "e5b8c2338f0260165e322cbff7a7bde5e1236788a343732ca1aa46bdf03087f2",
   "mods/fabric-api-0.161.0+26.3.jar!META-INF/jars/fabric-transitive-access-wideners-v1-8.1.16+52268a0e5d.jar!assets/fabric-transitive-access-wideners-v1/icon.png": "e5b8c2338f0260165e322cbff7a7bde5e1236788a343732ca1aa46bdf03087f2",
-  "mods/fabric-api-0.161.0+26.3.jar!assets/fabric/icon.png": "e5b8c2338f0260165e322cbff7a7bde5e1236788a343732ca1aa46bdf03087f2"
+  "mods/fabric-api-0.161.0+26.3.jar!assets/fabric/icon.png": "e5b8c2338f0260165e322cbff7a7bde5e1236788a343732ca1aa46bdf03087f2",
+  "mods/agentcraft-0.4.14.jar!META-INF/jars/Java-WebSocket-1.6.0.jar!META-INF/MANIFEST.MF": "af5cbf87d676597eac87c97cfa883646ecf248b5fef0db6857f7b309ebc5360d",
+  "mods/agentcraft-0.4.14.jar!META-INF/jars/Java-WebSocket-1.6.0.jar!META-INF/maven/org.java-websocket/Java-WebSocket/pom.xml": "a8e84d553c34d793e2ea7e4a54b073f44ddb0bb442f4dd6fad0cecd755d1ceac"
 }

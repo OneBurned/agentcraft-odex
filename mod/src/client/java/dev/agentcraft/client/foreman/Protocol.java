@@ -157,11 +157,13 @@ public final class Protocol {
     }
 
 	public record AgentIdentity(String id, String name, String provider) {}
+	public record QueueAssignment(@Nullable String developerId, @Nullable String reviewerId, boolean noReview) {}
 
 	public record Task(String id, String title, @Nullable String description, TaskStatus status, @Nullable String assignee, List<String> deps,
 		@Nullable String repoId, @Nullable String goalId, int priority, @Nullable String branch, @Nullable String worktree, CiStatus ci,
 		@Nullable String blockedReason, @Nullable String summary, @Nullable String createdBy, long createdAt, long updatedAt, @Nullable String queueStage,
-		@Nullable ReviewProgress studioReview, @Nullable AgentIdentity assigneeIdentity, @Nullable AgentIdentity creatorIdentity) {
+		@Nullable ReviewProgress studioReview, @Nullable AgentIdentity assigneeIdentity, @Nullable AgentIdentity creatorIdentity,
+		@Nullable QueueAssignment queueAssignment) {
         public String assigneeLabel() { return assigneeIdentity != null ? assigneeIdentity.name() + " · " + assigneeIdentity.provider() : assignee; }
 		public Task {
 			title = title == null ? id : title;

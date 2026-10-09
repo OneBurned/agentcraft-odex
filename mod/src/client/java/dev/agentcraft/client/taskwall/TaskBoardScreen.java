@@ -15,7 +15,7 @@ import net.minecraft.network.chat.Component;
 
 /** Readable, paged index; finished tasks remain accessible without crowding the wall. */
 public final class TaskBoardScreen extends Screen {
-    private record Row(Task task, int y, List<String> title, String meta) {}
+    private record Row(Task task, int y, List<String> title, String meta, List<String> assignments) {}
     private final List<Row> rows = new ArrayList<>();
     private boolean history;
     private int page, pages, x, y, w, h;
@@ -54,7 +54,7 @@ public final class TaskBoardScreen extends Screen {
         button("Текущие · " + active.size(), x + 12, y + 29, bw, () -> { history = false; page = 0; layout(); }).active = history;
         button("История · " + past.size(), x + 16 + bw, y + 29, bw, () -> { history = true; page = 0; layout(); }).active = !history;
         List<Task> tasks = history ? past : active;
-        int count = Math.max(1, (h - 118) / 55);
+        int count = Math.max(1, (h - 118) / 70);
         pages = Math.max(1, (tasks.size() + count - 1) / count);
         page = Math.min(page, pages - 1);
         int rowY = y + 57;
@@ -62,16 +62,17 @@ public final class TaskBoardScreen extends Screen {
             Task t = tasks.get(i);
             var titleLines = TextUtil.wrapPlain(font, TaskBoard.titleText(t), w - 42);
             if (titleLines.size() > 2) titleLines = List.of(titleLines.get(0), TextUtil.ellipsize(font, String.join(" ", titleLines.subList(1, titleLines.size())), w - 42));
-            var agent = state.agent(t.assignee());
-            String name = t.assigneeIdentity() != null ? t.assigneeLabel() : agent == null ? (t.assignee() == null ? "Без исполнителя" : t.assignee()) : agent.name();
+            var assignments = TaskAssignmentText.lines(state, t);
             String stage = TaskBoardTasks.stage(t.queueStage(), t.status().wire(), t.branch() != null || t.worktree() != null);
-            rows.add(new Row(t, rowY, titleLines, t.id() + " · " + TaskBoardTasks.label(stage) + " · " + name));
+            String meta = t.id() + " · " + TaskBoardTasks.label(stage);
+            rows.add(new Row(t, rowY, titleLines, meta, assignments));
+            String description = TaskBoard.titleText(t) + "\n" + meta + "\n" + String.join("\n", assignments);
             Button row = Button.builder(Component.empty(), b -> minecraft.gui.setScreen(TaskScreen.forTask(t.id(), this)))
-                .bounds(x + 12, rowY, w - 24, 51)
-                .createNarration(supplier -> Component.literal(t.id() + " · " + TaskBoard.titleText(t)))
-                .tooltip(Tooltip.create(Component.literal(TaskBoard.titleText(t) + "\nОткрыть полную карточку"))).build();
+                .bounds(x + 12, rowY, w - 24, 66)
+                .createNarration(supplier -> Component.literal(description))
+                .tooltip(Tooltip.create(Component.literal(description + "\nОткрыть полную карточку"))).build();
             addRenderableWidget(row);
-            rowY += 55;
+            rowY += 70;
         }
         button("←", x + 12, y + h - 42, 28, () -> { page--; layout(); }).active = page > 0;
         button("→", x + 44, y + h - 42, 28, () -> { page++; layout(); }).active = page + 1 < pages;
@@ -87,7 +88,9 @@ public final class TaskBoardScreen extends Screen {
         for (Row row : rows) {
             int ty = row.y + 7;
             for (String line : row.title) { g.text(font, line, x + 20, ty, 0xFFFFFFFF); ty += 11; }
-            g.text(font, TextUtil.ellipsize(font, row.meta, w - 42), x + 20, row.y + 36, 0xFFFFE3A8);
+            g.text(font, TextUtil.ellipsize(font, row.meta, w - 42), x + 20, row.y + 31, 0xFFFFE3A8);
+            for (int i = 0; i < row.assignments.size(); i++)
+                g.text(font, TextUtil.ellipsize(font, row.assignments.get(i), w - 42), x + 20, row.y + 42 + i * 11, 0xFFFFFFFF);
         }
         if (rows.isEmpty()) {
             String empty = !Foreman.connected() ? "Нет связи с мостом" : history ? "В истории пока нет задач" : "Текущих задач нет. Добавь задачу в план.";

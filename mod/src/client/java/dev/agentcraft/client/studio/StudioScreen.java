@@ -519,6 +519,7 @@ public final class StudioScreen extends Screen {
             int columns = Math.min(ops.size(), w >= 480 ? 3 : 2), rows = (ops.size() + columns - 1) / columns;
             int bw = w / columns, buttonsTop = height - 24 - rows * 24;
             var body = addRenderableWidget(MultiLineEditBox.builder().setX(x).setY(36).build(font, w, Math.max(40, buttonsTop - 44), Component.literal("Описание задачи"))); body.setValue(content);
+            body.setScrollAmount(0);
             body.setValueListener(value -> { if (!value.equals(content)) body.setValue(content); });
             for (int i = 0; i < ops.size(); i++) { String op = ops.get(i);
                 addRenderableWidget(Button.builder(Component.literal(TextUtil.ellipsize(font, labels.get(i), bw - 10)), b -> {
