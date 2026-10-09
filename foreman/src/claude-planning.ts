@@ -4,6 +4,8 @@ import { randomUUID, timingSafeEqual } from 'node:crypto';
 import WebSocket from 'ws';
 import { z } from 'zod';
 import { WorkspaceConfig } from './claude-workspace.js';
+import { conversation } from './claude-conversation.js';
+import { TeamId } from './team.js';
 
 export const DraftInput = z.object({
   requestId: z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/),
@@ -16,6 +18,9 @@ export const DraftInput = z.object({
 }).strict();
 export const PlanningBinding = z.object({ version: z.literal(1), workspace: z.string().refine(path.isAbsolute),
   profile: z.string().refine(path.isAbsolute), port: z.number().int().min(1).max(65535), token: z.string().uuid() }).strict();
+export const TeamPlanningBinding = z.object({ version: z.literal(2), workspace: z.string().refine(path.isAbsolute),
+  agentId: TeamId, sessionId: z.string().uuid(), port: z.number().int().min(1).max(65535), token: z.string().uuid(),
+  expiresAt: z.number().int().positive() }).strict();
 export const sameDirectory = (a: string, b: string) => {
   const real = (p: string) => { const value = fs.realpathSync(p); return process.platform === 'win32' ? value.toLowerCase() : value; };
   return real(a) === real(b);
@@ -41,24 +46,30 @@ export function authorizePlanning(profile: string, port: number, token: unknown)
 
 export async function planningCall(directory: string, name: string, args: unknown): Promise<Record<string, unknown>> {
   // Validate before connecting; no generic action or arbitrary transport arguments.
-  const payload = name === 'planning_create' ? DraftInput.parse(args) : z.object({ offset: z.number().int().min(0).default(0) }).strict().parse(args);
-  const binding = planningBinding(directory);
+  if (!['planning_list', 'planning_create'].includes(name)) throw new Error('Неизвестный инструмент планирования.');
+  let binding: z.infer<typeof PlanningBinding> | z.infer<typeof TeamPlanningBinding>;
+  try { binding = z.union([PlanningBinding, TeamPlanningBinding]).parse(JSON.parse(fs.readFileSync(path.join(directory, 'planning.json'), 'utf8'))); }
+  catch { throw new Error('Планирование Claude не подключено. Нужна настройка моста оператором.'); }
+  const draft = binding.version === 2 ? DraftInput.extend({ project: z.string().trim().min(1).max(64) }) : DraftInput;
+  const payload = name === 'planning_create' ? draft.parse(args) : z.object({ offset: z.number().int().min(0).default(0) }).strict().parse(args);
   if (!sameDirectory(directory, binding.workspace)) throw new Error('Рабочее пространство планирования не совпадает.');
+  if (binding.version === 2 && conversation(directory)?.sessionId !== binding.sessionId)
+    throw new Error('Сессия планировщика изменилась. Нужно новое разрешение.');
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${binding.port}`, { handshakeTimeout: 3000, maxPayload: 8 * 1024 * 1024 });
+    const ws = new WebSocket(`ws://127.0.0.1:${binding.port}/planner`, { handshakeTimeout: 3000, maxPayload: 8 * 1024 * 1024 });
     const id = randomUUID(); let sent = false;
     const finish = (error?: Error, result?: Record<string, unknown>) => {
       clearTimeout(timer); ws.removeAllListeners(); ws.on('error', () => {}); ws.terminate();
       if (error) reject(error); else resolve(result!);
     };
     const timer = setTimeout(() => finish(new Error('Мост не ответил. Повтори создание с тем же requestId: дубликат не появится.')), 15000);
-    ws.once('open', () => ws.send(JSON.stringify({ v: 2, type: 'hello', protocol: 2, modVersion: 'klava-planning', client: 'klava' })));
+    ws.once('open', () => ws.send(JSON.stringify({ v: 2, type: 'hello', protocol: 2, modVersion: 'claude-planning', client: 'studio-planner' })));
     ws.on('error', () => finish(new Error('Нет связи с мостом AgentCraft. Запусти подключённый профиль.')));
     ws.on('close', () => finish(new Error('Связь с мостом закрыта. Повтори запрос с тем же requestId.')));
     ws.on('message', raw => {
       let m; try { m = JSON.parse(raw.toString()); } catch { return; }
       if (m.type === 'snapshot' && !sent) {
-        sent = true; ws.send(JSON.stringify({ v: 2, id, type: 'studio.action', action: name === 'planning_create' ? 'draft.create' : 'draft.list', payload: { ...payload, token: binding.token } }));
+        sent = true; ws.send(JSON.stringify({ v: 2, id, type: 'studio.action', action: name === 'planning_create' ? 'draft.create' : 'draft.list', payload: { ...payload, token: binding.token, ...(binding.version === 2 ? { agentId: binding.agentId } : {}) } }));
       }
       if (m.type === 'ack' && m.re === id) finish(m.ok ? undefined : new Error(m.error || 'Черновик не создан.'), m.result);
     });

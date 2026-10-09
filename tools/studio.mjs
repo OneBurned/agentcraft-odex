@@ -19,7 +19,7 @@ try {
   let permit;
   if (scoped) {
     permit = JSON.parse(await fs.readFile(values.permit, 'utf8'));
-    if (permit.version !== 1 || typeof permit.agentId !== 'string' || typeof permit.token !== 'string' || !Number.isInteger(permit.port) || permit.port < 1 || permit.port > 65535)
+    if (![1, 2].includes(permit.version) || typeof permit.agentId !== 'string' || typeof permit.token !== 'string' || !Number.isInteger(permit.port) || permit.port < 1 || permit.port > 65535)
       throw new Error('Invalid planner permit file.');
     if (values.port && Number(values.port) !== permit.port) throw new Error('Port differs from the planner permit.');
     if ('agentId' in payload) throw new Error('Agent identity comes only from --permit.');

@@ -84,7 +84,8 @@ editing and connection forms. See [ROLE_QUEUE.md](ROLE_QUEUE.md) for the in-game
 developer and reviewer; Claude supports developer/reviewer. New unsupported combinations
 are rejected by `team.create`/`team.update`; saved migrated roles remain readable and
 presentation edits do not delete them. Roles are permissions, not a guarantee of credentials
-or project access. Claude planner tools for arbitrary team members are not yet connected.
+or project access. Claude planner tools support selected team members through a session-bound
+draft permit in their workspace planning.json; see ROLE_QUEUE.md. Approval and execution remain manual.
 
 `connection.get` also returns the typed `connection` record (or null), without credentials.
 `connection.check` probes enabled or disabled non-archived agents and returns

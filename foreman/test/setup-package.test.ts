@@ -23,7 +23,7 @@ it('creates an empty team without providers or user configuration and does not o
 it('registers local projects and three disabled agents without touching Git or needing GitHub', async () => {
   const x = await fixture(), before = await fs.readFile(path.join(x.repo, '.git/config'), 'utf8');
   const team = await configureFresh(x.target, { projects: [{ path: x.repo }], agents: [
-    { name: 'Plan', provider: 'codex', roles: ['planner'] }, { name: 'Develop', provider: 'codex', roles: ['developer'] }, { name: 'Review', provider: 'claude', roles: ['reviewer'] },
+    { name: 'Plan', provider: 'codex', roles: ['planner'] }, { name: 'Develop', provider: 'codex', roles: ['developer'] }, { name: 'Review', provider: 'claude', roles: ['planner', 'reviewer'] },
   ] }, async () => []);
   expect(team.agents).toHaveLength(3); expect(team.agents.every(a => !a.enabled && a.connectionRef === null)).toBe(true);
   expect(await fs.readFile(path.join(x.repo, '.git/config'), 'utf8')).toBe(before);
@@ -39,7 +39,7 @@ it('registers local projects and three disabled agents without touching Git or n
 it('validation rejects unsupported roles, credentials and non-root project paths without publishing a partial profile', async () => {
   const x = await fixture();
   expect(() => SetupPlan.parse({ projects: [], agents: [], token: 'fixture' })).toThrow();
-  await expect(configureFresh(x.target, { projects: [], agents: [{ name: 'No', provider: 'claude', roles: ['planner'] }] }, async () => [])).rejects.toThrow('Unsupported');
+  await expect(configureFresh(x.target, { projects: [], agents: [{ name: 'No', provider: 'claude', roles: ['unknown'] }] }, async () => [])).rejects.toThrow();
   await fs.mkdir(path.join(x.repo, 'subdirectory'));
   await expect(configureFresh(x.target, { projects: [{ path: path.join(x.repo, 'subdirectory') }], agents: [] }, async () => [])).rejects.toThrow('repository root');
   await expect(fs.access(path.join(x.profile, 'state.json'))).rejects.toThrow();

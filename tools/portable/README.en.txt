@@ -17,8 +17,9 @@ INSTALL AND START
    Setup does not grant access, clone repositories or change their remotes.
 5. Add agents or leave the team empty and configure it from the game.
    Choose each name, Codex desktop / Codex CLI / Claude Code, and roles.
-   Codex supports planner/developer/reviewer; Claude supports developer/reviewer.
-   Arbitrary-team Claude planning tools are not connected yet. New agents are disabled.
+   Codex and Claude support planner/developer/reviewer. Draft creation needs a
+   scoped permit; Claude reads planning.json in its own workspace (see ROLE_QUEUE.md).
+   New agents are disabled.
    Multiple agents of one provider need distinct conversations.
 6. Bind existing conversations now or through Command desk → Team later.
    Codex desktop needs a dedicated threadId and the application's pipePath.

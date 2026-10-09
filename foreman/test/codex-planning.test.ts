@@ -10,10 +10,11 @@ import { ObserverBackend } from '../src/agents/observer.js';
 import { ForemanServer } from '../src/server.js';
 import { silentLogger } from '../src/context.js';
 import { demoRepo, tempDir, testConfig, rmrf } from './helpers.js';
+import { WorkspaceReader } from '../src/claude-workspace-access.js';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const close of cleanup.splice(0).reverse()) await close(); });
-async function fixture() {
+async function fixture(provider: 'codex' | 'claude' = 'codex') {
   const home = tempDir('codex-planning-'), cwd = await demoRepo(), other = await demoRepo();
   const f = new Foreman({ config: testConfig(home, ['--backend', 'observer']), logger: silentLogger });
   const send = vi.fn(async () => ({}));
@@ -22,10 +23,18 @@ async function fixture() {
   await f.start(backend);
   const action = (action: string, payload: Record<string, unknown> = {}) => backend.onStudioAction(action, payload);
   const ids: string[] = [];
-  const bind = async (id: string) => action('connection.bind', { id, revision: f.team!.snapshot().revision,
-    connection: { provider: 'codex', transport: 'codex-desktop', threadId: randomUUID(), hostId: 'local', title: 'Fixture', pipePath: '\\\\.\\pipe\\codex-browser-use-planning-fixture' } });
+  const workspaces = new Map<string, string>();
+  const bind = async (id: string) => {
+    if (provider === 'codex') return action('connection.bind', { id, revision: f.team!.snapshot().revision,
+      connection: { provider: 'codex', transport: 'codex-desktop', threadId: randomUUID(), hostId: 'local', title: 'Fixture', pipePath: '\\\\.\\pipe\\codex-browser-use-planning-fixture' } });
+    const workspace = path.join(home, id); fs.mkdirSync(workspace, { recursive: true }); workspaces.set(id, workspace);
+    for (const name of ['CLAUDE.md', 'PROJECTS.md', 'MEMORY.md']) fs.writeFileSync(path.join(workspace, name), id);
+    fs.writeFileSync(path.join(workspace, 'access.json'), JSON.stringify({ version: 1, repositories: [{ id: 'allowed', name: 'Allowed', path: cwd }] }));
+    const sessionId = randomUUID(); fs.writeFileSync(path.join(workspace, 'conversation.json'), JSON.stringify({ version: 1, sessionId }));
+    return action('connection.bind', { id, revision: f.team!.snapshot().revision, connection: { provider, transport: 'claude-code', workspace, sessionId } });
+  };
   for (const role of ['planner', 'planner', 'developer']) {
-    f.teamAction('team.create', { revision: f.team!.snapshot().revision, agent: { name: role, provider: 'codex', roles: [role], enabled: true, visible: true,
+    f.teamAction('team.create', { revision: f.team!.snapshot().revision, agent: { name: role, provider, roles: role === 'planner' ? ['planner', 'reviewer'] : [role], enabled: true, visible: true,
       appearance: { skin: 'marlow', color: '#123456', slim: false } } });
     const id = f.team!.snapshot().agents.at(-1)!.id; ids.push(id); await bind(id);
   }
@@ -42,8 +51,57 @@ async function fixture() {
   const update = (patch: Record<string, unknown>) => f.teamAction('team.update', { id: agentId, revision: f.team!.snapshot().revision, patch });
   const cli = (...args: string[]) => promisify(execFile)(process.execPath, [path.join(f.config.projectRoot, 'tools/studio.mjs'), ...args], { windowsHide: true, timeout: 15000 });
   const jsonFile = (name: string, value: unknown) => { const file = path.join(home, name); fs.writeFileSync(file, JSON.stringify(value)); return file; };
-  return { f, backend, action, grant, permit, auth, input, create, data, update, bind, agentId, secondId, developerId, project, secondProject, home, port, send, cli, jsonFile };
+  return { f, backend, action, grant, permit, auth, input, create, data, update, bind, agentId, secondId, developerId, project, secondProject, home, port, send, cli, jsonFile, workspaces };
 }
+
+it('Claude workspace tools use the selected session and permit, deduplicate and expose no operator controls', async () => {
+  const x = await fixture('claude'), workspace = x.workspaces.get(x.agentId)!;
+  const file = path.join(workspace, 'planning.json');
+  await x.cli('draft', 'grant', '--port', String(x.port), '--file', x.jsonFile('grant.json', { agentId: x.agentId, projects: [x.project.id] }), '--out', file);
+  const reader = await WorkspaceReader.open(workspace);
+  expect(await reader.call('planning_list', {})).toMatchObject({ projects: [{ id: x.project.id, workspaceProject: 'allowed' }], items: [] });
+  const result: any = await reader.call('planning_create', x.input);
+  expect(result.item.stage).toBe('plan');
+  expect(await reader.call('planning_create', x.input)).toMatchObject({ duplicate: true, item: { id: result.item.id } });
+  expect(x.f.tasks.require(result.item.id).createdBy).toBe(x.agentId);
+  await expect(reader.call('planning_create', { ...x.input, requestId: 'two' })).rejects.toThrow('Одноразовое');
+  await expect(reader.call('planning_create', { ...x.input, developerId: x.agentId })).rejects.toThrow();
+  await expect(reader.call('planning_list', { action: 'start' })).rejects.toThrow();
+  expect(x.send).not.toHaveBeenCalled(); expect(x.data().active).toBeUndefined();
+  expect(await reader.call('memory_read', {})).toBe(x.agentId);
+  const other = x.workspaces.get(x.secondId)!;
+  fs.copyFileSync(file, path.join(other, 'planning.json'));
+  await expect((await WorkspaceReader.open(other)).call('planning_list', {})).rejects.toThrow('пространство');
+  expect(await (await WorkspaceReader.open(other)).call('memory_read', {})).toBe(x.secondId);
+  fs.writeFileSync(path.join(workspace, 'conversation.json'), JSON.stringify({ version: 1, sessionId: randomUUID() }));
+  await expect(reader.call('planning_list', {})).rejects.toThrow('Сессия');
+  await expect(x.create()).rejects.toThrow('Сессия');
+});
+
+it('Claude grants and every use check current workspace access, agent identity and project visibility', async () => {
+  const x = await fixture('claude');
+  await expect(x.grant(x.agentId, [x.secondProject.id])).rejects.toThrow('Проект');
+  await expect(x.grant(x.developerId)).rejects.toThrow('planner');
+  await expect(x.create({ agentId: x.secondId })).rejects.toThrow('Разрешение');
+  await x.action('create', { title: 'Private card', description: 'Hidden', expected: 'Hidden', repoId: x.secondProject.id });
+  const privateId = x.data().items.at(-1).id;
+  expect(await x.action('draft.list', x.auth())).toMatchObject({ total: 0, items: [] });
+  await expect(x.create({ deps: [privateId] })).rejects.toThrow('Зависимость');
+  const workspace = x.workspaces.get(x.agentId)!;
+  fs.writeFileSync(path.join(workspace, 'access.json'), JSON.stringify({ version: 1, repositories: [{ id: 'changed', name: 'Changed', path: x.secondProject.path }] }));
+  await expect(x.create()).rejects.toThrow('Проект');
+  x.update({ roles: ['reviewer'] }); await expect(x.create()).rejects.toThrow('planner');
+  expect(x.data().items).toHaveLength(1); expect(x.send).not.toHaveBeenCalled();
+});
+
+it('Claude planner deduplication survives restart, connection rebinding invalidates the old permit', async () => {
+  const x = await fixture('claude');
+  const r: any[] = await Promise.all([x.create(), x.create()]);
+  expect(r.map(a => a.duplicate)).toEqual([false, true]);
+  await x.backend.stop(); await x.backend.start(); await x.action('plan');
+  expect(await x.create()).toMatchObject({ duplicate: true, item: { id: r[0].item.id } });
+  await x.bind(x.agentId); await expect(x.create()).rejects.toThrow('Подключение');
+});
 
 it('CLI grants a private one-card permit, lists projects and creates a draft with a retriable requestId', async () => {
   const x = await fixture(), permitFile = path.join(x.home, 'permit.json');

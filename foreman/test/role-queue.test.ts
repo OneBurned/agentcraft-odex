@@ -93,7 +93,7 @@ it.each([[0, 1], [1, 2]])('portable trial: developer %i and reviewer %i finish a
   expect(i.stage).toBe('done'); expect(x.fm.tasks.require(i.id).status).toBe('done');
 });
 it('portable trial: a planner/reviewer may review another developer but cannot review itself', async () => {
-  const x = await fixture(), id = x.ids[2]!;
+  const x = await fixture(), id = x.ids[1]!;
   x.fm.teamAction('team.update', { id, revision: x.fm.team!.snapshot().revision, patch: { roles: ['planner', 'developer', 'reviewer'] } });
   await expect(x.create({ developerId: id, reviewerId: id })).rejects.toThrow('разными');
   const i = await x.create({ reviewerId: id }); await x.action('start'); await x.done(i);

@@ -66,17 +66,17 @@ it('desk builds three connections, checks disabled agents without starting work,
   await x.action('connection.check', { id: ids[1] });
   expect(x.send).not.toHaveBeenCalled();
 });
-it('desk rejects unsupported roles server-side, preserves revisions and keeps migrated legacy roles readable', async () => {
+it('desk allows Claude planner/reviewer and rejects unknown roles without changing the revision', async () => {
   const x = await fixture();
-  expect(() => x.change('team.create', { agent: agent('claude', ['planner']) })).toThrow('недоступна');
+  expect(() => x.change('team.create', { agent: agent('claude', ['unknown' as any]) })).toThrow();
   expect(x.fm.team!.snapshot().revision).toBe(0);
   x.change('team.create', { agent: agent('codex', ['planner']) }); const id = x.fm.team!.snapshot().agents[0]!.id;
-  expect(() => x.change('team.update', { id, patch: { provider: 'claude' } })).toThrow('недоступна');
+  x.change('team.update', { id, patch: { provider: 'claude', roles: ['planner', 'reviewer'] } });
   const legacy = x.fm.team!.snapshot(); legacy.agents[0]!.provider = 'claude';
   writeJsonAtomic(x.fm.team!.file, legacy);
   const registry = new TeamRegistry(x.fm.config.dataDir);
   registry.change('update', { id, revision: legacy.revision, patch: { name: 'Preserved' } }, () => {});
-  expect(registry.get(id)?.roles).toEqual(['planner']);
+  expect(registry.get(id)?.roles).toEqual(['planner', 'reviewer']);
 });
 it('check holds the selected connection against rebinding and never enables a disabled agent', async () => {
   const x = await fixture(); x.change('team.create', { agent: agent() }); const id = x.fm.team!.snapshot().agents[0]!.id;

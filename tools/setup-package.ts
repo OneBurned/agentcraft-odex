@@ -125,7 +125,7 @@ export async function main() {
         const name = await ask('Имя нового агента (Enter — закончить; пустую команду можно настроить в игре):', 'New agent name (Enter to finish; an empty team can be configured in game):'); if (!name) break;
         const type = Number(await ask('Подключение: 1 Codex приложение, 2 Codex CLI, 3 Claude Code', 'Connection: 1 Codex desktop, 2 Codex CLI, 3 Claude Code')) - 1;
         const capability = teamCapabilities[type]; if (!capability) throw Error('Choose 1, 2 or 3');
-        console.log(tr(capability.hint, capability.provider === 'claude' ? 'Developer/reviewer supported; arbitrary-team planner tools are not connected.' : 'Planner/developer/reviewer supported; planning draft creation also needs a scoped permit.'));
+        console.log(tr(capability.hint, capability.provider === 'claude' ? 'Planner/developer/reviewer supported; planning needs a session-scoped draft permit in the workspace.' : 'Planner/developer/reviewer supported; planning draft creation also needs a scoped permit.'));
         const roles = (await ask('Роли через запятую: planner, developer, reviewer (только доступные выше):', 'Roles separated by commas: planner, developer, reviewer (supported above only):')).split(',').map(s => s.trim());
         const a = Agent.parse({ name, provider: capability.provider, roles });
         if (roles.some(r => !(capability.roles as readonly string[]).includes(r))) throw Error('Unsupported role / Недоступная роль');

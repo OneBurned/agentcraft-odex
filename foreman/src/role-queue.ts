@@ -6,7 +6,8 @@ import type { Foreman } from './foreman.js';
 import type { AgentRuntime } from './agent-runtime.js';
 import type { Decision } from './protocol.js';
 import { cleanHead, gitText } from './studio-review.js';
-import { DraftInput } from './claude-planning.js';
+import { DraftInput, sameDirectory } from './claude-planning.js';
+import { WorkspaceConfig } from './claude-workspace.js';
 import { TeamId } from './team.js';
 
 type Stage = 'plan' | 'queued' | 'coding' | 'review' | 'question' | 'done' | 'cancelled';
@@ -269,9 +270,17 @@ export class RoleQueue {
   private planner(id: string) {
     this.fm.team!.assertAgentUnchanged(id);
     const a = this.fm.team!.get(id);
-    if (!a || !a.enabled || a.archived || a.provider !== 'codex' || !a.roles.includes('planner'))
-      throw new Error('Нужен включённый Codex-агент с ролью planner.');
+    if (!a || !a.enabled || a.archived || !a.roles.includes('planner'))
+      throw new Error('Нужен включённый агент с ролью planner.');
     return this.runtime.connectionKey(id);
+  }
+  private planningProject(agentId: string, directory: string) {
+    const c = this.runtime.connections.read(agentId)!;
+    if (c.provider !== 'claude') return {};
+    const access = WorkspaceConfig.parse(JSON.parse(fs.readFileSync(path.join(c.workspace, 'access.json'), 'utf8')));
+    const project = access.repositories.find(r => sameDirectory(r.path, directory));
+    if (!project) throw new Error('Проект не разрешён в рабочем пространстве Claude.');
+    return { workspaceProject: project.id };
   }
   /** Called under the queue lock: a permit consumes one creation, never an approval. */
   private planning(action: string, payload: Record<string, unknown>): Record<string, unknown> {
@@ -280,12 +289,16 @@ export class RoleQueue {
       const p = z.object({ agentId: TeamId, projects: z.array(text.max(64)).min(1).max(50) }).strict().parse(payload);
       const connection = this.planner(p.agentId);
       const projects = [...new Set(p.projects)].map(id => ({ id, directory: this.directory(this.fm.repos.require(id).path) }));
+      for (const project of projects) this.planningProject(p.agentId, project.directory);
       const token = randomUUID(), expiresAt = Date.now() + 30 * 60_000;
       this.data.draftPermits = Object.fromEntries(Object.entries(this.data.draftPermits ?? {}).filter(([, p]) => p.expiresAt > Date.now()));
       if (Object.keys(this.data.draftPermits).length >= 1000) throw new Error('Слишком много разрешений планирования; дождись их истечения.');
       this.data.draftPermits[hash(token)] = { agentId: p.agentId, connection, projects, expiresAt };
       this.save();
-      return { version: 1, agentId: p.agentId, token, expiresAt };
+      const c = this.runtime.connections.read(p.agentId)!;
+      return c.provider === 'claude'
+        ? { version: 2, agentId: p.agentId, token, expiresAt, workspace: c.workspace, sessionId: c.sessionId }
+        : { version: 1, agentId: p.agentId, token, expiresAt };
     }
     const { agentId, token, ...args } = payload;
     const auth = z.object({ agentId: TeamId, token: z.string().uuid() }).parse({ agentId, token });
@@ -295,14 +308,16 @@ export class RoleQueue {
     const projects = permit.projects.map(p => {
       const r = this.fm.repos.require(p.id);
       if (this.directory(r.path) !== p.directory) throw new Error('Каталог разрешённого проекта изменился.');
-      return { id: r.id, name: r.name };
+      return { id: r.id, name: r.name, ...this.planningProject(auth.agentId, p.directory) };
     });
     const card = (i: Item) => { const t = this.fm.tasks.require(i.id);
       return { id: i.id, stage: i.stage, project: t.repoId, title: t.title, description: t.description, expected: i.expected, deps: t.deps, priority: t.priority }; };
+    const claude = this.runtime.connections.read(auth.agentId)!.provider === 'claude';
+    const visible = claude ? this.data.items.filter(i => projects.some(p => p.id === this.fm.tasks.require(i.id).repoId)) : this.data.items;
     if (action === 'draft.list') {
       const { offset } = z.object({ offset: z.number().int().nonnegative().default(0) }).strict().parse(args);
-      const items = this.data.items.slice(offset, offset + 2).map(card);
-      return { mode: this.data.mode, projects, items, total: this.data.items.length, nextOffset: offset + items.length < this.data.items.length ? offset + items.length : null };
+      const items = visible.slice(offset, offset + 2).map(card);
+      return { mode: this.data.mode, projects, items, total: visible.length, nextOffset: offset + items.length < visible.length ? offset + items.length : null };
     }
     if (action !== 'draft.create') throw new Error('Планировщик может только читать пул и создавать черновики.');
     const p = DraftInput.extend({ project: text.max(64) }).parse(args), digest = hash(p);
@@ -314,7 +329,10 @@ export class RoleQueue {
       permit.requestId = p.requestId; this.save();
       return { item: card(existing), duplicate: true };
     }
-    for (const id of p.deps) this.item(id);
+    for (const id of p.deps) {
+      this.item(id);
+      if (claude && !visible.some(i => i.id === id)) throw new Error('Зависимость вне разрешённых проектов планировщика.');
+    }
     const t = this.fm.tasks.create({ title: p.title, description: p.description, repoId: p.project, deps: p.deps, priority: p.priority, createdBy: auth.agentId });
     const i: Item = { id: t.id, stage: 'plan', expected: p.expected, noReview: false, rounds: 0, ranges: [], receipts: {}, developerIds: [],
       draft: { agentId: auth.agentId, requestId: p.requestId, digest } };
