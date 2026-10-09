@@ -1,5 +1,21 @@
 # Preparing the Windows prerelease
 
+## Published candidate
+
+[AgentCraft 0.4.13-rc.1](https://github.com/OneBurned/agentcraft-odex/releases/tag/v0.4.13-rc.1)
+was published on 2026-10-09 at 01:34:24 UTC after the user's final confirmation.
+It is a prerelease. Its tag and `codex/portable-0.4.13-rc.1` branch point to public
+snapshot `7bffdcdf52a8a7fa5258c1c125217cd4681988ad`.
+
+All seven uploaded assets were downloaded again and their SHA-256 hashes matched
+the prepared files. The ZIP SHA-256 is
+`75ae6fe93e1df248033063a49ba86ce9bbbb08380cb6243a155706ed4fcdbef8`.
+The attached `CHECKS.json` records preparation-time state (`published: false`);
+it is retained unchanged with the verified assets. Publication does not complete
+the outstanding Claude planner and manual/live acceptance work in t52/t53.
+
+## Preparing another candidate
+
 The current candidate is **0.4.13-rc.1**, mod 0.4.13, protocol 2. It must be marked
 as a GitHub **prerelease**, not latest/stable. [PORTABLE_TRIAL.md](PORTABLE_TRIAL.md)
 records pending Claude planning and manual/live acceptance (t52/t53). Preparing a
