@@ -218,13 +218,17 @@ it('exposes a later delivery failure even after the earlier limit question was a
   expect(x.f.decisions.open()).toHaveLength(1); expect(x.f.decisions.open()[0]!.id).not.toBe(d.id);
 });
 
-it('includes messaging instructions in regular user conversations', async () => {
+it('provides service instructions separately from the visible user message', async () => {
   const x = await fixture();
   await x.action('connection.send', { id: x.a, text: 'Обсудим тесты', purpose: 'message' });
   const prompt = x.sends.get(x.a)!.mock.calls[0]![0] as string;
-  expect(prompt).toContain('Обсудим тесты'); expect(prompt).toContain('MCP agent_message/agent_messages');
-  expect(prompt).toContain(x.mailbox().credentialFile(x.a));
-  expect(prompt).not.toContain(x.permit(x.a).token);
+  expect(prompt).toBe('Обсудим тесты');
+  const instructions = x.events.get(x.a)!.messageInstructions!()!;
+  expect(instructions).toContain('MCP agent_message/agent_messages');
+  expect(instructions).toContain(x.mailbox().credentialFile(x.a)); expect(instructions).not.toContain(x.permit(x.a).token);
+  expect((await x.action('connection.get', { id: x.a })).history).toMatchObject([{ role: 'user', text: prompt }]);
+  expect(x.f.store.logTail(x.a).some(l => l.text.includes('messaging.json'))).toBe(false);
+  expect(x.f.store.data.messages.at(-1)?.text).toBe(prompt);
 });
 
 it('preserves uncertain sends after crash without retrying or claiming successful delivery', async () => {

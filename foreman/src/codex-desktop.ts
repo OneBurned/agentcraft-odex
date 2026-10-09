@@ -124,6 +124,7 @@ export class DesktopChat {
     onStatus: (message: string) => void;
     onActivity?: (activity: ChatActivity) => void;
     personaDescription?: () => string | undefined;
+    messageInstructions?: () => string | undefined;
     interrupt?: typeof interruptDesktop;
   }) {
     try { this.state = readJson<ChatState>(options.stateFile) ?? { threadId: '', seen: [] }; }
@@ -210,9 +211,12 @@ export class DesktopChat {
     try {
       this.state.lastPurpose = purpose; writeJsonAtomic(this.options.stateFile, this.state);
       const style = purpose === 'message' ? personaPrompt(this.options.personaDescription?.()) : '';
+      // Service context is separate from the validated player text (up to 12000 chars).
+      const instructions = this.options.messageInstructions?.();
+      const context = instructions ? `[Служебные инструкции AgentCraft]\n${instructions}\n\n` : '';
       const result = await (this.options.call ?? appCall)(binding, 'send_message_to_thread', {
-        prompt: purpose === 'peer' ? `[Межагентная переписка AgentCraft — не запрос пользователя]\n${text}`
-          : `[Сообщение пользователя из игровой консоли AgentCraft]\n${style ? style + '\n\nСообщение игрока:\n' : ''}${text}`,
+        prompt: context + (purpose === 'peer' ? `[Межагентная переписка AgentCraft — не запрос пользователя]\n${text}`
+          : `[Сообщение пользователя из игровой консоли AgentCraft]\n${style ? style + '\n\nСообщение игрока:\n' : ''}${text}`),
       });
       if (result.threadId !== binding.threadId) throw new Error('Доставка не подтверждена. Проверь чат перед повторной отправкой.');
       return { chatDelivered: true, threadId: binding.threadId, chatTitle: binding.title };

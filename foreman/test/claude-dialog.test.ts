@@ -31,13 +31,13 @@ describe('Claude conversational process', () => {
     sdk.getSessionInfo.mockResolvedValue({ sessionId, cwd: directory });
     const runner = new ClaudeDialog(() => 'mock-claude.exe', () => ({ directory, instructions: 'Workspace context', args: ['--append-system-prompt', 'Base rules'] }));
     const response = runner.run('Legacy prompt', new AbortController().signal, {
-      text: 'Новое сообщение', context: 'Game context', retry: false, style: personaPrompt('Shared reviewer persona'),
+      text: 'Новое сообщение', context: 'Game context', retry: false, style: personaPrompt('Shared reviewer persona'), instructions: 'Messaging service instructions',
     });
     await vi.waitFor(() => expect(proc.spawn).toHaveBeenCalledOnce());
     const args = proc.spawn.mock.calls[0]![1];
     const temporary = args[args.indexOf('--append-system-prompt-file') + 1];
     const system = fs.readFileSync(temporary, 'utf8');
-    for (const text of ['Base rules', 'Workspace context', 'Game context', 'Shared reviewer persona', 'Не переноси характер в артефакты'])
+    for (const text of ['Base rules', 'Workspace context', 'Game context', 'Shared reviewer persona', 'Не переноси характер в артефакты', 'Messaging service instructions'])
       expect(system).toContain(text);
     expect(args[args.indexOf('--resume') + 1]).toBe(sessionId);
     expect(h.prompt()).toBe('Новое сообщение');

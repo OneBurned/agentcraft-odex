@@ -58,7 +58,8 @@ function fixture(auth = true, personaDescription?: () => string | undefined) {
   store.bind({ id: c.agentId, revision: 1, connection: c }, () => {});
   const fake = processes(auth), runner = new CodexCliProcess(c, fake.launch, fake.kill, 20);
   const text = vi.fn(), activity = vi.fn();
-  const a = new CodexCliAdapter(c, store, { text, activity, history: vi.fn(), personaDescription }, runner, () => false);
+  const a = new CodexCliAdapter(c, store, { text, activity, history: vi.fn(), personaDescription,
+    messageInstructions: () => 'Messaging service instructions' }, runner, () => false);
   adapters.push(a);
   return { a, c, store, fake, runner, text, activity, root, team };
 }
@@ -68,6 +69,7 @@ it('loads CLI persona for game replies and preserves neutral task purpose across
   const thread = randomUUID();
   await f.a.send('Hello', 'message'); await until(() => f.runner.busy());
   expect(f.fake.last().prompt).toContain(style); expect(f.fake.last().prompt).toContain('артефакты');
+  expect(f.fake.last().prompt).toContain('[Служебные инструкции AgentCraft]\nMessaging service instructions');
   success(f.fake.last(), thread, 'Hello back'); await until(() => !f.a.busy());
   style = 'Updated personality';
   await f.a.send('Hello again', 'message'); await until(() => f.runner.busy());

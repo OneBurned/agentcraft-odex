@@ -17,6 +17,7 @@ export interface AdapterEvents {
   useClaudeLogin?: boolean;
   permission?(cwd: string, signal: AbortSignal): CanUseTool;
   personaDescription?(): string | undefined;
+  messageInstructions?(): string | undefined;
   activity(phase: ConnectionPhase, detail?: string): void;
   text(text: string, final: boolean): void;
   history(messages: ConversationMessage[]): void;
@@ -42,6 +43,7 @@ export class CodexAdapter implements AgentAdapter {
       stateFile: store.file(`agents/${c.agentId}/codex-chat-state.json`),
       binding: () => { store.assertCurrent(c); return c; },
       personaDescription: events.personaDescription,
+      messageInstructions: events.messageInstructions,
       onText: events.text, onActivity: a => events.activity(a.phase), onStatus: () => {}, ...overrides });
   }
   start() { this.chat.start(); }
@@ -159,7 +161,8 @@ export class ClaudeAdapter implements AgentAdapter {
     this.running = Promise.resolve().then(async () => {
       const style = purpose === 'message' ? personaPrompt(this.events.personaDescription?.()) : '';
       const runner = work?.role === 'developer' ? this.developer : this.runner;
-      const result = await runner.run(text, signal, { text, context: '', retry, style: style || ARTIFACT_STYLE_RULE, work });
+      const result = await runner.run(text, signal, { text, context: '', retry, style: style || ARTIFACT_STYLE_RULE,
+        instructions: this.events.messageInstructions?.(), work });
       if (this.closed || this.controlling || signal.aborted) return;
       this.store.assertCurrent(this.c);
       if (runner === this.runner && this.runner.shared?.()) await this.syncHistory();

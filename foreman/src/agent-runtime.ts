@@ -68,6 +68,7 @@ export class AgentRuntime {
             permission: (cwd, signal) => toolPermission(this.fm, a.id, 'worker', cwd, { signal }, 'agentcraft',
               waiting => { if (current()) this.activity(a.id, waiting ? 'waiting' : 'working', waiting ? 'Нужно разрешение в игре' : 'Выполняю задачу'); }),
             personaDescription: () => this.fm.personas?.description(a.id),
+            messageInstructions: () => this.messageInstructions?.(a.id),
             activity: (phase, notice) => { if (current()) this.activity(a.id, phase, notice); },
             text: (text, final) => { if (current()) this.answer(a.id, text, final); },
             history: rows => { if (current()) {
@@ -158,7 +159,7 @@ export class AgentRuntime {
     slot.peerTurn = true;
     const text = slot.history.find(r => r.source?.messageId === m.id)?.text ?? this.peerText(m);
     this.activity(m.to, 'working', `Сообщение от агента ${m.from}`);
-    const result = await slot.adapter.send(text + '\n' + (this.messageInstructions?.(m.to) ?? ''), 'peer');
+    const result = await slot.adapter.send(text, 'peer');
     if (this.closed || this.slots.get(m.to) !== slot) throw new Error('Подключение изменилось во время доставки.');
     return result;
   }
@@ -211,7 +212,6 @@ export class AgentRuntime {
     const slot = this.slot(id);
     text = z.string().trim().min(1).max(12000).parse(text);
     slot.peerTurn = false;
-    if (this.messageInstructions) text += '\n' + this.messageInstructions(id);
     let result;
     try { result = work && slot.adapter.execute ? await slot.adapter.execute(text, work) : await slot.adapter.send(text, purpose); }
     catch (e) {

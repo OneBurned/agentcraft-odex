@@ -103,7 +103,7 @@ it('edits any team persona without changing work or roster and isolates style to
   for (const id of x.ids.slice(2)) {
     await until(() => vi.mocked(x.runners.get(id)!.value.run).mock.calls.length > 0);
     const request = vi.mocked(x.runners.get(id)!.value.run).mock.calls[0]![2];
-    expect(request?.text).toMatch(/^Hello\nПереписка с агентами:/);
+    expect(request?.text).toBe('Hello'); expect(request?.instructions).toContain('MCP agent_message/agent_messages');
     expect(request?.text).not.toContain('Style '); expect(request?.style).toContain(`Style ${id}`);
     expect(request?.style).toContain('артефакты');
   }
@@ -115,6 +115,15 @@ it('edits any team persona without changing work or roster and isolates style to
   await until(() => vi.mocked(x.runners.get(x.ids[2]!)!.value.run).mock.calls.length === 2);
   const taskStyle = vi.mocked(x.runners.get(x.ids[2]!)!.value.run).mock.calls[1]![2]?.style;
   expect(taskStyle).not.toContain('Style '); expect(taskStyle).toContain('артефакты');
+});
+it('delivers the full 12000-character player message without counting service context as player input', async () => {
+  const x = await fixture(), id = x.ids[0]!, text = 'x'.repeat(12000);
+  await x.backend.onChatMessage(text, id);
+  expect(x.prompts[0]!.prompt).toContain('[Служебные инструкции AgentCraft]');
+  expect((x.prompts[0]!.prompt as string).endsWith(text)).toBe(true);
+  expect((await x.backend.onStudioAction('connection.get', { id })).history).toMatchObject([{ role: 'user', text }]);
+  expect(x.f.store.logTail(id).some(l => l.text.includes('messaging.json'))).toBe(false);
+  expect(x.f.store.data.messages.at(-1)?.text).toBe(text);
 });
 it('routes peer bubbles among three present team agents and rejects hidden, busy and paused recipients', async () => {
   const x = await fixture(), [a, b, c] = x.ids as [string, string, string];

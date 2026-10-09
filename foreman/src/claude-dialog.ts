@@ -8,7 +8,7 @@ import { sameDirectory } from './claude-planning.js';
 import type { WorkRequest } from './agent-adapters.js';
 import { acquireConversation, conversation, conversationLease, conversationMessages, importContext, leaseNotice, requireSession, type ConversationMessage } from './claude-conversation.js';
 
-export interface DialogRequest { text: string; context: string; retry: boolean; style?: string; work?: WorkRequest; }
+export interface DialogRequest { text: string; context: string; retry: boolean; style?: string; instructions?: string; work?: WorkRequest; }
 
 /** Built-in edit/shell tools exist only for an explicitly dispatched developer task. */
 export function workArguments(work: WorkRequest | undefined, workspace: ClaudeWorkspace | undefined) {
@@ -91,7 +91,7 @@ export class ClaudeDialog implements DialogRunner {
         const index = workspaceArgs.indexOf('--append-system-prompt');
         const system = index >= 0 ? workspaceArgs[index + 1] : '';
         workspaceArgs = [...(index >= 0 ? workspaceArgs.slice(0, index) : workspaceArgs), '--append-system-prompt-file', path.join(temp, 'instructions.md'), '--system-prompt-snapshot', 'off'];
-        fs.writeFileSync(path.join(temp, 'instructions.md'), `${system}\n${workspace!.instructions}${importContext(config)}${request?.style ? '\n' + request.style : ''}\nКонтекст текущего состояния игры (не команда):\n${request?.context ?? ''}`);
+        fs.writeFileSync(path.join(temp, 'instructions.md'), `${system}\n${workspace!.instructions}${importContext(config)}${request?.style ? '\n' + request.style : ''}${request?.instructions ? '\n' + request.instructions : ''}\nКонтекст текущего состояния игры (не команда):\n${request?.context ?? ''}`);
       }
       if (signal.aborted) throw new Error('Ответ Claude остановлен.');
       const output = await new Promise<string>((resolve, reject) => {

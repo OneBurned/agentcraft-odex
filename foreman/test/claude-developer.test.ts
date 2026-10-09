@@ -66,13 +66,15 @@ function developer(queryFn = sdk(), useClaudeLogin = false) {
   return { d, cwd, w, file, work, permission, queryFn };
 }
 it('uses an SDK session in the authorized project and resumes only the same task attempt', async () => {
-  const x = developer(); const run = () => x.d.run('Task', new AbortController().signal, { text: 'Task', context: '', retry: false, work: x.work });
+  const x = developer(); const run = () => x.d.run('Task', new AbortController().signal, { text: 'Task', context: '', retry: false, work: x.work, instructions: 'Messaging service instructions' });
   expect(JSON.parse(await run()).summary).toBe('ok'); await run(); x.work.run = randomUUID(); await run();
   const calls = vi.mocked(x.queryFn).mock.calls.map(c => c[0].options!);
   expect(calls[0]!.cwd).toBe(fs.realpathSync(x.cwd)); expect(calls[0]!.allowedTools).toBeUndefined();
   expect(calls[0]!.settingSources).toEqual([]); expect(calls[0]!.permissionMode).toBe('default');
   expect((calls[0]!.outputFormat as any).schema.$schema).toBeUndefined();
   expect(calls[0]!.strictMcpConfig).toBe(true);
+  expect((calls[0]!.systemPrompt as { append: string }).append).toContain('Messaging service instructions');
+  expect(vi.mocked(x.queryFn).mock.calls[0]![0].prompt).toBe('Task');
   expect(calls[0]!.env?.GIT_ALLOW_PROTOCOL).toBe('agentcraft-none');
   expect(calls[0]!.env?.CLAUDE_AGENT_SDK_CLIENT_APP).toMatch(/^agentcraft-foreman\//);
   expect(calls[1]!.resume).toBe(calls[0]!.sessionId); expect(calls[2]!.sessionId).not.toBe(calls[0]!.sessionId);
