@@ -95,12 +95,21 @@ Closing the desktop app alone did not resolve the tested failure. AgentCraft doe
 not replace application binaries or silently switch agents to a prerelease CLI.
 
 `workspace-write` does not by itself permit Git commits: Codex protects `.git`
-inside the workspace as read-only. Live acceptance reached successful file edits
-and tests, then `git add` failed on `.git/index.lock`. Do not claim the complete
-developer/reviewer pipeline from a successful chat or shell probe. A separate,
-explicitly authorized Git-write policy is needed for unattended commits; the
-current connection UI does not configure that policy. See
+inside the workspace as read-only. A separate, explicitly authorized Git-write
+policy is needed for unattended commits; the current connection UI does not
+configure that policy. In an explicitly trusted disposable project, acceptance
+used the project's `.codex/config.toml` to add the exact absolute `.git` path to
+`[sandbox_workspace_write]` → `writable_roots`. This is an operator opt-in for
+that project, not a global change or an automatic installation step. See
 [Codex filesystem permissions](https://learn.chatgpt.com/docs/permissions).
+
+On Windows, a prior sandbox run can leave deny ACL entries on that directory.
+The tested environment needed a backed-up, narrowly scoped repair of four deny
+entries belonging to that workspace's sandbox capabilities; do not remove all
+ACLs or change other repositories. With the local permission and repaired ACLs,
+Codex created a real commit and Claude reviewed the exact HEAD successfully.
+See [PORTABLE_TRIAL.md](PORTABLE_TRIAL.md) for evidence and remaining acceptance
+checks. This does not certify the reverse pair or change the distributed package.
 
 A malformed final report for the current run produces a specific rejection on
 the board without accepting the result or advancing review. `ci` accepts only
