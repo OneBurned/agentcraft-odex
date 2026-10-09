@@ -23,7 +23,7 @@ export class ObserverBackend extends LegacyObserverBackend {
     this.teamStudio.start();
     this.fm.setStatus({ auth: 'unknown', message: 'Состояние подключения показано отдельно у каждого агента.' });
   }
-  override onTeamChanged() { if (this.fm.migratedPair) super.onTeamChanged(); else this.runtime?.reconcile(); }
+  override onTeamChanged() { if (this.fm.migratedPair) super.onTeamChanged(); else { this.runtime?.reconcile(); this.teamStudio?.messaging.provision(); } }
   assertAgentIdle(id: string) { this.teamStudio?.queue.assertIdle(id); return this.runtime?.assertIdle(id); }
   override onObserverUpdate(update: ObserverUpdate) {
     if (!this.fm.team || this.fm.migratedPair) return super.onObserverUpdate(update);

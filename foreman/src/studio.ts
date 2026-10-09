@@ -5,18 +5,21 @@ import { AgentRuntime } from './agent-runtime.js';
 import { RoleQueue } from './role-queue.js';
 import { loadCast } from './cast.js';
 import { teamCapabilities } from './team-capabilities.js';
+import { AgentMessaging } from './agent-messaging.js';
 // Existing profiles retain the old queue until explicit A4 migration.
 export { Studio } from './legacy-studio.js';
 const selected = z.object({ id: TeamId });
 
 export class TeamStudio {
   readonly queue: RoleQueue;
-  constructor(private fm: Foreman, readonly runtime: AgentRuntime) { this.queue = new RoleQueue(fm, runtime); }
-  start() { this.queue.migrateLegacyPlanning(); this.queue.start(); }
-  stop() { return this.queue.stop(); }
+  readonly messaging: AgentMessaging;
+  constructor(private fm: Foreman, readonly runtime: AgentRuntime) { this.queue = new RoleQueue(fm, runtime); this.messaging = new AgentMessaging(fm, runtime); }
+  start() { this.queue.migrateLegacyPlanning(); this.messaging.start(); this.queue.start(); }
+  async stop() { await this.messaging.stop(); await this.queue.stop(); }
   async action(action: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-    if ('token' in payload && !['draft.list', 'draft.create'].includes(action))
+    if ('token' in payload && !['draft.list', 'draft.create', 'message.send', 'message.list'].includes(action))
       throw new Error('Разрешение планировщика не позволяет управлять карточками или командой.');
+    if (action.startsWith('message.')) return this.messaging.action(action, payload);
     const idle = (id: string) => this.fm.assertTeamAgentIdle(id);
     if (action === 'persona.get' || action === 'persona.save') {
       if (!this.fm.personas) throw new Error('Редактор характеров доступен только в режиме наблюдения.');
@@ -48,6 +51,7 @@ export class TeamStudio {
       return action.startsWith('draft.') || ['report', 'review', 'review.report'].includes(action) ? result : this.action('get', {});
     }
     this.fm.syncTeam();
+    this.messaging.provision();
     return { team };
   }
 }

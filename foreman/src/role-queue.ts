@@ -196,6 +196,12 @@ export class RoleQueue {
     this.save();
   }
   private async dispatch(i: Item, id: string, phase: Phase, directory: string) {
+    const release = this.runtime.reserveWork(id);
+    if (!release) { i.reason = 'Агент занят; ожидаю свободного подключения.'; return; }
+    try { await this.dispatchReserved(i, id, phase, directory); }
+    finally { release(); }
+  }
+  private async dispatchReserved(i: Item, id: string, phase: Phase, directory: string) {
     let base: string;
     try {
       base = await cleanHead(this.cwd(i));

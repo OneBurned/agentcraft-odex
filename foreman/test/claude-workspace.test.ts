@@ -128,7 +128,7 @@ describe('reviewer workspace boundaries', () => {
     await expect(h.reader.call('project_read', { project: 'other', file: 'README.md' })).rejects.toThrow('не разрешён');
     await expect(h.reader.call('project_git', { project: 'one', action: 'diff', file: '.env' })).rejects.toThrow();
     await expect(h.reader.call('project_git', { project: 'one', action: 'diff', file: 'README.md', base: '--output=owned' })).rejects.toThrow();
-    for (const file of ['.git/config', '.claude/settings.json', 'data/users.json', 'artifacts/log.txt', 'appsettings.Production.json', 'credentials.json', 'server.key']) expect(sourceFile(file)).toBe(false);
+    for (const file of ['.git/config', '.claude/settings.json', 'data/users.json', 'artifacts/log.txt', 'appsettings.Production.json', 'credentials.json', 'server.key', 'messaging.json', 'agents/other/messaging.json']) expect(sourceFile(file)).toBe(false);
   });
   it('refuses a tracked path replaced by a junction pointing outside the repo', async () => {
     const h = await fixture(); await fs.mkdir(path.join(h.repo, 'docs')); await fs.writeFile(path.join(h.repo, 'docs/guide.md'), 'tracked'); await h.git('add', 'docs');

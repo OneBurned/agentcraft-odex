@@ -14,7 +14,7 @@ export const WorkspaceConfig = z.object({
   })).min(1).max(8),
 });
 export type WorkspaceAccess = z.infer<typeof WorkspaceConfig>;
-export const workspaceTools = ['projects', 'project_files', 'project_read', 'project_search', 'project_git', 'github_read', 'skill_read', 'memory_read', 'remember', 'planning_list', 'planning_create'];
+export const workspaceTools = ['projects', 'project_files', 'project_read', 'project_search', 'project_git', 'github_read', 'skill_read', 'memory_read', 'agent_messages', 'agent_message', 'remember', 'planning_list', 'planning_create'];
 export interface ClaudeWorkspace { directory: string; args: string[]; instructions: string; }
 
 /** No workspace is enabled until the operator creates a profile-local pointer. */

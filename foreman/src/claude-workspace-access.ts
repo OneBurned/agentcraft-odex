@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { WorkspaceConfig, type WorkspaceAccess } from './claude-workspace.js';
 import { githubError } from './workspace-command-error.js';
 import { planningCall } from './claude-planning.js';
+import { agentMessageCall } from './agent-message-call.js';
 
 const exec = promisify(execFile);
 const repoArg = z.object({ project: z.string() });
@@ -23,7 +24,7 @@ const execute: Execute = async (command, args, cwd) => {
 export function sourceFile(file: string): boolean {
   return !!file && !file.includes('\\') && !file.includes(':') && !file.startsWith('/') && !file.split('/').some(p => !p || p === '.' || p === '..'
     || /^(\.git|\.env.*|\.agentcraft-home|\.claude|node_modules|artifacts|backups?|data|secrets?|credentials?|logs?|bin|obj|dist|build|\.runtime)$/i.test(p))
-    && !/(^|\/)(appsettings\.(?!example\.)[^/]+|[^/]*(?:credentials|private[-_.]?key|token[-_.]?cache|secrets?)[^/]*)$/i.test(file)
+    && !/(^|\/)(messaging\.json|appsettings\.(?!example\.)[^/]+|[^/]*(?:credentials|private[-_.]?key|token[-_.]?cache|secrets?)[^/]*)$/i.test(file)
     && !/\.(pem|key|pfx|p12|db|sqlite3?|log|zip|jar|exe|dll|png|jpe?g|gif|webp|pdf|mp[34]|woff2?|ttf)$/i.test(file);
 }
 export const clip = (text: string, limit = 28000) => text.length > limit ? text.slice(0, limit) + '\n[Обрезано; сузь запрос или выбери следующую страницу.]' : text;
@@ -170,6 +171,7 @@ export class WorkspaceReader {
       return clip(await this.git(p.project, ['diff', '--no-ext-diff', '--no-textconv', '--no-renames', '--unified=12', base, '--', p.file]));
     }
     if (name === 'planning_list' || name === 'planning_create') return planningCall(this.directory, name, args);
+    if (name === 'agent_message' || name === 'agent_messages') return agentMessageCall(this.directory, name, args);
     if (name === 'github_read') return this.github(githubArg.parse(args));
     if (name === 'skill_read') return this.skill(args);
     if (name === 'memory_read') return clip(await fs.readFile(path.join(this.directory, 'MEMORY.md'), 'utf8'), 40000);

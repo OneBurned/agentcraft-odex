@@ -29,9 +29,10 @@ async function fixture() {
     fm.teamAction('team.create', { revision: fm.team!.snapshot().revision, agent: { name, provider: name === 'Dev2' ? 'claude' : 'codex', roles: ['developer', 'reviewer'], enabled: true, visible: true, appearance: { skin: 'marlow', color: '#123456', slim: false } } });
     ids.push(fm.team!.snapshot().agents.at(-1)!.id);
   }
-  const busy = new Set<string>(), keys = new Map(ids.map(id => [id, id]));
+  const busy = new Set<string>(), reserved = new Set<string>(), keys = new Map(ids.map(id => [id, id]));
   const calls: { id: string; text: string; work: any }[] = [];
-  const runtime = { idle: (id: string) => !busy.has(id), workUnavailable: (id: string) => busy.has(id) ? 'Агент занят' : undefined,
+  const runtime = { idle: (id: string) => !busy.has(id) && !reserved.has(id), workUnavailable: (id: string) => busy.has(id) ? 'Агент занят' : undefined,
+    reserveWork: (id: string) => { if (busy.has(id) || reserved.has(id)) return undefined; reserved.add(id); return () => { reserved.delete(id); }; },
     assertIdle: (id: string) => { if (busy.has(id)) throw new Error('Агент занят'); return true; },
     connectionKey: (id: string) => keys.get(id)!,
     sendWork: vi.fn(async (id: string, text: string, work: any) => { calls.push({ id, text, work }); busy.add(id); return { chatDelivered: true }; }),

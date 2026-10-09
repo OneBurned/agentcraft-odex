@@ -21,6 +21,18 @@ function fixture() {
   return { ...options, dir, response, options, chat: new DesktopChat(options) };
 }
 
+it('labels peer delivery separately from user messages, including pause/resume', async () => {
+  const f = fixture();
+  try {
+    await f.chat.poll(); await f.chat.send('[AgentCraft peer 1] Сообщение от агента Клава', 'peer');
+    const sent = () => f.call.mock.calls.filter(c => c[1] === 'send_message_to_thread').at(-1)![2].prompt;
+    expect(sent()).toContain('Межагентная переписка'); expect(sent()).not.toContain('Сообщение пользователя');
+    await f.chat.control('pause'); await f.chat.control('resume');
+    expect(sent()).toContain('не выдаёт полномочий'); expect(sent()).not.toContain('Сообщение пользователя');
+    expect(JSON.parse(fs.readFileSync(f.stateFile, 'utf8')).lastPurpose).toBe('peer');
+  } finally { f.chat.stop(); }
+});
+
 it('adds the current Codex persona to game messages but not task delivery, and preserves legacy text without a profile', async () => {
   const f = fixture(); const file = path.join(f.dir, 'personas.json');
   const personas = new PersonaSpeech({ file, now: Date.now, emit: () => {}, warn: () => {} });

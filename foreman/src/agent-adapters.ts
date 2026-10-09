@@ -24,7 +24,7 @@ export interface AdapterEvents {
 export interface AgentAdapter {
   start(): void;
   dispose(): Promise<void>;
-  send(text: string, purpose: 'message' | 'task'): Promise<Record<string, unknown>>;
+  send(text: string, purpose: 'message' | 'task' | 'peer'): Promise<Record<string, unknown>>;
   execute?(text: string, work: WorkRequest): Promise<Record<string, unknown>>;
   control(action: ChatControl): Promise<Record<string, unknown>>;
   /** Pending local operations also prevent changing an agent before a poll observes work. */
@@ -52,7 +52,7 @@ export class CodexAdapter implements AgentAdapter {
     this.pending = true;
     try { return await this.chat.check(); } finally { this.pending = false; }
   }
-  async send(text: string, purpose: 'message' | 'task') {
+  async send(text: string, purpose: 'message' | 'task' | 'peer') {
     if (this.pending) throw new Error('Предыдущая команда агента ещё выполняется.');
     this.pending = true;
     try { return await this.chat.send(text, purpose); } finally { this.pending = false; }
@@ -64,7 +64,7 @@ export class CodexAdapter implements AgentAdapter {
   }
 }
 
-interface ClaudeState { sessionId: string; cursor?: string; pending?: string; purpose?: 'message' | 'task'; paused?: boolean; work?: WorkRequest; error?: string; }
+interface ClaudeState { sessionId: string; cursor?: string; pending?: string; purpose?: 'message' | 'task' | 'peer'; paused?: boolean; work?: WorkRequest; error?: string; }
 export class ClaudeAdapter implements AgentAdapter {
   private runner: DialogRunner;
   private developer: DialogRunner;
@@ -144,7 +144,7 @@ export class ClaudeAdapter implements AgentAdapter {
     this.state.cursor = rows.at(-1)?.id; this.save();
   }
   execute(text: string, work: WorkRequest) { return this.send(text, 'task', false, work); }
-  async send(text: string, purpose: 'message' | 'task', retry = false, work?: WorkRequest): Promise<Record<string, unknown>> {
+  async send(text: string, purpose: 'message' | 'task' | 'peer', retry = false, work?: WorkRequest): Promise<Record<string, unknown>> {
     this.store.assertCurrent(this.c);
     const external = this.runner.externalStatus?.();
     if (external) throw new Error(external);
