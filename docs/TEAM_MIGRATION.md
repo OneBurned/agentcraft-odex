@@ -144,3 +144,17 @@ PID или отказ доступа может блокировать опер�
 The migrated pair can opt in to A5 via `queue.enable` in Studio or the settings button.
 Resolve old work/questions and pending conversations, then remove personal pauses first.
 The new queue imports existing cards and pauses before execution. See [ROLE_QUEUE.md](ROLE_QUEUE.md).
+
+After `queue.enable`, reconnect the Claude planner explicitly. The previous workspace
+`planning.json` is version 1 and is not converted by team migration or queue activation.
+Keep a private backup of that file, select planning mode with no unfinished attempts,
+and issue `draft.grant` for the migrated planner's stable ID and the allowed board
+project IDs. Write the returned version 2 permit with the bridge port to the workspace's
+`planning.json`, as described in ROLE_QUEUE.md. Do not add an agentId to the old token:
+the role queue must issue a new session-bound permit. It lasts 30 minutes and permits
+one draft; each further draft needs a fresh permit. Verify `planning_list` through the
+installed MCP server. Neither migration nor granting a permit approves/starts tasks.
+
+If an old version 1 binding is used against the role queue, the current server returns
+`agentId: expected string, received undefined`. This indicates the missing planning
+reconnection step, not a lost Claude conversation or missing project file access.
