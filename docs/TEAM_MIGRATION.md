@@ -145,16 +145,24 @@ The migrated pair can opt in to A5 via `queue.enable` in Studio or the settings 
 Resolve old work/questions and pending conversations, then remove personal pauses first.
 The new queue imports existing cards and pauses before execution. See [ROLE_QUEUE.md](ROLE_QUEUE.md).
 
-After `queue.enable`, reconnect the Claude planner explicitly. The previous workspace
-`planning.json` is version 1 and is not converted by team migration or queue activation.
-Keep a private backup of that file, select planning mode with no unfinished attempts,
-and issue `draft.grant` for the migrated planner's stable ID and the allowed board
-project IDs. Write the returned version 2 permit with the bridge port to the workspace's
-`planning.json`, as described in ROLE_QUEUE.md. Do not add an agentId to the old token:
-the role queue must issue a new session-bound permit. It lasts 30 minutes and permits
-one draft; each further draft needs a fresh permit. Verify `planning_list` through the
-installed MCP server. Neither migration nor granting a permit approves/starts tasks.
+At role-queue activation (and startup of an already migrated profile), the bridge
+converts an existing authenticated legacy planning binding to version 2. It validates
+both old bindings, the current workspace/session/agent and the intersection of allowed
+workspace projects with the board projects. The old workspace file is backed up beside
+it before an atomic replacement. The new session-bound permit covers 20 drafts for
+24 hours; the queue remains paused. It never approves or starts tasks.
 
-If an old version 1 binding is used against the role queue, the current server returns
-`agentId: expected string, received undefined`. This indicates the missing planning
-reconnection step, not a lost Claude conversation or missing project file access.
+An unfinished queue attempt defers conversion with a notice. After resolving that
+attempt, selecting planning retries the conversion. A permit already published to
+the workspace remains valid if saving the subsequent status notice fails.
+
+Missing bindings are not invented. Invalid bindings remain untouched with an actionable
+queue notice. Existing version 2 bindings, including expired ones, are not renewed on
+restart. Operators can explicitly renew them with draft.grant; see ROLE_QUEUE.md.
+If the older bridge still reports agentId: expected string, received undefined, update
+the bridge or reconnect planning using that operator procedure. Native conversations
+and project access do not need to be recreated.
+
+The packaged migration CLI resolves its assets from its own package root; source runs
+continue to use the repository root. This avoids rejecting unchanged default characters
+because the bundled CLI looked for the cast catalog above the package directory.

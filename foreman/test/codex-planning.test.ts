@@ -126,6 +126,83 @@ it('CLI grants a private one-card permit, lists projects and creates a draft wit
   expect(fs.readFileSync(permitFile, 'utf8')).toBe(original);
 });
 
+it('bounded pool permits allow dependent drafts, retry without spending quota and persist across restart', async () => {
+  const x = await fixture('claude'), workspace = x.workspaces.get(x.agentId)!;
+  const permit = await x.action('draft.grant', { agentId: x.agentId, projects: [x.project.id], maxDrafts: 2, ttlMinutes: 1440 });
+  fs.writeFileSync(path.join(workspace, 'planning.json'), JSON.stringify({ ...permit, port: x.port }));
+  const reader = await WorkspaceReader.open(workspace);
+  const first: any = await reader.call('planning_create', x.input);
+  const second = { ...x.input, requestId: 'second', deps: [first.item.id] };
+  const results: any[] = await Promise.all([reader.call('planning_create', second), reader.call('planning_create', second)]);
+  expect(results.map(r => r.duplicate)).toEqual([false, true]);
+  expect(await reader.call('planning_list', {})).toMatchObject({ permit: { maxDrafts: 2, remaining: 0 }, total: 2 });
+  await expect(reader.call('planning_create', { ...x.input, requestId: 'third' })).rejects.toThrow('Лимит');
+  await x.backend.stop(); await x.backend.start(); await x.action('plan');
+  expect(await reader.call('planning_create', x.input)).toMatchObject({ duplicate: true, item: { id: first.item.id } });
+  await expect(reader.call('planning_create', { ...x.input, requestId: 'third' })).rejects.toThrow('Лимит');
+  const renewed = await x.action('draft.grant', { agentId: x.agentId, projects: [x.project.id], maxDrafts: 2 });
+  expect(await x.create({}, renewed)).toMatchObject({ duplicate: true });
+  expect(await x.action('draft.list', x.auth(renewed))).toMatchObject({ permit: { remaining: 2 } });
+  expect(x.data().items.every((i: any) => i.stage === 'plan' && !i.developerId && !i.reviewerId)).toBe(true);
+  expect(x.send).not.toHaveBeenCalled();
+});
+
+it('rejects invalid pool bounds and preserves legacy consumed single-card permits', async () => {
+  const x = await fixture();
+  for (const extra of [{ maxDrafts: 0 }, { maxDrafts: 101 }, { maxDrafts: 1.5 }, { ttlMinutes: 0 }, { ttlMinutes: 1441 }])
+    await expect(x.action('draft.grant', { agentId: x.agentId, projects: [x.project.id], ...extra })).rejects.toThrow();
+  await x.create();
+  const permit: any = Object.values(x.data().draftPermits)[0];
+  delete permit.requestIds; delete permit.maxDrafts; permit.requestId = 'one';
+  expect(await x.create()).toMatchObject({ duplicate: true });
+  await expect(x.create({ requestId: 'two' })).rejects.toThrow('Одноразовое');
+});
+
+it.each(['normal', 'tampered', 'deferred', 'published-save-failure'])('restores authenticated legacy planning on role-queue startup (%s)', async scenario => {
+  const x = await fixture('claude'), workspace = x.workspaces.get(x.agentId)!;
+  if (scenario === 'deferred') {
+    await x.create();
+    x.data().items[0].attempt = { agentId: x.agentId, phase: 'developer', run: randomUUID(), connection: 'fixture', base: 'fixture' };
+  }
+  await x.backend.stop(); x.f.config.port = x.port;
+  x.f.store.data.backend.teamMigration = { version: 1, kind: 'legacy-pair' };
+  const binding = { version: 1, workspace, profile: x.f.config.dataDir, port: x.port, token: randomUUID() };
+  fs.writeFileSync(path.join(x.f.config.dataDir, 'claude-workspace.json'), JSON.stringify({ directory: workspace }));
+  fs.writeFileSync(path.join(x.f.config.dataDir, 'planning.json'), JSON.stringify(binding));
+  const file = path.join(workspace, 'planning.json');
+  const original = JSON.stringify({ ...binding, ...(scenario === 'tampered' ? { token: randomUUID() } : {}) });
+  fs.writeFileSync(file, original);
+  let injected = false;
+  const flush = x.f.store.flush.bind(x.f.store);
+  if (scenario === 'published-save-failure') vi.spyOn(x.f.store, 'flush').mockImplementation(() => {
+    if (!injected && JSON.parse(fs.readFileSync(file, 'utf8')).version === 2) {
+      injected = true; throw new Error('Simulated post-publication save failure');
+    }
+    return flush();
+  });
+  await x.backend.start();
+  expect(x.data().mode).toBe('paused'); expect(x.send).not.toHaveBeenCalled();
+  if (scenario === 'tampered') {
+    expect(fs.readFileSync(file, 'utf8')).toBe(original);
+    expect(x.data().notice).toContain('Не удалось перенести'); return;
+  }
+  if (scenario === 'deferred') {
+    expect(fs.readFileSync(file, 'utf8')).toBe(original);
+    expect(x.data().notice).toContain('отложен');
+    delete x.data().items[0].attempt;
+    await x.action('plan');
+  }
+  if (scenario === 'published-save-failure') expect(injected).toBe(true);
+  const converted = JSON.parse(fs.readFileSync(file, 'utf8'));
+  expect(converted).toMatchObject({ version: 2, agentId: x.agentId, maxDrafts: 20, port: x.port });
+  const backup = fs.readdirSync(workspace).find(n => n.startsWith('planning.json.legacy-'))!;
+  expect(fs.readFileSync(path.join(workspace, backup), 'utf8')).toBe(original);
+  await x.action('plan');
+  expect(await (await WorkspaceReader.open(workspace)).call('planning_list', {})).toMatchObject({ projects: [{ id: x.project.id }], permit: { remaining: 20 } });
+  await x.backend.stop(); await x.backend.start();
+  expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual(converted);
+});
+
 it('one token cannot create a second card; independent agents and dependent cards have separate keys', async () => {
   const x = await fixture(); const first: any = await x.create();
   await expect(x.create({ requestId: 'two' })).rejects.toThrow('Одноразовое');

@@ -20,7 +20,7 @@ export const PlanningBinding = z.object({ version: z.literal(1), workspace: z.st
   profile: z.string().refine(path.isAbsolute), port: z.number().int().min(1).max(65535), token: z.string().uuid() }).strict();
 export const TeamPlanningBinding = z.object({ version: z.literal(2), workspace: z.string().refine(path.isAbsolute),
   agentId: TeamId, sessionId: z.string().uuid(), port: z.number().int().min(1).max(65535), token: z.string().uuid(),
-  expiresAt: z.number().int().positive() }).strict();
+  expiresAt: z.number().int().positive(), maxDrafts: z.number().int().min(1).max(100).optional() }).strict();
 export const sameDirectory = (a: string, b: string) => {
   const real = (p: string) => { const value = fs.realpathSync(p); return process.platform === 'win32' ? value.toLowerCase() : value; };
   return real(a) === real(b);

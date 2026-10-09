@@ -12,7 +12,7 @@ const selected = z.object({ id: TeamId });
 export class TeamStudio {
   readonly queue: RoleQueue;
   constructor(private fm: Foreman, readonly runtime: AgentRuntime) { this.queue = new RoleQueue(fm, runtime); }
-  start() { this.queue.start(); }
+  start() { this.queue.migrateLegacyPlanning(); this.queue.start(); }
   stop() { return this.queue.stop(); }
   async action(action: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     if ('token' in payload && !['draft.list', 'draft.create'].includes(action))
