@@ -129,8 +129,13 @@ export class CodexCliProcess implements CliRunner {
           } else if (event.type === 'item.completed' && event.item?.type === 'agent_message') {
             if (typeof event.item.text !== 'string' || typeof event.item.id !== 'string') throw new Error('bad message');
             messages.set(event.item.id, event.item.text);
+          } else if (event.type === 'item.completed' && event.item?.type === 'command_execution'
+            && event.item.exit_code !== 0 && typeof event.item.aggregated_output === 'string'
+            && /^Failed to create unified exec process: (?:windows sandbox failed: )?helper_unknown_error: setup refresh had errors\s*$/.test(event.item.aggregated_output)) {
+            // Recognize the infrastructure error without forwarding command output or local paths.
+            failure = 'Песочница Codex CLI не смогла запуститься (setup refresh had errors). Проверь журнал .codex/.sandbox; задача не подтверждена. После исправления повтори её через доску.';
           } else if (event.type === 'turn.completed') complete = true;
-          else if (event.type === 'turn.failed' || event.type === 'error') failure = 'Codex CLI сообщил об ошибке выполнения. Проверь вход и доступность модели в терминале.';
+          else if (event.type === 'turn.failed' || event.type === 'error') failure ||= 'Codex CLI сообщил об ошибке выполнения. Проверь вход и доступность модели в терминале.';
           // Reasoning, tool arguments, command output and diagnostics are never sent to the game.
         } catch { fail('Некорректный поток Codex CLI или неподтверждённая сессия.'); }
       };

@@ -73,6 +73,24 @@ and backed up, so an interruption uses the same recovery path.
 
 ## Verification
 
+### Codex CLI command startup and task reports
+
+The connection check confirms CLI capabilities and login; it does not execute
+a project command or certify that the Windows sandbox can start. If a command
+fails with `helper_unknown_error: setup refresh had errors`, AgentCraft reports
+a sandbox startup error and leaves the task for an explicit retry on the board,
+even when Codex ends its turn with exit code zero. Raw command output and local
+paths are not copied into that diagnostic. Inspect `.codex/.sandbox` locally.
+Keep the selected sandbox policy while investigating; do not use full access
+as a substitute for repairing setup. See the
+[official Windows sandbox troubleshooting](https://learn.chatgpt.com/docs/windows/windows-sandbox).
+
+A malformed final report for the current run produces a specific rejection on
+the board without accepting the result or advancing review. `ci` accepts only
+`pass`, `fail`, or `unknown`; use `unknown` when checks did not run. Reports from
+an old run, another agent, a paused run, or a replaced connection cannot use this
+diagnostic path to interrupt the current task.
+
 `tools/test/portable-install.test.mjs` exercises install/update/rollback, exact data
 preservation, renamed mods, Fabric versions, paths, process/owner refusals, checksums,
 links, copy failure and interrupted recovery in disposable directories.

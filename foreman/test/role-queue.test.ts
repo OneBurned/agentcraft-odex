@@ -61,6 +61,28 @@ it('an asynchronous SDK failure opens a question while retaining the attempt and
   expect(i.attempt).toBe(attempt); expect(i.lock).toBeTruthy();
   expect(x.fm.decisions.open().some(d => d.taskId === i.id)).toBe(true);
 });
+it('shows an invalid final report reason without accepting it or starting review', async () => {
+  const x = await fixture(), i = await x.create(); x.q.start(); await x.action('start');
+  const a = i.attempt!, head = git(x.cwd, 'rev-parse', 'HEAD');
+  (x.runtime as unknown as AgentRuntime).onFinal!(x.ids[0]!, JSON.stringify({ id: i.id, run: a.run,
+    status: 'blocked', summary: 'Environment failure', ci: 'not_run' }));
+  x.busy.delete(x.ids[0]!); await x.q.tick();
+  expect(i.stage).toBe('question'); expect(i.reason).toContain('ci допускает только pass, fail или unknown');
+  expect(i.attempt).toBe(a); expect(i.receipts[a.run]).toBeUndefined(); expect(i.lock).toBeTruthy();
+  expect(x.calls).toHaveLength(1); expect(git(x.cwd, 'rev-parse', 'HEAD')).toBe(head);
+  expect(x.fm.decisions.open().find(d => d.taskId === i.id)?.question).toContain('ci допускает');
+  expect(x.calls[0]?.text).toContain('если проверки не запускались, укажи unknown');
+});
+it.each(['stale', 'foreign', 'paused', 'connection'])('invalid %s final reports do not interrupt the active task', async mode => {
+  const x = await fixture(), i = await x.create(); x.q.start(); await x.action('start');
+  const a = i.attempt!;
+  if (mode === 'paused') a.paused = true;
+  if (mode === 'connection') x.keys.set(x.ids[0]!, 'new connection');
+  (x.runtime as unknown as AgentRuntime).onFinal!(mode === 'foreign' ? x.ids[1]! : x.ids[0]!, JSON.stringify({
+    id: i.id, run: mode === 'stale' ? randomUUID() : a.run, status: 'blocked', summary: 'Invalid', ci: 'not_run' }));
+  await x.q.tick(); expect(i.stage).toBe('coding'); expect(i.reason).toBeUndefined();
+  expect(x.fm.decisions.open()).toHaveLength(0);
+});
 it('dispatches explicit assignments, exact commit ranges and returns corrections to the same developer', async () => {
   const x = await fixture(), i = await x.create(); await x.action('start');
   expect(x.calls[0]?.id).toBe(x.ids[0]); expect(i.stage).toBe('coding');

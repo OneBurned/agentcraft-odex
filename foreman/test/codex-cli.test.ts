@@ -80,6 +80,28 @@ it('loads CLI persona for game replies and preserves neutral task purpose across
   expect(f.fake.last().prompt).not.toContain(style); expect(f.fake.last().prompt).toContain('артефакты');
   await f.a.control('stop');
 });
+it.each([false, true])('preserves sandbox startup failure when a later turn failure is %s', async turnFailed => {
+  const f = fixture(); await f.a.check(); await f.a.send('work', 'task'); await until(() => f.runner.busy());
+  const child = f.fake.last(), id = randomUUID();
+  child.event({ type: 'thread.started', thread_id: id });
+  child.event({ type: 'item.completed', item: { type: 'command_execution', exit_code: -1,
+    aggregated_output: 'Failed to create unified exec process: helper_unknown_error: setup refresh had errors', command: 'private command' } });
+  if (turnFailed) { child.event({ type: 'turn.failed', error: { message: 'private upstream detail' } }); child.close(1); }
+  else success(child, id, 'Misleading success');
+  await until(() => !f.a.busy());
+  expect(f.activity.mock.calls.at(-1)).toEqual(['error', expect.stringContaining('Песочница Codex CLI')]);
+  expect(JSON.stringify(f.activity.mock.calls)).not.toContain('private command');
+  expect(f.text).not.toHaveBeenCalled();
+  expect(f.fake.calls.at(-1)!.args).toContain('read-only');
+});
+it('does not classify an ordinary failing command as a sandbox failure', async () => {
+  const f = fixture(); await f.a.check(); await f.a.send('work', 'task'); await until(() => f.runner.busy());
+  const child = f.fake.last(), id = randomUUID();
+  child.event({ type: 'thread.started', thread_id: id });
+  child.event({ type: 'item.completed', item: { type: 'command_execution', exit_code: 1, aggregated_output: 'Test failed' } });
+  success(child, id, 'Tests failed'); await until(() => !f.a.busy());
+  expect(f.text).toHaveBeenCalledWith('Tests failed', true);
+});
 it('checks version/capabilities/login without starting a turn or touching the project', async () => {
   const f = fixture(); fs.writeFileSync(path.join(f.c.workspace, 'sentinel'), 'unchanged');
   expect(await f.a.check()).toEqual({ version: '0.162.0-alpha.2' });
