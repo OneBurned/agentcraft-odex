@@ -85,6 +85,23 @@ Keep the selected sandbox policy while investigating; do not use full access
 as a substitute for repairing setup. See the
 [official Windows sandbox troubleshooting](https://learn.chatgpt.com/docs/windows/windows-sandbox).
 
+One verified cause in Codex CLI 0.162.0-alpha.2 is Windows error 32 while repairing
+ACLs on an active `node.exe`/`node_repl.exe`. The upstream fix is
+[OpenAI Codex PR 51822](https://github.com/openai/codex/pull/51822).
+An isolated official CLI 0.163.0-alpha.2 package passed the sandbox command probe;
+the stable 0.162.0 source did not yet contain this fix. Use a release that includes
+the fix, retaining its companion resources and the configured sandbox policy.
+Closing the desktop app alone did not resolve the tested failure. AgentCraft does
+not replace application binaries or silently switch agents to a prerelease CLI.
+
+`workspace-write` does not by itself permit Git commits: Codex protects `.git`
+inside the workspace as read-only. Live acceptance reached successful file edits
+and tests, then `git add` failed on `.git/index.lock`. Do not claim the complete
+developer/reviewer pipeline from a successful chat or shell probe. A separate,
+explicitly authorized Git-write policy is needed for unattended commits; the
+current connection UI does not configure that policy. See
+[Codex filesystem permissions](https://learn.chatgpt.com/docs/permissions).
+
 A malformed final report for the current run produces a specific rejection on
 the board without accepting the result or advancing review. `ci` accepts only
 `pass`, `fail`, or `unknown`; use `unknown` when checks did not run. Reports from
