@@ -109,7 +109,16 @@ entries belonging to that workspace's sandbox capabilities; do not remove all
 ACLs or change other repositories. With the local permission and repaired ACLs,
 Codex created a real commit and Claude reviewed the exact HEAD successfully.
 See [PORTABLE_TRIAL.md](PORTABLE_TRIAL.md) for evidence and remaining acceptance
-checks. This does not certify the reverse pair or change the distributed package.
+checks. Later live checks cover the reverse pair separately; the distributed package is unchanged.
+
+When pausing/stopping Codex CLI, the current source tracks owned descendants
+before terminating the root and checks for survivors afterward. Windows can
+leave a child holding stdout open after its parent exits; this must not leave
+the agent stuck forever. Only matching PID/creation-time identities are reaped,
+and completion still requires closed output streams. If process identity cannot
+be checked, Stop returns an error and remains retryable. The confirmation window
+is 30 seconds. See the t53 report for which test bundle contains this correction;
+the published rc.1 and personal installation do not update automatically.
 
 A malformed final report for the current run produces a specific rejection on
 the board without accepting the result or advancing review. `ci` accepts only

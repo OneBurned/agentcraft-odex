@@ -7,6 +7,7 @@ import type { AgentAdapter, AdapterEvents, ConnectionPhase } from './agent-adapt
 import type { ChatControl } from './codex-desktop.js';
 import { ARTIFACT_STYLE_RULE, personaPrompt } from './persona-prompt.js';
 import { readJson, writeJsonAtomic } from './util/fsx.js';
+import { CodexProcessTree } from './codex-process.js';
 
 export type CliConnection = Extract<Connection, { transport: 'codex-cli' }>;
 export type SpawnCli = (exe: string, args: string[], options: SpawnOptions) => ChildProcess;
@@ -50,8 +51,9 @@ export class CodexCliProcess implements CliRunner {
   private closed?: Promise<void>;
   private accepting = false;
   private stopping?: Promise<void>;
+  private tree = new CodexProcessTree();
   constructor(private c: CliConnection, private launch: SpawnCli = spawn,
-    private kill: (child: ChildProcess) => Promise<void> = terminate, private timeoutMs = 5000) {}
+    private kill?: (child: ChildProcess) => Promise<void>, private timeoutMs = 30_000) {}
   busy() { return !!this.child; }
   private async command(args: string[]): Promise<{ code: number | null; output: string }> {
     if (this.child) throw new Error('Codex CLI занят.');
@@ -85,6 +87,7 @@ export class CodexCliProcess implements CliRunner {
   }
   private track(child: ChildProcess) {
     this.child = child;
+    this.tree.attach(child);
     this.closed = new Promise(resolve => child.once('close', () => { if (this.child === child) this.child = undefined; resolve(); }));
   }
   stop(): Promise<void> {
@@ -98,7 +101,7 @@ export class CodexCliProcess implements CliRunner {
     if (!child) return;
     let timer: NodeJS.Timeout | undefined;
     try {
-      await Promise.race([Promise.all([this.kill(child), this.closed]), new Promise<never>((_, reject) => {
+      await Promise.race([Promise.all([this.kill ? this.kill(child) : this.tree.stop(child, terminate), this.closed]), new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error('Codex CLI ещё не завершился. Повтори Стоп.')), this.timeoutMs);
       })]);
     } finally { clearTimeout(timer); }
