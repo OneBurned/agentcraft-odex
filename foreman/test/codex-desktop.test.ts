@@ -57,6 +57,30 @@ it('adds the current Codex persona to game messages but not task delivery, and p
 });
 
 describe('desktop chat relay', () => {
+  it('validates a refreshed endpoint without sending or interrupting and discards the previous poll', async () => {
+    const f = fixture(); await f.chat.poll();
+    let release!: (value: any) => void;
+    f.call.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    const pending = f.chat.poll();
+    const activate = vi.fn(() => fs.writeFileSync(f.configFile, JSON.stringify({ ...binding, pipePath: binding.pipePath + '-new' })));
+    await f.chat.refreshEndpoint({ ...binding, pipePath: binding.pipePath + '-new' }, activate);
+    expect(activate).toHaveBeenCalledOnce();
+    const before = f.onActivity.mock.calls.length;
+    release({ thread: { id: binding.threadId }, turns: [] }); await pending;
+    expect(f.onActivity).toHaveBeenCalledTimes(before);
+    const restarted = new DesktopChat(f.options); await restarted.poll();
+    expect(f.call.mock.calls.at(-1)![0].pipePath).toBe(binding.pipePath + '-new');
+    expect(f.call.mock.calls.every(c => c[1] === 'read_thread')).toBe(true); expect(f.interrupt).not.toHaveBeenCalled();
+  });
+  it('does not activate a different or unreachable thread endpoint', async () => {
+    const f = fixture(), activate = vi.fn();
+    await expect(f.chat.refreshEndpoint({ ...binding, threadId: 'other' }, activate)).rejects.toThrow('того же');
+    f.call.mockRejectedValueOnce(new Error('offline'));
+    await expect(f.chat.refreshEndpoint(binding, activate)).rejects.toThrow('offline');
+    f.response.thread.id = 'different';
+    await expect(f.chat.refreshEndpoint(binding, activate)).rejects.toThrow('не подтвердил');
+    expect(activate).not.toHaveBeenCalled();
+  });
   it('ignores a stale idle poll that finishes after a newer send', async () => {
     const f = fixture(); await f.chat.poll();
     let release!: (value: any) => void;

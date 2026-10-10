@@ -139,6 +139,21 @@ export class DesktopChat {
     this.timer = setInterval(() => void this.poll(), 5000); this.timer.unref();
   }
   stop() { this.stopped = true; clearInterval(this.timer); }
+  async refreshEndpoint(binding: ChatBinding, activate: () => void) {
+    if (this.stopped || this.controlling || this.sending) throw new Error('Дождись завершения команды подключения.');
+    const current = this.options.binding?.() ?? readBinding(this.options.configFile);
+    if (!current || current.threadId !== binding.threadId || current.hostId !== binding.hostId)
+      throw new Error('Обновлять канал можно только для того же чата Codex.');
+    this.controlling = true; this.commandEpoch++;
+    try {
+      const data = await (this.options.call ?? appCall)(binding, 'read_thread', { turnLimit: 1, includeOutputs: false, maxOutputCharsPerItem: 0 });
+      if (this.stopped) throw new Error('Мост остановлен во время проверки.');
+      if (data.thread?.id !== binding.threadId || !Array.isArray(data.turns) || chatActivity(data).phase === 'unavailable')
+        throw new Error('Новый канал не подтвердил доступ к тому же чату Codex.');
+      activate(); // Rechecks immutable connection and registry revision after the read.
+      return { reconnected: true, threadId: binding.threadId };
+    } finally { this.controlling = false; }
+  }
   async check() {
     if (this.polling || this.stopped || this.controlling || this.sending) throw new Error('Подключение занято. Повтори проверку через несколько секунд.');
     const binding = this.options.binding?.() ?? readBinding(this.options.configFile);

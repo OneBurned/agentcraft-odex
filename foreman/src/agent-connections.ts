@@ -7,7 +7,7 @@ import { TeamId, TeamRegistry, validateReference } from './team.js';
 import { readBinding, chatConfigPath } from './codex-desktop.js';
 import { claudeWorkspace } from './claude-workspace.js';
 import { conversation, conversationLease } from './claude-conversation.js';
-import { writeJsonAtomic } from './util/fsx.js';
+import { readJson, writeJsonAtomic } from './util/fsx.js';
 
 const base = { version: z.literal(1), agentId: TeamId };
 const codex = z.object({ ...base, provider: z.literal('codex'), transport: z.literal('codex-desktop'),
@@ -23,6 +23,7 @@ export const Connection = z.discriminatedUnion('transport', [codex, codexCli, cl
 export type Connection = z.infer<typeof Connection>;
 export const connectionSession = (c: Connection) => c.transport === 'codex-desktop' ? c.threadId : c.sessionId;
 const request = z.object({ id: TeamId, revision: z.number().int().nonnegative(), connection: z.record(z.string(), z.unknown()) });
+const endpoint = z.object({ connectionRef: z.string(), threadId: z.string().uuid(), hostId: z.literal('local'), pipePath: codex.shape.pipePath }).strict();
 
 /** Immutable records: team.json's reference is the only activation point. No secrets on the wire. */
 export class AgentConnections {
@@ -54,6 +55,33 @@ export class AgentConnections {
     if (actual.provider === 'claude' && conversation(actual.workspace)?.sessionId !== actual.sessionId)
       throw new Error('Сессия Claude не соответствует подключению агента. Переподключи выбранного агента.');
     return actual;
+  }
+  desktopBinding(c: Extract<Connection, { transport: 'codex-desktop' }>) {
+    this.assertCurrent(c);
+    const saved = readJson(this.file(`agents/${c.agentId}/codex-endpoint.json`));
+    if (!saved) return c;
+    const e = endpoint.parse(saved);
+    // A new immutable connection never inherits a previous connection's endpoint.
+    if (e.connectionRef !== this.team.get(c.agentId)!.connectionRef) return c;
+    if (e.threadId !== c.threadId || e.hostId !== c.hostId) throw new Error('Endpoint identity mismatch');
+    return { ...c, pipePath: e.pipePath };
+  }
+  prepareDesktopRefresh(raw: Record<string, unknown>) {
+    const p = endpoint.omit({ connectionRef: true }).extend({ id: TeamId, revision: z.number().int().nonnegative() }).strict().parse(raw);
+    this.team.assertUnchanged();
+    const c = this.read(p.id), ref = this.team.get(p.id)?.connectionRef;
+    const validate = () => {
+      this.team.assertUnchanged();
+      if (p.revision !== this.team.snapshot().revision) throw new Error('Team revision conflict');
+      if (!c || c.transport !== 'codex-desktop' || c.threadId !== p.threadId || c.hostId !== p.hostId || !ref)
+        throw new Error('Обновлять канал можно только для того же чата Codex.');
+      this.assertCurrent(c);
+      if (this.team.get(p.id)?.connectionRef !== ref) throw new Error('Подключение изменилось во время проверки.');
+    };
+    validate();
+    return { id: p.id, binding: { ...(c as Extract<Connection, { transport: 'codex-desktop' }>), pipePath: p.pipePath },
+      activate: () => { validate(); writeJsonAtomic(this.file(`agents/${p.id}/codex-endpoint.json`),
+        { connectionRef: ref, threadId: p.threadId, hostId: p.hostId, pipePath: p.pipePath }); } };
   }
   bind(raw: Record<string, unknown>, idle: (id: string) => void) {
     const { id, revision, connection } = request.strict().parse(raw);

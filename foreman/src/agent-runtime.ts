@@ -183,6 +183,15 @@ export class AgentRuntime {
     return true;
   }
   connectionKey(id: string) { const s = this.slot(id); return createHash('sha256').update(JSON.stringify({ ref: s.ref, connection: s.connection })).digest('hex'); }
+  async refreshCodex(raw: Record<string, unknown>) {
+    const p = this.connections.prepareDesktopRefresh(raw), slot = this.slot(p.id);
+    if (this.workReservations.has(p.id) || this.checking.has(p.id)) throw new Error('Дождись завершения команды подключения.');
+    if (!slot.adapter.refreshEndpoint) throw new Error('Обновление канала доступно только Codex Desktop.');
+    return slot.adapter.refreshEndpoint(p.binding, () => {
+      if (this.closed || this.slots.get(p.id) !== slot) throw new Error('Подключение изменилось во время проверки.');
+      p.activate();
+    });
+  }
   idle(id: string) {
     const s = this.slots.get(id);
     return !!s && !this.workReservations.has(id) && !this.checking.has(id) && !s.adapter.busy() && ['idle', 'completed', 'stopped'].includes(s.phase);

@@ -1,4 +1,4 @@
-import { DesktopChat, type ChatActivity, type ChatControl } from './codex-desktop.js';
+import { DesktopChat, type ChatActivity, type ChatControl, type ChatBinding } from './codex-desktop.js';
 import { ClaudeDialog, type DialogRunner } from './claude-dialog.js';
 import { claudeWorkspace } from './claude-workspace.js';
 import { findClaude, claudeLoggedIn } from './studio-review.js';
@@ -31,6 +31,7 @@ export interface AgentAdapter {
   /** Pending local operations also prevent changing an agent before a poll observes work. */
   busy(): boolean;
   check?(): Promise<unknown>;
+  refreshEndpoint?(binding: ChatBinding, activate: () => void): Promise<Record<string, unknown>>;
 }
 export type AdapterFactory = (c: Connection, store: AgentConnections, events: AdapterEvents) => AgentAdapter;
 
@@ -41,7 +42,7 @@ export class CodexAdapter implements AgentAdapter {
     overrides: Partial<ConstructorParameters<typeof DesktopChat>[0]> = {}) {
     this.chat = new DesktopChat({ configFile: store.file(store.team.get(c.agentId)!.connectionRef!),
       stateFile: store.file(`agents/${c.agentId}/codex-chat-state.json`),
-      binding: () => { store.assertCurrent(c); return c; },
+      binding: () => store.desktopBinding(c),
       personaDescription: events.personaDescription,
       messageInstructions: events.messageInstructions,
       onText: events.text, onActivity: a => events.activity(a.phase), onStatus: () => {}, ...overrides });
@@ -49,6 +50,11 @@ export class CodexAdapter implements AgentAdapter {
   start() { this.chat.start(); }
   async dispose() { this.chat.stop(); }
   busy() { return this.pending; }
+  async refreshEndpoint(binding: ChatBinding, activate: () => void) {
+    if (this.pending) throw new Error('Предыдущая команда агента ещё выполняется.');
+    this.pending = true;
+    try { return await this.chat.refreshEndpoint(binding, activate); } finally { this.pending = false; }
+  }
   async check() {
     if (this.pending) throw new Error('Предыдущая команда агента ещё выполняется.');
     this.pending = true;

@@ -125,6 +125,32 @@ it('delivers the full 12000-character player message without counting service co
   expect(x.f.store.logTail(id).some(l => l.text.includes('messaging.json'))).toBe(false);
   expect(x.f.store.data.messages.at(-1)?.text).toBe(text);
 });
+it('refreshes only the desktop endpoint while work is assigned, preserving connection identity and queued messages', async () => {
+  const x = await fixture(), id = x.ids[0]!, c = x.connections[0];
+  const runtime = (x.backend as any).runtime, key = runtime.connectionKey(id), team = x.f.team!.snapshot();
+  const task = x.f.tasks.create({ title: 'Assigned work', description: '', repoId: undefined, createdBy: 'user' });
+  x.f.tasks.update(task.id, { assignee: id });
+  const queue = x.f.store.data.backend.roleQueue as any;
+  queue.items.push({ id: task.id, stage: 'coding', attempt: { agentId: id, connection: key, run: randomUUID() } }); queue.active = task.id;
+  const before = JSON.stringify(queue), tasks = JSON.stringify(x.f.tasks.list());
+  const payload = { id, revision: team.revision, threadId: c.threadId, hostId: 'local', pipePath: '\\\\.\\pipe\\codex-browser-use-new-endpoint' };
+  const sender = x.ids[2]!, permit = JSON.parse(fs.readFileSync(runtime.connections.file(`agents/${sender}/messaging.json`), 'utf8'));
+  await x.backend.onStudioAction('message.send', { agentId: sender, token: permit.token, to: id, requestId: 'refresh-pending', text: 'Pending peer message' });
+  const mailbox = (x.backend as any).teamStudio.messaging, mailBefore = JSON.stringify(mailbox.data);
+  await expect(x.backend.onStudioAction('connection.bind', { id, revision: team.revision, connection: { ...c, pipePath: payload.pipePath } })).rejects.toThrow();
+  await x.backend.onChatMessage('Existing work', id);
+  const sent = x.sent.length;
+  expect(await x.backend.onStudioAction('connection.refreshCodex', payload)).toMatchObject({ reconnected: true, threadId: c.threadId });
+  expect(x.sent).toHaveLength(sent); expect(x.interrupted).toHaveLength(0);
+  expect(runtime.connectionKey(id)).toBe(key); expect(x.f.team!.snapshot()).toEqual(team);
+  await mailbox.tick(); expect(JSON.stringify(mailbox.data)).toBe(mailBefore);
+  expect(JSON.stringify(queue)).toBe(before); expect(JSON.stringify(x.f.tasks.list())).toBe(tasks);
+  expect(runtime.connections.desktopBinding(runtime.connections.read(id)).pipePath).toBe(payload.pipePath);
+  for (const patch of [{ threadId: x.connections[1].threadId }, { hostId: 'remote' }, { revision: team.revision - 1 }, { token: randomUUID() }])
+    await expect(x.backend.onStudioAction('connection.refreshCodex', { ...payload, ...patch })).rejects.toThrow();
+  expect(runtime.connections.desktopBinding(runtime.connections.read(id)).pipePath).toBe(payload.pipePath);
+  delete queue.active; queue.items.pop();
+});
 it('routes peer bubbles among three present team agents and rejects hidden, busy and paused recipients', async () => {
   const x = await fixture(), [a, b, c] = x.ids as [string, string, string];
   const events: Outbound[] = []; x.f.subscribe(e => events.push(e));

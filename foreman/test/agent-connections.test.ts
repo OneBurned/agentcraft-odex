@@ -28,6 +28,20 @@ function workspace(sessionId = randomUUID()) {
   for (const file of ['CLAUDE.md', 'MEMORY.md', 'PROJECTS.md']) fs.writeFileSync(path.join(root, file), 'Local instructions');
   return { provider: 'claude', transport: 'claude-code', workspace: root, sessionId };
 }
+it('persists endpoint refresh separately and refuses a stale revision after verification', () => {
+  const f = fixture(), c = binding(); f.bind(f.a, c);
+  const original = f.store.read(f.a)!;
+  const payload = { id: f.a, revision: f.team.snapshot().revision, threadId: c.threadId, hostId: 'local', pipePath: c.pipePath + '-new' };
+  const prepared = f.store.prepareDesktopRefresh(payload); prepared.activate();
+  const restarted = new AgentConnections(f.root, f.team);
+  expect(restarted.read(f.a)).toEqual(original);
+  expect(restarted.desktopBinding(original as any).pipePath).toBe(payload.pipePath);
+  const stale = f.store.prepareDesktopRefresh(payload);
+  f.bind(f.b, binding()); expect(stale.activate).toThrow('revision');
+  f.bind(f.a, binding());
+  const replacement = f.store.read(f.a)!;
+  expect(f.store.desktopBinding(replacement as any)).toEqual(replacement);
+});
 it('persists separate Codex bindings and reserves archived conversations', () => {
   const f = fixture(); const first = binding(), second = binding();
   f.bind(f.a, first); f.bind(f.b, second);

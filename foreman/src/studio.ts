@@ -33,6 +33,7 @@ export class TeamStudio {
     }
     if (action === 'connection.get') return this.runtime.view(selected.parse(payload).id);
     if (action === 'connection.check') return this.runtime.check(selected.parse(payload).id);
+    if (action === 'connection.refreshCodex') return this.runtime.refreshCodex(payload);
     let team;
     if (action === 'connection.bind') team = this.runtime.connections.bind(payload, idle);
     else if (action === 'connection.unbind' || action === 'connection.importCodex') {

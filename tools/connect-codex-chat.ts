@@ -15,7 +15,10 @@ if (values.agent) {
   const client = await ForemanClient.connect({ port: Number(values.port), timeoutMs: 5000, client: 'connect-agent' });
   try {
     const { result: team } = await client.send('studio.action', { action: 'team.get', payload: {} });
-    await client.send('studio.action', { action: 'connection.bind', payload: { id: values.agent, revision: team.revision,
+    const { result: current } = await client.send('studio.action', { action: 'connection.get', payload: { id: values.agent } });
+    if (current.connection?.transport === 'codex-desktop' && current.connection.threadId === threadId && current.connection.hostId === binding.hostId)
+      await client.send('studio.action', { action: 'connection.refreshCodex', payload: { id: values.agent, revision: team.revision, threadId, hostId: binding.hostId, pipePath } });
+    else await client.send('studio.action', { action: 'connection.bind', payload: { id: values.agent, revision: team.revision,
       connection: { ...binding, provider: 'codex', transport: 'codex-desktop' } } });
     console.log(JSON.stringify({ connected: true, agentId: values.agent, threadId, title: binding.title }));
   } finally { client.close(); }
