@@ -108,6 +108,16 @@ it.each([undefined, 'user', 'unknown', 'Technical'])('question category %s escal
   expect(x.messaging!.data.messages).toHaveLength(0);
 });
 
+it.each(['контроль', 'недоступен', 'Java client', 'токен планировщика', 'роль reviewer в team.json'])('technical question and reply containing "%s" resume without a user decision', async term => {
+  const x = await technicalFixture(); await x.question('technical', `Как проверить: ${term}?`);
+  expect(x.i.consultation?.waiting).toBe(true); expect(x.fm.decisions.open()).toHaveLength(0);
+  const c = x.i.consultation!;
+  expect(x.messaging!.taskThread(x.i.id, c.threadId!).messages[0]?.text).toContain(`threadId: ${c.threadId}`);
+  await x.messaging!.tick(); await x.reply(`Проверь ${term} отдельным тестом.`); await x.q.tick();
+  expect(x.i.stage).toBe('coding'); expect(x.fm.decisions.open()).toHaveLength(0);
+  expect(x.calls.at(-1)?.text).toContain(`Проверь ${term} отдельным тестом.`);
+});
+
 it.each(['Нужен доступ к репозиторию', 'Можно сделать deploy?', 'Изменить роли команды?', 'Нужно продуктовое решение', 'Деньги клиентов', 'Push to origin'])('sensitive technical question goes to the user: %s', async summary => {
   expect(needsUser('technical', summary)).toBe(true);
   const x = await technicalFixture(); await x.question('technical', summary);

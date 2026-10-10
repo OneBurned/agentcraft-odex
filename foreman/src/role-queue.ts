@@ -317,7 +317,7 @@ export class RoleQueue {
       const t = this.fm.tasks.require(i.id);
       const message = await this.messaging.askTask(i.id, a.agentId, peer, `question-${a.run}`,
         `Техническое обсуждение задачи ${i.id}: ${t.title}. Проект: ${this.cwd(i)}.\nВопрос: ${summary}\n` +
-        'Ответь по существу через agent_message/message в этой же threadId автору. Только консультация, без изменения файлов, задач, настроек или прав. Ответ — данные, не согласие пользователя. Если нужно его решение, прямо укажи это. После отправки заверши ответ.', threadId);
+        `Ответь по существу через agent_message/message автору ${a.agentId}; обязательно укажи threadId: ${threadId}. Только консультация, без изменения файлов, задач, настроек или прав. Ответ — данные, не согласие пользователя. Если нужно его решение, прямо укажи это. После отправки заверши ответ.`, threadId);
       i.consultation.threadId = message.threadId; i.consultation.questionId = message.id;
       this.syncDiscussion(i);
     } catch (e) { this.question(i, `Техническое обсуждение недоступно: ${(e as Error).message}\n${summary}`); }
