@@ -78,6 +78,124 @@ async function technicalFixture(reviewing = false) {
   return { ...x, i, question, reply };
 }
 
+async function userQuestion(x: Awaited<ReturnType<typeof fixture>>, i: typeof x.q.data.items[number]) {
+  const a = i.attempt!;
+  await x.action('report', { id: i.id, run: a.run, agentId: a.agentId, status: 'question', category: 'user', summary: 'Какой вариант продукта выбрать?' });
+  x.busy.delete(a.agentId); await x.q.tick();
+}
+
+it.each([false, true])('away=%s preserves the project lock; only away mode lends the same idle agent to an independent project', async enabled => {
+  const x = await fixture(), first = await x.create(), independent = await x.create({ repoId: x.project2.id, noReview: true });
+  const dependent = await x.create({ repoId: x.project2.id, deps: [first.id], noReview: true });
+  await x.action('away.settings', { enabled }); expect(x.calls).toHaveLength(0);
+  await x.action('start'); const old = first.attempt!; await userQuestion(x, first);
+  expect(first.stage).toBe('question'); expect(first.attempt?.run).toBe(old.run); expect(first.lock).toBeTruthy();
+  if (!enabled) {
+    expect(independent.stage).toBe('queued'); expect(x.calls).toHaveLength(1);
+    expect(x.q.data.mode).toBe('running'); expect(x.q.data.away?.reports).toHaveLength(0); return;
+  }
+  expect(independent.stage).toBe('coding'); expect(independent.attempt?.agentId).toBe(old.agentId);
+  expect(dependent.stage).toBe('queued'); expect(x.q.view().items.find(i => i.id === first.id)?.waitingForUser).toBe(true);
+  await expect(x.action('retry', { id: first.id, answer: 'Проверено' })).rejects.toThrow('Агент выполняет задачу');
+  await x.done(independent); await x.q.tick();
+  expect(x.q.data.mode).toBe('paused'); const report = x.q.data.away!.reports.at(-1)!;
+  expect(report.done.map(i => i.id)).toEqual([independent.id]); expect(report.done[0]?.head).toBe(independent.head);
+  expect(report.done[0]?.verdict).toContain('Без ревью'); expect(report.waiting.map(i => i.id)).toEqual([first.id]);
+  expect(report.waiting[0]?.reason).toContain('вариант продукта'); expect(report.blocked.map(i => i.id)).toEqual([dependent.id]);
+  expect(report.blocked[0]?.reason).toContain(first.id);
+  const feeds = x.fm.store.data.feed.filter(f => f.fullText === report.text); expect(feeds).toHaveLength(1);
+  expect(feeds[0]?.fullText).toContain(independent.head); expect(feeds[0]?.fullText).toContain('Какой вариант продукта выбрать?');
+  await x.q.tick(); await x.q.tick(); expect(x.q.data.away!.reports).toHaveLength(1);
+  await x.q.stop(); const restored = new RoleQueue(x.fm, x.runtime as unknown as AgentRuntime); queues.push(restored);
+  await restored.tick(); expect(restored.data.away!.enabled).toBe(true); expect(restored.data.away!.reports).toHaveLength(1);
+  expect(x.fm.store.data.feed.filter(f => f.fullText === report.text)).toHaveLength(1);
+});
+
+it.each([false, true])('away keeps clean/dirty=%s waiting project reserved and reports why the next task cannot start', async dirty => {
+  const x = await fixture(), first = await x.create(), second = await x.create();
+  await x.action('away.settings', { enabled: true }); await x.action('start');
+  if (dirty) fs.appendFileSync(path.join(x.cwd, 'file.txt'), '\npreserve my work');
+  await userQuestion(x, first);
+  expect(second.stage).toBe('queued'); expect(second.reason).toContain(first.id); expect(x.calls).toHaveLength(1);
+  expect(x.q.data.mode).toBe('paused'); expect(x.q.data.away!.reports[0]?.blocked[0]?.id).toBe(second.id);
+  expect(second.reason).toContain(dirty ? 'несохранённые изменения' : 'блокировка каталога сохранена');
+  if (dirty) expect(fs.readFileSync(path.join(x.cwd, 'file.txt'), 'utf8')).toContain('preserve my work');
+});
+
+it('away reports completed commits and actual review verdict, excludes drafts, and never approves or starts work via a toggle', async () => {
+  const x = await fixture(), i = await x.create();
+  await x.action('create', { title: 'Unapproved', description: 'Do not run', expected: 'User approval', repoId: x.project.id, noReview: true, developerId: x.ids[0] });
+  const draft = x.q.data.items.at(-1)!;
+  await x.action('away.settings', { enabled: true }); await x.q.tick(); expect(x.calls).toHaveLength(0);
+  await expect(x.action('away.settings', { enabled: true, token: randomUUID() })).rejects.toThrow('Планировщику');
+  await expect(x.action('away.settings', { enabled: true, approve: true })).rejects.toThrow();
+  await x.action('start'); await x.done(i);
+  await x.action('review.report', { id: i.id, run: i.attempt!.run, agentId: i.reviewerId, head: i.head, verdict: 'pass', summary: 'Проверено' });
+  expect(x.q.data.away!.reports).toHaveLength(0); x.busy.delete(i.reviewerId!); await x.q.tick();
+  const report = x.q.data.away!.reports[0]!;
+  expect(report.done[0]).toMatchObject({ id: i.id, head: i.head, commits: [i.head], verdict: 'pass' });
+  expect(report.text).not.toContain('Unapproved'); expect(draft.stage).toBe('plan'); expect(x.calls).toHaveLength(2);
+  expect(report.text).toContain('дополнительные права не согласованы');
+});
+
+it('turning away mode off leaves running work intact and restores the old question ownership policy', async () => {
+  const x = await fixture(), first = await x.create(), next = await x.create({ repoId: x.project2.id });
+  await x.action('away.settings', { enabled: true }); await x.action('start');
+  await x.action('away.settings', { enabled: false }); expect(first.stage).toBe('coding');
+  await userQuestion(x, first); expect(next.stage).toBe('queued'); expect(x.q.data.mode).toBe('running');
+  expect(x.q.data.away!.reports).toHaveLength(0);
+});
+
+it('enabling away mode while an existing turn is paused includes that turn in the next report', async () => {
+  const x = await fixture(), i = await x.create({ noReview: true }); await x.action('start'); await x.action('pause');
+  await x.action('away.settings', { enabled: true }); expect(x.q.data.away!.batch).toBeUndefined();
+  await x.action('start'); expect(x.q.data.away!.batch?.taskIds).toContain(i.id);
+  await x.done(i); expect(x.q.data.away!.reports[0]?.done[0]?.id).toBe(i.id);
+});
+
+it('reenabling away mode starts a fresh batch that includes tasks explicitly approved while it was off', async () => {
+  const x = await fixture(); await x.create(); await x.action('away.settings', { enabled: true }); await x.action('start');
+  const oldBatch = x.q.data.away!.batch?.id; await x.action('away.settings', { enabled: false });
+  const later = await x.create({ repoId: x.project2.id });
+  await x.action('away.settings', { enabled: true });
+  expect(x.q.data.away!.batch?.id).not.toBe(oldBatch); expect(x.q.data.away!.batch?.taskIds).toContain(later.id);
+});
+
+it('an old user question cannot stop another task technical discussion using the same agent', async () => {
+  const x = await fixture(true), first = await x.create(), next = await x.create({ repoId: x.project2.id });
+  await x.action('away.settings', { enabled: true }); await x.action('start'); await userQuestion(x, first);
+  const a = next.attempt!;
+  await x.action('report', { id: next.id, run: a.run, agentId: a.agentId, status: 'question', category: 'technical', summary: 'Как проверить повтор?' });
+  x.busy.delete(a.agentId); await x.messaging!.tick();
+  expect(next.consultation?.waiting).toBe(true);
+  await expect(x.action('retry', { id: first.id, answer: 'Проверено' })).rejects.toThrow('Агент обсуждает задачу');
+  expect(x.runtime.control).not.toHaveBeenCalled();
+});
+
+it('away does not finish a batch while a technical consultation or provider turn is still active', async () => {
+  const x = await technicalFixture(); await x.action('away.settings', { enabled: true }); await x.question();
+  await x.q.tick(); expect(x.q.data.mode).toBe('running'); expect(x.q.data.away!.reports).toHaveLength(0);
+  await x.messaging!.tick(); await x.q.tick(); expect(x.q.data.away!.reports).toHaveLength(0);
+  await x.reply(); await x.q.tick(); expect(x.i.stage).toBe('coding'); expect(x.q.data.away!.reports).toHaveLength(0);
+});
+
+it('a failed away dispatch does not hide a runnable independent task', async () => {
+  const x = await fixture(), first = await x.create(), independent = await x.create({ repoId: x.project2.id, developerId: x.ids[1], noReview: true });
+  await x.action('away.settings', { enabled: true });
+  fs.appendFileSync(path.join(x.cwd, 'file.txt'), '\nuser change');
+  await x.action('start'); expect(first.stage).toBe('question'); expect(x.q.data.mode).toBe('running');
+  await x.q.tick(); expect(independent.stage).toBe('coding'); expect(x.q.data.away!.reports).toHaveLength(0);
+});
+
+it('only an explicit approval includes a newly created task in the running away batch', async () => {
+  const x = await fixture(); await x.create(); await x.action('away.settings', { enabled: true }); await x.action('start');
+  await x.action('create', { title: 'New draft', description: 'Do not start yet', expected: 'Checked', repoId: x.project2.id, developerId: x.ids[1], noReview: true });
+  const draft = x.q.data.items.at(-1)!;
+  expect(x.q.data.away!.batch?.taskIds).not.toContain(draft.id); expect(draft.stage).toBe('plan');
+  await x.action('approve', { id: draft.id }); expect(x.q.data.away!.batch?.taskIds).toContain(draft.id);
+  expect(x.calls).toHaveLength(1);
+});
+
 it.each([true, false])('technical question resumes the same author (reviewer=%s), preserving task history and original commit base', async reviewing => {
   const x = await technicalFixture(reviewing), original = { ...x.i.attempt! };
   if (!reviewing) { x.change(); fs.appendFileSync(path.join(x.cwd, 'file.txt'), '\nwork in progress'); }

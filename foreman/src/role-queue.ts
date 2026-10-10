@@ -12,6 +12,7 @@ import { WorkspaceConfig } from './claude-workspace.js';
 import { TeamId } from './team.js';
 import type { AgentMessaging } from './agent-messaging.js';
 import { needsUser } from './question-routing.js';
+import { queueSummary, type QueueSummary } from './queue-summary.js';
 
 type Stage = 'plan' | 'queued' | 'coding' | 'review' | 'question' | 'done' | 'cancelled';
 type Phase = 'developer' | 'reviewer';
@@ -33,7 +34,8 @@ interface Item {
   draft?: { agentId: string; requestId: string; digest: string };
 }
 interface DraftPermit { agentId: string; connection: string; projects: { id: string; directory: string }[]; expiresAt: number; requestId?: string; maxDrafts?: number; requestIds?: string[]; }
-interface Data { version: 1; mode: 'planning' | 'running' | 'paused'; items: Item[]; active?: string; notice: string; draining?: string[]; draftPermits?: Record<string, DraftPermit>; reviewSettings?: { maxCorrections: number }; }
+interface Data { version: 1; mode: 'planning' | 'running' | 'paused'; items: Item[]; active?: string; notice: string; draining?: string[]; draftPermits?: Record<string, DraftPermit>; reviewSettings?: { maxCorrections: number };
+  away?: { enabled: boolean; batch?: { id: string; taskIds: string[]; startedAt: number; finished?: boolean }; reports: QueueSummary[] }; }
 const text = z.string().trim().min(1);
 const ReviewSettings = z.object({ maxCorrections: z.number().int().min(1).max(5) }).strict();
 const issue = z.object({ id: text.max(80), location: text.max(200), problem: text.max(600) }).strict();
@@ -63,6 +65,7 @@ export class RoleQueue {
     this.data = saved ?? { version: 1, mode: 'planning', items: [], notice: '' };
     if (saved && saved.version !== 1) throw new Error('Неизвестная версия очереди. Файл сохранён без изменений.');
     this.data.reviewSettings = ReviewSettings.parse(this.data.reviewSettings ?? { maxCorrections: 3 });
+    this.data.away ??= { enabled: false, reports: [] };
     for (const i of this.data.items) {
       // Old rounds counted verdicts, not returns; conservatively retain that usage.
       i.correctionRounds ??= i.rounds;
@@ -142,6 +145,7 @@ export class RoleQueue {
     return { ...structuredClone(visible), items: this.data.items.map(i => ({ ...this.fm.tasks.require(i.id), ...structuredClone(i),
     // Existing Minecraft clients render this section in the scrollable task card.
     review: [i.review, this.discussionText(i)].filter(Boolean).join('\n\n'),
+    waitingForUser: !!this.data.away?.enabled && i.stage === 'question' && !i.consultation?.waiting,
     run: i.attempt?.run, blockedReason: i.reason, canAssignReviewer: this.canAssignReviewer(i), canAssignDeveloper: this.canAssignDeveloper(i),
     canReleaseProject: !!i.lock && ['done', 'cancelled'].includes(i.stage), canReturnToDeveloper: i.stage === 'question' && i.resumePhase === 'reviewer',
     project: this.fm.repos.get(this.fm.tasks.require(i.id).repoId ?? '')?.name ?? 'Выбери проект' })) }; }
@@ -174,7 +178,7 @@ export class RoleQueue {
   private available(id: string, role: Phase, i: Item): string | undefined {
     if (this.data.items.some(other => other.id !== i.id && other.consultation?.waiting && [other.consultation.author, other.consultation.peer].includes(id)))
       return 'Агент обсуждает другую задачу.';
-    const owner = this.data.items.find(other => other.id !== i.id && other.attempt?.agentId === id);
+    const owner = this.data.items.find(other => other.id !== i.id && other.attempt?.agentId === id && !this.yieldsAgent(other, id));
     if (owner) return `Агент ждёт завершения или решения по задаче ${owner.id}.`;
     const a = this.fm.team!.get(id);
     if (!a || a.archived || !a.enabled || !a.roles.includes(role)) return `${id}: агент выключен, архивирован или не имеет роли ${role}`;
@@ -189,6 +193,41 @@ export class RoleQueue {
     if (!id) i.reason = `Нет свободного включённого ${role === 'developer' ? 'разработчика' : 'ревьюера'} с подходящим подключением.`;
     return id;
   }
+  private yieldsAgent(i: Item, id: string) {
+    // Keep the old attempt and its project lock for safe retry, but lend an idle actor to another project.
+    return !!this.data.away?.enabled && i.stage === 'question' && !i.consultation?.waiting && this.runtime.idle(id);
+  }
+  private beginAwayBatch() {
+    const away = this.data.away!;
+    if (!away.enabled || this.data.mode !== 'running' || away.batch && !away.batch.finished) return;
+    away.batch = { id: randomUUID(), startedAt: this.fm.ctx.now(),
+      taskIds: this.data.items.filter(i => !['plan', 'done', 'cancelled'].includes(i.stage)).map(i => i.id) };
+  }
+  private finishAwayBatch() {
+    const away = this.data.away!, batch = away.batch;
+    if (!away.enabled || !batch || batch.finished || this.data.mode !== 'running' || this.data.active) return;
+    const items = batch.taskIds.map(id => this.item(id));
+    if (items.some(i => i.consultation?.waiting || ['coding', 'review'].includes(i.stage) && i.attempt)) return;
+    // A provider finishing a turn is not a terminal blocked queue. Wait for its actual result/exit.
+    const agents = new Set(items.flatMap(i => [i.developerId, i.reviewerId, i.settlingAgentId]).filter((id): id is string => !!id));
+    if (this.fm.team!.snapshot().assignment.autoSelect)
+      for (const a of this.fm.team!.snapshot().agents) if (a.enabled && !a.archived) agents.add(a.id);
+    for (const id of agents) {
+      try { if (this.runtime.view(id).phase === 'working') return; } catch { /* unavailable is included in the report */ }
+    }
+    const report = queueSummary(batch.id, batch.startedAt, this.fm.ctx.now(), items.map(i => ({
+      id: i.id, title: this.fm.tasks.require(i.id).title, stage: i.stage, head: i.head,
+      commits: [...new Set(i.ranges.map(r => r.head))],
+      verdict: i.noReview ? 'Без ревью (выбор пользователя)' : i.reviews?.at(-1)?.verdict ?? 'Нет сохранённого вердикта',
+      reason: i.reason,
+    })));
+    batch.finished = true; away.reports.push(report); away.reports = away.reports.slice(-20);
+    this.data.mode = 'paused';
+    this.data.notice = `Проход завершён: готово ${report.done.length}, ждут пользователя ${report.waiting.length}, заблокировано ${report.blocked.length}. Открой «Сводка» во вкладке «Очередь».`;
+    // Feed and summary are flushed together; repeated ticks/restarts do not publish another report.
+    this.fm.bus.feed('message', report.text, { to: 'user' }); this.save();
+    this.fm.notify('info', this.data.notice);
+  }
   private async pump() {
     if (this.closed || this.data.mode !== 'running' || this.data.active) return;
     if (this.data.draining?.some(id => !this.runtime.idle(id))) {
@@ -196,15 +235,27 @@ export class RoleQueue {
     }
     this.data.draining = [];
     this.data.notice = '';
+    this.beginAwayBatch();
     const candidates = this.data.items.filter(i => ['queued', 'review'].includes(i.stage) && !i.attempt)
       .sort((a, b) => this.fm.tasks.require(b.id).priority - this.fm.tasks.require(a.id).priority);
+    let triedDispatch = false;
     for (const i of candidates) {
-      if (!this.fm.tasks.require(i.id).deps.every(id => this.fm.tasks.get(id)?.status === 'done')) { i.reason = 'Ожидаю завершения зависимостей.'; continue; }
+      const pendingDeps = this.fm.tasks.require(i.id).deps.filter(id => this.fm.tasks.get(id)?.status !== 'done');
+      if (pendingDeps.length) { i.reason = this.data.away?.enabled ? `Ожидаю завершения зависимостей: ${pendingDeps.join(', ')}.` : 'Ожидаю завершения зависимостей.'; continue; }
       let directory: string;
       try { directory = this.directory(this.cwd(i)); }
       catch { i.reason = 'Проект недоступен. Выбери рабочий каталог в назначениях задачи.'; continue; }
       const owner = this.data.items.find(other => other.id !== i.id && other.lock === directory);
-      if (owner) { i.reason = `Проект занят задачей ${owner.id}.`; continue; }
+      if (owner) {
+        i.reason = `Проект занят задачей ${owner.id}.`;
+        if (this.data.away?.enabled && owner.stage === 'question') {
+          try {
+            await cleanHead(this.cwd(owner));
+            i.reason += ' Ждёт решения пользователя; блокировка каталога сохранена.';
+          } catch { i.reason += ' Есть несохранённые изменения или каталог недоступен. Сначала разреши вопрос и проверь Git.'; }
+        }
+        continue;
+      }
       const phase = this.phase(i), id = this.select(i, phase);
       if (!id) continue;
       // Reserve both identities before the first edit; lack of a reviewer is not permission to skip review.
@@ -219,8 +270,9 @@ export class RoleQueue {
         if (reason) { i.reason = `Ожидаю ревьюера: ${reason}`; continue; }
       }
       if (phase === 'developer') i.developerId = id; else i.reviewerId = id;
-      await this.dispatch(i, id, phase, directory); break;
+      triedDispatch = true; await this.dispatch(i, id, phase, directory); break;
     }
+    if (!triedDispatch) this.finishAwayBatch();
     this.save();
   }
   private async dispatch(i: Item, id: string, phase: Phase, directory: string) {
@@ -293,7 +345,7 @@ export class RoleQueue {
       if (!id || id === a.agentId || !this.runtime.idle(id)) return false;
       const agent = this.fm.team!.get(id);
       if (!agent?.enabled || agent.archived || this.data.items.some(other => other.id !== i.id &&
-          (other.attempt?.agentId === id || other.consultation?.waiting && [other.consultation.peer, other.consultation.author].includes(id)))) return false;
+          (other.attempt?.agentId === id && !this.yieldsAgent(other, id) || other.consultation?.waiting && [other.consultation.peer, other.consultation.author].includes(id)))) return false;
       if (a.phase === 'reviewer' ? !agent.roles.includes('developer') : !agent.roles.includes('reviewer') && !agent.roles.includes('planner')) return false;
       if (this.runtime.workUnavailable(id, 'reviewer', this.cwd(i))) return false;
       try { return !!this.runtime.connectionKey(id); } catch { return false; }
@@ -593,6 +645,13 @@ export class RoleQueue {
       if (action.startsWith('draft.')) return this.planning(action, payload);
       if (action === 'report' || action === 'review.report') return this.accept(payload, action === 'review.report');
       if (action === 'review.settings') { this.data.reviewSettings = ReviewSettings.parse(payload); this.save(); return this.view(); }
+      if (action === 'away.settings') {
+        const p = z.object({ enabled: z.boolean() }).strict().parse(payload);
+        if (!p.enabled) delete this.data.away!.batch;
+        this.data.away!.enabled = p.enabled;
+        if (p.enabled) this.beginAwayBatch();
+        this.save(); return this.view(); // A toggle never starts a paused queue.
+      }
       if (action === 'create' || action === 'edit') {
         const p = input.parse(payload); this.fm.repos.require(p.repoId);
         const selected = { developerId: p.developerId ?? undefined, reviewerId: p.reviewerId ?? undefined, noReview: p.noReview };
@@ -607,6 +666,8 @@ export class RoleQueue {
         }
       } else if (action === 'approve') {
         const i = this.item(payload.id); if (i.stage !== 'plan') throw new Error('Согласовать можно только план.'); i.stage = 'queued';
+        const batch = this.data.away?.batch;
+        if (this.data.away?.enabled && batch && !batch.finished && !batch.taskIds.includes(i.id)) batch.taskIds.push(i.id);
       } else if (action === 'assign') {
         const i = this.item(payload.id);
         const startedAssignment = this.canAssignReviewer(i) || this.canAssignDeveloper(i);
@@ -643,7 +704,7 @@ export class RoleQueue {
       } else if (action === 'prioritize') {
         const i = this.item(payload.id);
         this.fm.tasks.update(i.id, { priority: Math.max(0, ...this.fm.tasks.list().map(t => t.priority)) + 1 });
-      } else if (action === 'start') { this.data.mode = 'running'; this.data.notice = ''; }
+      } else if (action === 'start') { this.data.mode = 'running'; this.data.notice = ''; this.beginAwayBatch(); }
       else if (action === 'pause' || action === 'stop' || action === 'plan') {
         // Queue controls never masquerade as a provider pause/stop. Cards control real execution.
         this.data.mode = action === 'plan' ? 'planning' : 'paused'; this.data.notice = 'Новые задачи не запускаются. Текущим исполнением управляй в карточке агента.';
@@ -659,6 +720,9 @@ export class RoleQueue {
         const activeOwner = i.attempt && this.activeAttempt(i.attempt.agentId);
         if (activeOwner && activeOwner.id !== i.id)
           throw new Error(`Агент выполняет задачу ${activeOwner.id}. Сначала заверши её; прежний вопрос не остановит эту работу.`);
+        const discussionOwner = i.attempt && this.data.items.find(other => other.id !== i.id && other.consultation?.waiting &&
+          [other.consultation.author, other.consultation.peer].includes(i.attempt!.agentId));
+        if (discussionOwner) throw new Error(`Агент обсуждает задачу ${discussionOwner.id}. Дождись завершения обсуждения перед повтором прежнего вопроса.`);
         if (i.settlingAgentId && !this.runtime.idle(i.settlingAgentId)) throw new Error('Исполнитель ещё работает. Подтверди его остановку в карточке агента.');
         if (i.attempt) {
           await this.runtime.control(i.attempt.agentId, 'stop'); // confirmed before invalidating run

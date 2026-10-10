@@ -255,9 +255,21 @@ public final class StudioScreen extends Screen {
             for (int n = 0; n < 4; n++) { final String op = ops[n]; button(names[n], left + n * (bw + 2), cy, bw, () -> request(op, new JsonObject(), null)); }
         }
         cy += 26;
+        if (tab == 3 && data.has("away")) {
+            var away = data.getAsJsonObject("away"); boolean enabled = flag(away, "enabled");
+            int toggleWidth = (w - 28) * 2 / 3;
+            var toggle = button("Работать без меня: " + (enabled ? "вкл." : "выкл."), left, cy, toggleWidth, () -> {
+                JsonObject p = new JsonObject(); p.addProperty("enabled", !enabled); request("away.settings", p, null);
+            });
+            toggle.setTooltip(Tooltip.create(Component.literal("Только согласованные задачи. При вопросе агент может перейти в другой проект. Каталог ожидающей задачи остаётся занят даже при чистом Git. Включение не запускает очередь.")));
+            var reports = away.getAsJsonArray("reports");
+            button("Сводка", left + toggleWidth + 4, cy, w - 28 - toggleWidth,
+                () -> minecraft.gui.setScreen(new QueueReportScreen(this, str(reports.get(reports.size() - 1).getAsJsonObject(), "text")))).active = !busy && !reports.isEmpty();
+            cy += 26;
+        }
         var list = visibleTasks(); int count = Math.max(1, (y + h - 50 - cy) / 25); page = Math.min(page, Math.max(0, (list.size() - 1) / count));
         for (int n = page * count; n < Math.min(list.size(), (page + 1) * count); n++) {
-            var item = list.get(n); button(str(item, "id") + " · " + stage(str(item, "stage")) + " · " + str(item, "title"), left, cy, w - 24, () -> taskDetails(item)); cy += 25;
+            var item = list.get(n); button(str(item, "id") + " · " + taskStage(item) + " · " + str(item, "title"), left, cy, w - 24, () -> taskDetails(item)); cy += 25;
         }
         if (list.isEmpty()) label("Пул пуст. Добавь задачу во вкладке «План».", left, cy + 3, w - 24);
         button("←", left, y + h - 44, 30, () -> { page = Math.max(0, page - 1); layout(); });
@@ -274,6 +286,7 @@ public final class StudioScreen extends Screen {
         return candidates.getFirst().id();
     }
     private static String stage(String s) { return switch (s) { case "plan" -> "План"; case "queued" -> "В очереди"; case "coding" -> "В работе"; case "review" -> "Ревью"; case "question" -> "Нужно решение"; case "done" -> "Готово"; case "cancelled" -> "Отменена"; default -> s; }; }
+    private static String taskStage(JsonObject item) { return flag(item, "waitingForUser") ? "Ждёт пользователя" : stage(str(item, "stage")); }
     private void taskForm(JsonObject item) {
         String deps = item == null ? "" : item.getAsJsonArray("deps").toString().replaceAll("[\\[\\]\"]", "");
         List<String> values = item == null ? List.of("", "", "", "", "0") : List.of(str(item, "title"), str(item, "description"), str(item, "expected"), deps, str(item, "priority"));
@@ -286,7 +299,7 @@ public final class StudioScreen extends Screen {
         }));
     }
     private void taskDetails(JsonObject item) {
-        String content = str(item, "title") + "\n\n" + stage(str(item, "stage")) + " · " + str(item, "project") + "\n\n" + str(item, "description") + "\n\nОжидается:\n" + str(item, "expected")
+        String content = str(item, "title") + "\n\n" + taskStage(item) + " · " + str(item, "project") + "\n\n" + str(item, "description") + "\n\nОжидается:\n" + str(item, "expected")
             + "\n\nПроверки:\n" + str(item, "checks") + "\n\nРезультат:\n" + str(item, "summary") + "\n\nРевью:\n" + str(item, "review") + "\n\n" + str(item, "blockedReason");
         if (dynamicTeam()) content += "\n\nРазработчик: " + agentName(str(item, "developerId")) + "\nРевьюер: " + (flag(item, "noReview") ? "Без ревью" : agentName(str(item, "reviewerId")));
         minecraft.gui.setScreen(new TaskDetails(this, item, content));
@@ -500,6 +513,22 @@ public final class StudioScreen extends Screen {
             addRenderableWidget(Button.builder(Component.literal("Назад к предпросмотру"), b -> onClose()).bounds(x, y + 75, 250, 20).build());
         }
         @Override public void onClose() { minecraft.gui.setScreen(parent); }
+    }
+    private static class QueueReportScreen extends Screen {
+        final StudioScreen parent; final String content;
+        QueueReportScreen(StudioScreen parent, String content) { super(Component.literal("Сводка очереди")); this.parent = parent; this.content = content; }
+        @Override public boolean isPauseScreen() { return false; }
+        @Override protected void init() {
+            int w = Math.min(620, width - 24), x = (width - w) / 2;
+            var body = addRenderableWidget(MultiLineEditBox.builder().setX(x).setY(36).build(font, w, Math.max(40, height - 76), Component.literal("Отчёт")));
+            body.setCharacterLimit(Integer.MAX_VALUE); body.setValue(content); body.setScrollAmount(0);
+            body.setValueListener(value -> { if (!value.equals(content)) body.setValue(content); });
+            addRenderableWidget(Button.builder(Component.literal("Назад к очереди"), b -> onClose()).bounds(x, height - 32, w, 20).build());
+        }
+        @Override public void onClose() { minecraft.gui.setScreen(parent); }
+        @Override public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float dt) {
+            g.fill(0, 0, width, height, 0xEF292722); g.text(font, title, 16, 15, 0xFFF2EAD8); super.extractRenderState(g, mx, my, dt);
+        }
     }
     private static class TaskDetails extends Screen {
         final StudioScreen parent; final JsonObject item; final String content;
