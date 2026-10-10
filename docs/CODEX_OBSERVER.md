@@ -842,6 +842,30 @@ an isolated bridge; approval stayed unset and retry/restart returned the same ca
 Claude message or user queue task was submitted. Activation files are prepared under
 `artifacts/klava-planning-prepared`; the live workspace was activated separately after approval.
 
+### Personal installation: t59–t61 (2026-10-10)
+
+The main Fabric profile at `C:\Users\GB\AppData\Roaming\.minecraft` and the bridge
+at `C:\Users\GB\Documents\AgentCraft-Portable` now include technical agent discussions
+(t59), bounded review corrections (t60), and the unattended queue toggle/report (t61).
+All three tasks have recorded reviewer `pass` verdicts. The installed package was
+built from `3cadff3` (feature code through `f420cae`); its manifest is byte-identical
+to the package that passed the t61 portable smoke check.
+
+The existing installed release passed its integrity check. Its stale installer
+ownership hashes were reconciled with that verified manifest before the standard
+transactional installer updated the package and Minecraft JAR. The original
+installation metadata and all 54 personal profile files were backed up; the profile
+was byte-identical immediately after installation. Minecraft was closed.
+
+Backup: `C:\Users\GB\Documents\AgentCraft-Portable\backups\t59-t61-install-1791607586496`.
+The installer transaction backup is recorded in that folder's `INSTALL-RESULT.json`.
+The personal bridge was restarted and its binding refreshed to the same Codex chat.
+The live check confirmed a paused queue with no active task, retained review results,
+and the new `away` settings with the mode off. Minecraft was not launched and the
+new UI has not been visually verified. Enable the mode in **Пульт → Очередь** when
+needed; installation does not start tasks or unblock t57. Claude still uses the
+existing exclusive conversation handoff described below.
+
 ### Shared Klava conversation (active)
 
 The tested limits of attaching an external bridge to an already open Claude Desktop
