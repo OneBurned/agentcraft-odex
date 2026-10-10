@@ -844,6 +844,10 @@ Claude message or user queue task was submitted. Activation files are prepared u
 
 ### Shared Klava conversation (active)
 
+The tested limits of attaching an external bridge to an already open Claude Desktop
+Code session are documented in [CLAUDE_APP_SESSION.md](CLAUDE_APP_SESSION.md).
+Resuming the same UUID is not proof of attaching to the app's existing executor.
+
 One explicitly bound native Claude Code session can serve Minecraft, the interactive terminal
 and the Desktop **Code** surface. This is not a Claude Chat/Cowork Project conversation.
 The shared conversation was activated at revision `4e68f5f` on 2026-10-06; the current bridge
