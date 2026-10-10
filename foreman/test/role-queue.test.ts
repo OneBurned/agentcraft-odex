@@ -107,17 +107,20 @@ it.each(['stale', 'foreign', 'paused', 'connection'])('invalid %s final reports 
   expect(x.fm.decisions.open()).toHaveLength(0);
 });
 it('dispatches explicit assignments, exact commit ranges and returns corrections to the same developer', async () => {
-  const x = await fixture(), i = await x.create(); await x.action('start');
+  const x = await fixture(), i = await x.create();
+  i.review = 'Ответ пользователя: ' + 'Контекст. '.repeat(100) + 'Не удаляй файлы пользователя.';
+  await x.action('start');
+  expect(x.calls[0]?.text).toContain(i.review);
   expect(x.calls[0]?.id).toBe(x.ids[0]); expect(i.stage).toBe('coding');
   const p = await x.done(i); expect(i.stage).toBe('review'); expect(x.calls[1]?.id).toBe(x.ids[2]);
   expect(x.calls[1]?.text).toContain(JSON.stringify(i.ranges));
   const run = i.attempt!.run, head = i.head;
-  await x.action('review.report', { id: i.id, run, agentId: x.ids[2], head, verdict: 'changes', summary: 'Fix X' });
+  await x.action('review.report', { id: i.id, run, agentId: x.ids[2], head, verdict: 'changes', summary: 'Fix X', issues: [{ id: 'R1', location: 'file.txt', problem: 'Fix X' }] });
   x.busy.delete(x.ids[2]!); await x.q.tick();
   expect(i.attempt?.agentId).toBe(x.ids[0]); expect(x.calls[2]?.text).toContain('Fix X');
   expect(await x.action('report', p)).toEqual({ duplicate: true });
   await x.done(i); expect(i.ranges).toHaveLength(2);
-  await x.action('review.report', { id: i.id, run: i.attempt!.run, agentId: x.ids[2], head: i.head, verdict: 'pass', summary: 'Good' });
+  await x.action('review.report', { id: i.id, run: i.attempt!.run, agentId: x.ids[2], head: i.head, verdict: 'pass', summary: 'Good', resolvedIds: ['R1'] });
   expect(i.stage).toBe('done'); expect(x.fm.tasks.require(i.id).status).toBe('done');
 });
 it('selects first free enabled agents in roster order and never chooses the developer as reviewer', async () => {
@@ -179,7 +182,7 @@ it('a changed HEAD invalidates the review result', async () => {
 });
 it.each(['pass', 'changes', 'question'] as const)('review %s consumes its key once and rejects foreign keys, agents and malformed verdicts', async verdict => {
   const x = await fixture(), i = await x.create({ developerId: x.ids[1] }); await x.action('start'); await x.done(i);
-  const p = { id: i.id, run: i.attempt!.run, agentId: x.ids[2], head: i.head, verdict, summary: 'Reviewed Claude changes' };
+  const p = { id: i.id, run: i.attempt!.run, agentId: x.ids[2], head: i.head, verdict, summary: 'Reviewed Claude changes', issues: verdict === 'changes' ? [{ id: 'R1', location: 'file.txt', problem: 'Fix X' }] : [] };
   const before = JSON.stringify(i);
   for (const patch of [{ run: randomUUID() }, { agentId: x.ids[0] }, { verdict: 'approved' }, { summary: '' }, { summary: ' '.repeat(3) }, { extra: true }])
     await expect(x.action('review.report', { ...p, ...patch })).rejects.toThrow();
@@ -285,14 +288,76 @@ it('ordinary completion without the explicit report becomes a question, never do
   const x = await fixture(), i = await x.create(); await x.action('start'); x.busy.delete(x.ids[0]!); await x.q.tick();
   expect(i.stage).toBe('question'); expect(i.reason).toContain('без принятого отчёта'); expect(x.calls).toHaveLength(1);
 });
-it('a second changes verdict asks the user instead of looping', async () => {
+it('a non-shrinking second review asks the user once with both rounds', async () => {
   const x = await fixture(), i = await x.create(); await x.action('start');
   for (let n = 0; n < 2; n++) {
     await x.done(i);
-    await x.action('review.report', { id: i.id, run: i.attempt!.run, agentId: x.ids[2], head: i.head, verdict: 'changes', summary: 'Still needs work' });
+    await x.action('review.report', { id: i.id, run: i.attempt!.run, agentId: x.ids[2], head: i.head, verdict: 'changes', summary: 'Still needs work', issues: [{ id: 'R1', location: 'file.txt', problem: 'Still needs work' }] });
     x.busy.delete(x.ids[2]!); await x.q.tick();
   }
   expect(i.stage).toBe('question'); expect(x.calls).toHaveLength(4);
+  expect(i.reason).toContain('Нет прогресса'); expect(i.correctionRounds).toBe(1);
+  expect(x.fm.decisions.open()).toHaveLength(1);
+  const d = x.fm.decisions.open()[0]!;
+  expect(d.context).toContain('Круг 1'); expect(d.context).toContain('Круг 2'); expect(d.context).toContain('R1 — file.txt');
+  expect(x.fm.tasks.require(i.id).studioReview?.waitingForUser).toBe(true);
+  await x.q.tick(); expect(x.fm.decisions.open()).toHaveLength(1);
+});
+
+const findings = (count: number) => Array.from({ length: count }, (_, n) => ({ id: `R${n + 1}`, location: `file.txt:${n + 1}`, problem: `Problem ${n + 1}` }));
+async function reviewRound(x: Awaited<ReturnType<typeof fixture>>, i: Awaited<ReturnType<typeof fixture>>['q']['data']['items'][number], count: number, resolvedIds: string[] = []) {
+  await x.done(i);
+  await x.action('review.report', { id: i.id, run: i.attempt!.run, agentId: x.ids[2], head: i.head,
+    verdict: count ? 'changes' : 'pass', summary: `Remaining ${count}`, issues: findings(count), resolvedIds });
+  x.busy.delete(x.ids[2]!); await x.q.tick();
+}
+it('permits three correction cycles followed by pass with persistent issue identities', async () => {
+  const x = await fixture(), i = await x.create(); await x.action('start');
+  for (let n = 3; n >= 0; n--) {
+    await reviewRound(x, i, n, n === 3 ? [] : [`R${n + 1}`]);
+    expect(i.stage).toBe(n ? 'coding' : 'done');
+  }
+  expect(i.correctionRounds).toBe(3); expect(i.rounds).toBe(4); expect(i.reviews).toHaveLength(4);
+  expect(x.fm.decisions.open()).toHaveLength(0);
+  expect(x.calls[2]!.text).toContain('R3'); expect(x.calls[3]!.text).toContain('resolvedIds');
+});
+it('escalates after three returns despite continuing progress with a summary of every round', async () => {
+  const x = await fixture(), i = await x.create(); await x.action('start');
+  for (let n = 4; n >= 1; n--) await reviewRound(x, i, n, n === 4 ? [] : [`R${n + 1}`]);
+  expect(i.stage).toBe('question'); expect(i.correctionRounds).toBe(3); expect(i.reason).toContain('лимит 3');
+  expect(x.fm.decisions.open()).toHaveLength(1);
+  const context = x.fm.decisions.open()[0]!.context!;
+  for (let n = 1; n <= 4; n++) expect(context).toContain(`Круг ${n}`);
+  expect(context).toContain('Закрыты: R2'); expect(context).toContain('R1 — file.txt:1');
+});
+it.each([1, 5])('honours a configured limit of %i correction returns', async limit => {
+  const x = await fixture(), i = await x.create(); await x.action('review.settings', { maxCorrections: limit }); await x.action('start');
+  for (let n = limit + 1; n >= 1; n--) await reviewRound(x, i, n, n === limit + 1 ? [] : [`R${n + 1}`]);
+  expect(i.correctionRounds).toBe(limit); expect(i.stage).toBe('question'); expect(i.reason).toContain(`лимит ${limit}`);
+});
+it('validates persisted settings from one to five, preserves default for legacy tasks, and rejects scoped updates', async () => {
+  const x = await fixture(); expect(x.q.view().reviewSettings).toEqual({ maxCorrections: 3 });
+  for (const maxCorrections of [0, 6, 2.5, '3']) await expect(x.action('review.settings', { maxCorrections })).rejects.toThrow();
+  await expect(x.action('review.settings', { maxCorrections: 5, token: 'planner' })).rejects.toThrow();
+  for (let n = 1; n <= 5; n++) await x.action('review.settings', { maxCorrections: n });
+  const i = await x.create(); i.rounds = 1; i.review = 'Legacy finding'; delete i.correctionRounds; delete i.reviews;
+  await x.q.stop(); const restored = new RoleQueue(x.fm, x.runtime as unknown as AgentRuntime); queues.push(restored);
+  expect(restored.data.reviewSettings).toEqual({ maxCorrections: 5 }); expect(i.correctionRounds).toBe(1);
+  expect(i.reviews?.[0]).toMatchObject({ legacy: true, summary: 'Legacy finding' }); expect(i.stage).toBe('queued');
+  delete restored.data.reviewSettings;
+  const again = new RoleQueue(x.fm, x.runtime as unknown as AgentRuntime); queues.push(again);
+  expect(again.data.reviewSettings?.maxCorrections).toBe(3); expect(i.correctionRounds).toBe(1);
+});
+it('rejects lost, duplicate, contradictory and unknown issue IDs without advancing the round', async () => {
+  const x = await fixture(), i = await x.create(); await x.action('start'); await reviewRound(x, i, 2); await x.done(i);
+  const base = { id: i.id, run: i.attempt!.run, agentId: x.ids[2], head: i.head, verdict: 'changes', summary: 'Review' };
+  const before = JSON.stringify(i);
+  for (const patch of [{}, { issues: [] }, { issues: findings(1) }, { issues: [findings(1)[0], findings(1)[0]], resolvedIds: ['R2'] },
+    { issues: findings(1), resolvedIds: ['R1', 'R2'] }, { issues: findings(1), resolvedIds: ['unknown', 'R2'] },
+    { verdict: 'pass', issues: [], resolvedIds: ['R1'] }, { verdict: 'pass', issues: findings(2) }]) {
+    await expect(x.action('review.report', { ...base, ...patch })).rejects.toThrow(); expect(JSON.stringify(i)).toBe(before);
+  }
+  await x.action('review.report', { ...base, issues: findings(1), resolvedIds: ['R2'] }); expect(i.rounds).toBe(2);
 });
 
 it('two repository records for the same directory share the project lock', async () => {
@@ -391,7 +456,7 @@ it('an empty decision answer is rejected without closing or duplicating the ques
 });
 async function correctionRound(x: Awaited<ReturnType<typeof fixture>>) {
   const i = await x.create(); await x.action('start'); await x.done(i); await x.action('pause');
-  await x.action('review.report', { id: i.id, run: i.attempt!.run, agentId: x.ids[2], head: i.head, verdict: 'changes', summary: 'Fix the issue' });
+  await x.action('review.report', { id: i.id, run: i.attempt!.run, agentId: x.ids[2], head: i.head, verdict: 'changes', summary: 'Fix the issue', issues: [{ id: 'R1', location: 'file.txt', problem: 'Fix the issue' }] });
   x.busy.delete(x.ids[2]!); return i;
 }
 function unavailableBetweenAttempts(x: Awaited<ReturnType<typeof fixture>>, mode: string, id: string) {
