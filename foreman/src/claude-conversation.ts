@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { getSessionInfo, getSessionMessages } from '@anthropic-ai/claude-agent-sdk';
 
 const Config = z.object({ version: z.literal(1), sessionId: z.string().uuid(), importedHistory: z.string().max(100000).default('') });
-const Lease = z.object({ token: z.string().uuid(), owner: z.enum(['game', 'review', 'terminal', 'desktop']), pid: z.number().int().positive(), childPid: z.number().int().positive().optional() });
+const Lease = z.object({ token: z.string().uuid(), owner: z.enum(['game', 'review', 'terminal', 'desktop', 'channel']), pid: z.number().int().positive(), childPid: z.number().int().positive().optional() });
 export type Conversation = z.infer<typeof Config>;
 export type ConversationMessage = { id: string; role: 'user' | 'assistant'; text: string };
 const configFile = (dir: string) => path.join(dir, 'conversation.json');
@@ -26,6 +26,7 @@ export function conversationLease(dir: string) {
 export function leaseNotice(dir: string): string | undefined {
   const lease = conversationLease(dir);
   if (!lease) return undefined;
+  if (lease.owner === 'channel') return 'Разговор обслуживает терминальный канал AgentCraft. Используй его окно или закрой launcher перед сменой подключения.';
   if (lease.owner === 'desktop') return 'Claude в разделе Code. Верни разговор через Return-Klava-To-Game.cmd.';
   if (!alive(lease.pid) && !(lease.childPid && alive(lease.childPid))) {
     return 'Процесс Claude завершился, но разговор остался заблокирован. Запусти Return-Klava-To-Game.cmd в папке Claude, чтобы вернуть его в игру.';

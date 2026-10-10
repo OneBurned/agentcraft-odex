@@ -870,6 +870,13 @@ existing exclusive conversation handoff described below.
 
 The tested limits of attaching an external bridge to an already open Claude Desktop
 Code session are documented in [CLAUDE_APP_SESSION.md](CLAUDE_APP_SESSION.md).
+
+The opt-in local-development `claude-channel` transport keeps game messages and
+terminal conversation in one Claude Code session. It includes durable message IDs,
+owner-verified Pause/Stop, and explicit resume after interactive channel confirmation.
+It supports planning/review, not developer dispatch, and does not migrate the legacy
+paired queue or personal profile. Setup and the public package do not enable it.
+See [terminal channel operation and validation](CLAUDE_CHANNEL_RUNTIME.md).
 Resuming the same UUID is not proof of attaching to the app's existing executor.
 
 One explicitly bound native Claude Code session can serve Minecraft, the interactive terminal

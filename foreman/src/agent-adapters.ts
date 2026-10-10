@@ -10,6 +10,7 @@ import { readJson, writeJsonAtomic } from './util/fsx.js';
 import { CodexCliAdapter } from './codex-cli.js';
 import type { CanUseTool } from '@anthropic-ai/claude-agent-sdk';
 import { ClaudeDeveloper } from './agents/claude/developer.js';
+import { ClaudeChannelAdapter } from './claude-channel.js';
 
 export type ConnectionPhase = ChatActivity['phase'] | 'external';
 export interface WorkRequest { role: 'developer' | 'reviewer'; cwd: string; taskId?: string; run?: string; }
@@ -220,4 +221,5 @@ export class ClaudeAdapter implements AgentAdapter {
 
 export const createAdapter: AdapterFactory = (c, store, events) => c.transport === 'codex-cli'
   ? new CodexCliAdapter(c, store, events) : c.transport === 'codex-desktop'
-  ? new CodexAdapter(c, store, events) : new ClaudeAdapter(c, store, events);
+  ? new CodexAdapter(c, store, events) : c.transport === 'claude-channel'
+  ? new ClaudeChannelAdapter(c, store, events) : new ClaudeAdapter(c, store, events);

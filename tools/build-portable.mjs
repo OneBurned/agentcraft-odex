@@ -28,6 +28,10 @@ const opts={bundle:true,platform:'node',format:'esm',target:'node24',legalCommen
   banner:{js:"import { createRequire as _createRequire } from 'node:module'; const require = _createRequire(import.meta.url);"}};
 await build({...opts,entryPoints:[path.join(root,'foreman/src/observer-main.ts')],outfile:path.join(out,'foreman/src/observer-main.mjs')});
 await build({...opts,entryPoints:[path.join(root,'foreman/src/claude-workspace-server.ts')],outfile:path.join(out,'foreman/src/claude-workspace-server.mjs')});
+// Custom development channels require an interactive local-development confirmation.
+// They are intentionally absent from the public distribution and default Setup.
+if (!values.public) for (const name of ['claude-channel-server', 'claude-channel-launcher'])
+  await build({...opts,entryPoints:[path.join(root,`foreman/src/${name}.ts`)],outfile:path.join(out,`foreman/src/${name}.mjs`)});
 await build({...opts,entryPoints:[path.join(root,'tools/portable-control.mjs')],outfile:path.join(out,'control.mjs')});
 await build({...opts,entryPoints:[path.join(root,'tools/codex-progress.mjs')],outfile:path.join(out,'codex-progress.mjs')});
 await build({...opts,entryPoints:[path.join(root,'tools/studio.mjs')],outfile:path.join(out,'studio.mjs')});

@@ -8,6 +8,7 @@ import { ClaudeAdapter, CodexAdapter, type AgentAdapter, type AdapterEvents } fr
 import type { AppCall } from '../src/codex-desktop.js';
 import type { DialogRunner } from '../src/claude-dialog.js';
 import type { ConversationMessage } from '../src/claude-conversation.js';
+import { acquireConversation } from '../src/claude-conversation.js';
 import { silentLogger } from '../src/context.js';
 import { writeJsonAtomic } from '../src/util/fsx.js';
 import { parseClientMessage, type Outbound } from '../src/protocol.js';
@@ -85,6 +86,27 @@ async function message(f: Foreman, body: Record<string, unknown>) {
   await f.handle(parsed.msg, m => out.push(m));
   return out.find(m => m.type === 'ack') as any;
 }
+
+it('channel startup keeps resume available without claiming work, and a read-only check does not unlock connection changes', async () => {
+  const x = await fixture(), id = x.ids[2]!, connection = { ...x.connections[2], transport: 'claude-channel' };
+  await x.backend.onStudioAction('connection.bind', { id, revision: x.f.team!.snapshot().revision, connection });
+  const runtime = (x.backend as any).runtime, adapter = x.adapters.get(id)!;
+  await until(() => x.f.agent(id)?.controls?.message === true);
+  const lease = acquireConversation(connection.workspace, 'channel');
+  vi.spyOn(adapter, 'check').mockResolvedValue({ notice: 'Channel fixture verified' });
+  await expect(runtime.check(id)).resolves.toMatchObject({ agentId: id });
+  expect(() => runtime.assertIdle(id)).toThrow('Разговор занят');
+  x.callbacks.get(id)!.activity('stopped');
+  expect(x.f.agent(id)?.controls).toMatchObject({ message: false, resume: true });
+  vi.spyOn(adapter, 'control').mockImplementation(async () => {
+    x.callbacks.get(id)!.activity('paused', 'Confirm development channel');
+    return { chatControl: 'paused' };
+  });
+  await runtime.control(id, 'resume');
+  expect(x.f.agent(id)?.controls).toMatchObject({ message: false, pause: false, resume: true });
+  expect(runtime.workUnavailable(id, 'developer', connection.workspace)).toBeTruthy();
+  lease.release();
+});
 
 it('carries a full task discussion through Codex Desktop while retaining the smaller player message limit', async () => {
   const x = await fixture(), id = x.ids[0]!;

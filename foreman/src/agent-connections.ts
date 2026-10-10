@@ -19,7 +19,8 @@ const codexCli = z.object({ ...base, provider: z.literal('codex'), transport: z.
   workspace: z.string().refine(path.isAbsolute), sessionId: z.string().uuid(),
   executable: z.string().refine(path.isAbsolute).refine(p => !/\.(cmd|bat|ps1)$/i.test(p), 'Use the native Codex executable, not a shell wrapper'),
   sandbox: z.enum(['read-only', 'workspace-write']).default('read-only') }).strict();
-export const Connection = z.discriminatedUnion('transport', [codex, codexCli, claude]);
+const claudeChannel = claude.extend({ transport: z.literal('claude-channel') });
+export const Connection = z.discriminatedUnion('transport', [codex, codexCli, claude, claudeChannel]);
 export type Connection = z.infer<typeof Connection>;
 export const connectionSession = (c: Connection) => c.transport === 'codex-desktop' ? c.threadId : c.sessionId;
 const request = z.object({ id: TeamId, revision: z.number().int().nonnegative(), connection: z.record(z.string(), z.unknown()) });

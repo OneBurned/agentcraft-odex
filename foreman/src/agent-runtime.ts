@@ -93,8 +93,9 @@ export class AgentRuntime {
     const working = slot && ['working', 'waiting'].includes(slot.phase);
     const statusHint = slot?.notice || this.errors.get(id) || (enabled ? 'Не подключён' : 'Выключен');
     const hint = [statusHint, this.projectHint?.(id)].filter(Boolean).join(' · ');
-    this.fm.setAgent(id, { controls: { message: !!enabled && ready && !busy && slot?.phase !== 'paused',
-      pause: ready && !!working, resume: ready && slot?.phase === 'paused' && !busy,
+    const channelStopped = slot?.connection.transport === 'claude-channel' && slot.phase === 'stopped';
+    this.fm.setAgent(id, { controls: { message: !!enabled && ready && !busy && slot?.phase !== 'paused' && !channelStopped,
+      pause: ready && !!working, resume: ready && (slot?.phase === 'paused' || channelStopped) && !busy,
       stop: (ready && (!!working || slot?.phase === 'paused' || slot?.phase === 'error' || slot?.phase === 'interrupted')) ||
         (slot?.connection.provider === 'claude' || slot?.connection.transport === 'codex-cli') && slot.phase === 'unavailable' && slot.adapter.busy(), hint },
       ...(!slot ? { activity: hint, state: 'idle', paused: false } : {}) });
@@ -171,7 +172,7 @@ export class AgentRuntime {
     this.connections.assertCurrent(slot.connection);
     return slot;
   }
-  assertIdle(id: string) {
+  assertIdle(id: string, checkingChannel = false) {
     if (this.workReservations.has(id)) throw new Error('Очередь готовит запуск задачи этого агента.');
     if (this.checking.has(id)) throw new Error('Дождись завершения проверки подключения.');
     const slot = this.slots.get(id);
@@ -179,7 +180,11 @@ export class AgentRuntime {
       throw new Error('Агент занят или остановка не подтверждена. Сначала останови его работу.');
     let c = slot?.connection;
     if (!c) { try { c = this.connections.read(id); } catch { /* No runtime exists for this damaged record. */ } }
-    if (c?.provider === 'claude' && conversationLease(c.workspace)) throw new Error('Разговор занят. Сначала верни его из терминала/Code.');
+    if (c?.provider === 'claude') {
+      const lease = conversationLease(c.workspace);
+      if (lease && !(checkingChannel && c.transport === 'claude-channel' && lease.owner === 'channel'))
+        throw new Error('Разговор занят. Сначала верни его из терминала/Code.');
+    }
     return true;
   }
   connectionKey(id: string) { const s = this.slot(id); return createHash('sha256').update(JSON.stringify({ ref: s.ref, connection: s.connection })).digest('hex'); }
@@ -210,6 +215,8 @@ export class AgentRuntime {
         if (role === 'developer' && c.sandbox !== 'workspace-write') return 'Для разработки подключи Codex CLI с workspace-write.';
       }
       if (c.provider === 'claude') {
+        if (c.transport === 'claude-channel' && role === 'developer') return 'Терминальный канал Claude поддерживает планирование и ревью; разработка требует SDK-подключения.';
+        if (c.transport === 'claude-channel' && s.phase === 'stopped') return 'Сначала открой остановленный канал кнопкой Продолжить.';
         const access = WorkspaceConfig.parse(JSON.parse(fs.readFileSync(path.join(c.workspace, 'access.json'), 'utf8')));
         if (!access.repositories.some(r => sameDirectory(r.path, cwd))) return 'Проект не разрешён в рабочем пространстве Claude.';
       }
@@ -240,7 +247,7 @@ export class AgentRuntime {
     const slot = this.slot(id);
     try {
       const result = await slot.adapter.control(action);
-      if (action === 'resume') this.activity(id, 'working');
+      if (action === 'resume' && slot.connection.transport !== 'claude-channel') this.activity(id, 'working');
       return { ...result, agentId: id };
     }
     finally { if (this.slots.get(id) === slot) this.controls(id); }
@@ -248,7 +255,7 @@ export class AgentRuntime {
   async check(id: string) {
     const agent = this.fm.team!.get(id);
     if (!agent || agent.archived) throw new Error('Сначала восстанови агента из архива.');
-    this.assertIdle(id);
+    this.assertIdle(id, true);
     const connection = this.connections.read(id);
     if (!connection) throw new Error('Сначала сохрани подключение.');
     this.connections.assertCurrent(connection);
