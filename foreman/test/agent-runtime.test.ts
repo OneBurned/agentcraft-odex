@@ -85,6 +85,15 @@ async function message(f: Foreman, body: Record<string, unknown>) {
   await f.handle(parsed.msg, m => out.push(m));
   return out.find(m => m.type === 'ack') as any;
 }
+
+it('carries a full task discussion through Codex Desktop while retaining the smaller player message limit', async () => {
+  const x = await fixture(), id = x.ids[0]!;
+  const runtime = (x.backend as any).runtime;
+  const text = 'Обсуждение агентов\n' + 'Техническое пояснение. '.repeat(1800) + '\nКонец полной переписки';
+  await expect(runtime.send(id, text)).rejects.toThrow();
+  await runtime.sendWork(id, text, { role: 'developer', cwd: x.f.config.projectRoot, taskId: 't1', run: randomUUID() });
+  expect(x.prompts.at(-1)?.prompt).toContain(text);
+});
 it('edits any team persona without changing work or roster and isolates style to game messages across providers', async () => {
   const x = await fixture();
   const before = JSON.stringify(x.f.store.data), team = x.f.team!.snapshot();

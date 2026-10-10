@@ -220,7 +220,8 @@ export class DesktopChat {
     if (this.state.threadId !== binding.threadId) throw new Error('Чат переключается; дождись подключения.');
     if (this.sending) throw new Error('Предыдущее сообщение ещё отправляется.');
     if (this.controlling) throw new Error('Предыдущая команда ещё обрабатывается.');
-    if (!text.trim() || text.length > 12000) throw new Error('Сообщение должно содержать от 1 до 12000 символов.');
+    const maxLength = purpose === 'task' ? 96000 : 12000;
+    if (!text.trim() || text.length > maxLength) throw new Error(`Сообщение должно содержать от 1 до ${maxLength} символов.`);
     this.sending = true;
     this.commandEpoch++;
     try {

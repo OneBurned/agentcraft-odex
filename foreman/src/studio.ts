@@ -13,7 +13,7 @@ const selected = z.object({ id: TeamId });
 export class TeamStudio {
   readonly queue: RoleQueue;
   readonly messaging: AgentMessaging;
-  constructor(private fm: Foreman, readonly runtime: AgentRuntime) { this.queue = new RoleQueue(fm, runtime); this.messaging = new AgentMessaging(fm, runtime); }
+  constructor(private fm: Foreman, readonly runtime: AgentRuntime) { this.messaging = new AgentMessaging(fm, runtime); this.queue = new RoleQueue(fm, runtime, this.messaging); }
   start() { this.queue.migrateLegacyPlanning(); this.messaging.start(); this.queue.start(); }
   async stop() { await this.messaging.stop(); await this.queue.stop(); }
   async action(action: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {

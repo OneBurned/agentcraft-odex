@@ -219,7 +219,8 @@ export class AgentRuntime {
   sendWork(id: string, text: string, work: WorkRequest) { return this.send(id, text, 'task', work); }
   async send(id: string, text: string, purpose: 'message' | 'task' = 'message', work?: WorkRequest) {
     const slot = this.slot(id);
-    text = z.string().trim().min(1).max(12000).parse(text);
+    // Queue prompts include the full bounded technical discussion (up to ten 4k messages).
+    text = z.string().trim().min(1).max(work ? 96000 : 12000).parse(text);
     slot.peerTurn = false;
     let result;
     try { result = work && slot.adapter.execute ? await slot.adapter.execute(text, work) : await slot.adapter.send(text, purpose); }

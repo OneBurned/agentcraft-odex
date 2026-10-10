@@ -15,7 +15,8 @@ export const MessagingBinding = z.object({ version: z.literal(1), agentId: TeamI
 type Receipt = { id: string; requestId: string; digest: string; threadId: string; from: string; to: string; text: string;
   createdAt: number; status: 'queued' | 'sending' | 'delivered' | 'uncertain' | 'rejected'; reason?: string;
   senderConnection: string; recipientConnection: string; deliveredAt?: number };
-type Thread = { id: string; pair: string[]; closed?: boolean; decisionId?: string; nextThreadId?: string };
+type Thread = { id: string; pair: string[]; closed?: boolean; decisionId?: string; nextThreadId?: string;
+  task?: { id: string; author: string }; reason?: string };
 const decisionOptions = ['Открыть новую ветку', 'Оставить закрытой'];
 type Data = { version: 1; grants: Record<string, { hash: string; connection: string }>; threads: Thread[]; messages: Receipt[] };
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -96,7 +97,9 @@ export class AgentMessaging {
     return { id: p.agentId, input };
   }
   private escalate(t: Thread, reason: string, senderId?: string) {
-    t.closed = true;
+    t.closed = true; t.reason = reason;
+    // The task owns one decision, with its complete transcript. Never create a second mailbox decision.
+    if (t.task) return;
     if (t.decisionId && this.fm.decisions.get(t.decisionId)?.status === 'open') return;
     const messages = this.data.messages.filter(m => m.threadId === t.id).slice(-10);
     t.decisionId = this.fm.decisions.create({ agentId: senderId ?? messages.at(-1)?.from ?? t.pair[0]!, kind: 'question', tool: 'agent-messaging',
@@ -105,6 +108,7 @@ export class AgentMessaging {
         messages.map(m => `${m.from} → ${m.to} [${m.status}]: ${m.text.slice(0, 350)}`).join('\n'), options: decisionOptions }).id;
   }
   private reset(t: Thread) {
+    if (t.task) throw new Error('Обсуждение задачи возобновляется через карточку задачи.');
     // A delayed click or repeated CLI call must not supersede an already opened branch.
     if (t.nextThreadId) return { threadId: t.nextThreadId };
     if (this.data.messages.some(m => m.threadId === t.id && ['queued', 'sending', 'uncertain'].includes(m.status)))
@@ -138,6 +142,58 @@ export class AgentMessaging {
   }
   private receipt(m: Receipt) { return { id: m.id, requestId: m.requestId, threadId: m.threadId, from: m.from, to: m.to,
     text: m.text, status: m.status, reason: m.reason, createdAt: m.createdAt, deliveredAt: m.deliveredAt }; }
+  /** Only the scheduler creates task threads; scoped callers cannot choose task ownership. */
+  async askTask(taskId: string, from: string, to: string, requestId: string, text: string, threadId?: string) {
+    return this.lock(async () => {
+      const old = this.data.messages.find(m => m.from === from && m.requestId === requestId);
+      const known = threadId ? this.data.threads.find(t => t.id === threadId) : old ? this.thread(old.threadId) : undefined;
+      const t = known ?? { id: threadId ? z.string().uuid().parse(threadId) : randomUUID(), pair: [from, to].sort(), task: { id: taskId, author: from } };
+      if (t.task?.id !== taskId || t.task.author !== from) throw new Error('Обсуждение принадлежит другой задаче или автору.');
+      if (!this.data.threads.includes(t)) this.data.threads.push(t);
+      return this.sendFrom(from, MessageInput.parse({ to, requestId, text, threadId: t.id }));
+    });
+  }
+  taskThread(taskId: string, threadId: string) {
+    const t = this.thread(threadId);
+    if (t.task?.id !== taskId) throw new Error('Ветка не принадлежит задаче.');
+    return { ...structuredClone(t), messages: this.data.messages.filter(m => m.threadId === t.id).map(m => this.receipt(m)) };
+  }
+  closeTask(taskId: string, threadId: string, reason: string) {
+    const t = this.data.threads.find(t => t.id === threadId);
+    // The queue reserves its thread ID before submitting the first message.
+    if (!t) return;
+    if (t.task?.id !== taskId) throw new Error('Ветка не принадлежит задаче.');
+    t.closed = true; t.reason = reason;
+    for (const m of this.data.messages) if (m.threadId === t.id && m.status === 'queued') { m.status = 'rejected'; m.reason = reason; }
+    this.save();
+  }
+  private sendFrom(id: string, p: z.infer<typeof MessageInput>) {
+      this.enabled(id);
+      this.enabled(p.to); if (p.to === id) throw new Error('Нельзя отправить сообщение самому себе.');
+      const existing = this.data.messages.find(m => m.from === id && m.requestId === p.requestId);
+      const pair = [id, p.to].sort();
+      const t = p.threadId ? this.thread(p.threadId) : existing ? this.thread(existing.threadId)
+        : this.data.threads.findLast(t => !t.task && t.pair.join('/') === pair.join('/')) ?? { id: randomUUID(), pair };
+      if (t.pair.join('/') !== pair.join('/')) throw new Error('Эта ветка принадлежит другой паре агентов.');
+      const digest = hash({ ...p, threadId: t.id });
+      if (existing) { if (existing.digest !== digest) throw new Error('requestId уже использован с другим содержимым.'); this.runtime.recordPeer(existing); return { ...this.receipt(existing), duplicate: true }; }
+      if (t.closed) throw new Error('Ветка закрыта. Требуется решение пользователя.');
+      if (this.data.messages.length >= 10000) throw new Error('Журнал переписки заполнен. Нужен оператор.');
+      const senderConnection = this.runtime.connectionKey(id), recipientConnection = this.runtime.connectionKey(p.to);
+      if (!this.data.threads.includes(t)) this.data.threads.push(t);
+      const now = Date.now();
+      if (this.data.messages.filter(m => m.from === id && m.createdAt > now - 60000).length >= 5) {
+        this.escalate(t, 'Превышена частота: не больше 5 сообщений от агента в минуту.', id); this.save(); throw new Error('Превышена частота переписки. Вопрос передан пользователю.');
+      }
+      const count = this.data.messages.filter(m => m.threadId === t.id).length;
+      if (count >= 10) { this.escalate(t, 'Достигнут лимит 10 обменов.', id); this.save(); throw new Error('Лимит 10 обменов.'); }
+      const m: Receipt = { id: randomUUID(), ...p, digest, threadId: t.id, from: id, createdAt: now, status: 'queued', senderConnection, recipientConnection };
+      this.data.messages.push(m);
+      if (requestsAuthority(m.text)) { m.status = 'rejected'; m.reason = 'Сообщение агента не может выдавать полномочия. Просьба передана пользователю.'; this.escalate(t, m.reason, id); }
+      if (count === 9) this.escalate(t, 'Достигнут лимит 10 обменов.', id);
+      this.save(); this.runtime.recordPeer(m);
+      return { ...this.receipt(m), duplicate: false };
+  }
   async action(action: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     return this.lock(async () => {
       if (action === 'message.resolve') {
@@ -163,32 +219,7 @@ export class AgentMessaging {
           threads: this.data.threads.filter(t => t.pair.includes(id)).slice(-50) };
       }
       if (action !== 'message.send') throw new Error('Разрешение переписки даёт только message.send/list.');
-      const p = MessageInput.parse(input);
-      this.enabled(p.to); if (p.to === id) throw new Error('Нельзя отправить сообщение самому себе.');
-      const existing = this.data.messages.find(m => m.from === id && m.requestId === p.requestId);
-      const pair = [id, p.to].sort();
-      const t = p.threadId ? this.thread(p.threadId) : existing ? this.thread(existing.threadId)
-        : this.data.threads.findLast(t => t.pair.join('/') === pair.join('/')) ?? { id: randomUUID(), pair };
-      if (t.pair.join('/') !== pair.join('/')) throw new Error('Эта ветка принадлежит другой паре агентов.');
-      const digest = hash({ ...p, threadId: t.id });
-      if (existing) { if (existing.digest !== digest) throw new Error('requestId уже использован с другим содержимым.'); this.runtime.recordPeer(existing); return { ...this.receipt(existing), duplicate: true }; }
-      if (t.closed) throw new Error('Ветка закрыта. Требуется решение пользователя.');
-      if (this.data.messages.length >= 10000) throw new Error('Журнал переписки заполнен. Нужен оператор.');
-      const senderConnection = this.runtime.connectionKey(id), recipientConnection = this.runtime.connectionKey(p.to);
-      if (!this.data.threads.includes(t)) this.data.threads.push(t);
-      const now = Date.now();
-      if (this.data.messages.filter(m => m.from === id && m.createdAt > now - 60000).length >= 5) {
-        this.escalate(t, 'Превышена частота: не больше 5 сообщений от агента в минуту.', id); this.save(); throw new Error('Превышена частота переписки. Вопрос передан пользователю.');
-      }
-      const count = this.data.messages.filter(m => m.threadId === t.id).length;
-      if (count >= 10) { this.escalate(t, 'Достигнут лимит 10 обменов.', id); this.save(); throw new Error('Лимит 10 обменов.'); }
-      const m: Receipt = { id: randomUUID(), ...p, digest, threadId: t.id, from: id, createdAt: now, status: 'queued', senderConnection, recipientConnection };
-      this.data.messages.push(m);
-      if (requestsAuthority(m.text)) { m.status = 'rejected'; m.reason = 'Сообщение агента не может выдавать полномочия. Просьба передана пользователю.'; this.escalate(t, m.reason, id); }
-      if (count === 9) this.escalate(t, 'Достигнут лимит 10 обменов.', id);
-      this.save();
-      this.runtime.recordPeer(m);
-      return { ...this.receipt(m), duplicate: false };
+      return this.sendFrom(id, MessageInput.parse(input));
     });
   }
   async tick() {
@@ -200,6 +231,12 @@ export class AgentMessaging {
           if (this.runtime.connectionKey(m.from) !== m.senderConnection || this.runtime.connectionKey(m.to) !== m.recipientConnection)
             throw new Error('Подключение изменилось. Сообщение не пересылается в другой разговор.');
         } catch (e) { m.status = 'rejected'; m.reason = (e as Error).message; this.escalate(this.thread(m.threadId), m.reason, m.from); this.save(); continue; }
+        const thread = this.thread(m.threadId);
+        // Task replies are consumed by the scheduler as context, never as an unsolicited provider turn.
+        // Their queued status is retained until that context is acknowledged.
+        if (thread.task?.author === m.to) continue;
+        if (thread.task && thread.closed) { m.status = 'rejected'; m.reason = thread.reason; this.save(); continue; }
+        if (thread.task && (this.fm.store.data.backend.roleQueue as { mode?: string } | undefined)?.mode !== 'running') continue;
         const queue = this.fm.store.data.backend.roleQueue as { active?: string; items?: { id: string; attempt?: { agentId: string }; settlingAgentId?: string }[] } | undefined;
         if (queue?.items?.some(i => i.id === queue.active && i.attempt?.agentId === m.to || i.settlingAgentId === m.to) || !this.runtime.idle(m.to)) continue;
         this.runtime.recordPeer(m);
@@ -212,5 +249,12 @@ export class AgentMessaging {
         this.save();
       }
     });
+  }
+  acknowledgeTaskReply(taskId: string, threadId: string, messageId: string) {
+    const t = this.thread(threadId), m = this.data.messages.find(m => m.id === messageId && m.threadId === threadId);
+    if (t.task?.id !== taskId || !m || m.to !== t.task.author || m.status !== 'queued') throw new Error('Ответ обсуждения недоступен.');
+    if (this.runtime.connectionKey(m.from) !== m.senderConnection || this.runtime.connectionKey(m.to) !== m.recipientConnection)
+      throw new Error('Подключение обсуждения изменилось.');
+    m.status = 'delivered'; m.deliveredAt = Date.now(); m.reason = 'Ответ сохранён в контексте задачи.'; this.save();
   }
 }

@@ -62,6 +62,27 @@ async function fixture() {
   return { f, backend, action, ids, a, b, other, home, port, events, sends, mailbox, permit, auth, send, restart, disable, workspaces };
 }
 
+it('task threads use the existing authenticated channel and record replies without a second provider turn', async () => {
+  const x = await fixture(), mailbox = x.mailbox();
+  (x.backend as any).teamStudio.queue.data.mode = 'running';
+  const question = await mailbox.askTask('t1', x.a, x.b, 'task-question', 'Как проверить повтор?');
+  await mailbox.tick(); expect(x.sends.get(x.b)).toHaveBeenCalledTimes(1);
+  const response = await x.send(x.b, x.a, 'task-answer', 'Повтори с тем же идентификатором.', { threadId: question.threadId });
+  await mailbox.tick(); expect(x.sends.get(x.a)).not.toHaveBeenCalled();
+  expect(mailbox.taskThread('t1', question.threadId).messages.at(-1)?.status).toBe('queued');
+  mailbox.acknowledgeTaskReply('t1', question.threadId, response.id as string);
+  expect(mailbox.taskThread('t1', question.threadId).messages.at(-1)?.status).toBe('delivered');
+  expect((await x.action('connection.get', { id: x.a })).history).toEqual(expect.arrayContaining([
+    expect.objectContaining({ role: 'agent', source: expect.objectContaining({ messageId: response.id }) }),
+  ]));
+  expect(x.f.store.data.feed.some(row => row.agentId === x.b && row.to === x.a)).toBe(true);
+  await expect(x.action('message.send', { ...x.auth(x.b), to: x.a, text: 'answer', requestId: 'forged-task', taskId: 't2' })).rejects.toThrow();
+  await expect(x.action('review.report', { ...x.auth(x.b), verdict: 'pass' })).rejects.toThrow();
+  await expect(x.action('message.reset', { threadId: question.threadId })).rejects.toThrow('карточку');
+  mailbox.closeTask('t1', question.threadId, 'Завершено');
+  await expect(x.send(x.b, x.a, 'late-answer', 'Late', { threadId: question.threadId })).rejects.toThrow('закрыта');
+});
+
 it('addresses only the selected agent, persists source in both histories and game feed, confirms delivery and deduplicates', async () => {
   const x = await fixture(); const first = await x.send();
   expect(first).toMatchObject({ from: x.a, to: x.b, status: 'queued', duplicate: false });
