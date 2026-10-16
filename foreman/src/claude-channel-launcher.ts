@@ -13,8 +13,9 @@ import { ClaudeProcess } from './agents/claude/process.js';
 import { ChannelMailbox, ChannelControl, ChannelReceipt, type ChannelOwner } from './claude-channel-mailbox.js';
 import { writeJsonAtomic } from './util/fsx.js';
 import { channelSessions } from './claude-channel-status.js';
+import { channelToolPolicy } from './claude-channel-tools.js';
 
-const { values } = parseArgs({ options: { 'profile-dir': { type: 'string' }, agent: { type: 'string' } } });
+const { values } = parseArgs({ options: { 'profile-dir': { type: 'string' }, agent: { type: 'string' }, 'file-tools': { type: 'boolean', default: false } } });
 if (!values['profile-dir'] || !values.agent) throw new Error('Use --profile-dir <path> --agent <id>');
 const profile = fs.realpathSync(values['profile-dir']);
 const team = new TeamRegistry(profile), store = new AgentConnections(profile, team);
@@ -58,13 +59,14 @@ async function launch() {
   const mcp = JSON.parse(workspace.args[mcpIndex + 1]!);
   mcp.mcpServers.agentcraft = { command: process.execPath, args: [...entry('claude-channel-server'), '--spec', spec] };
   const context = path.join(mailbox.root, 'instructions.md');
-  fs.writeFileSync(context, `${workspace.args[workspace.args.indexOf('--append-system-prompt') + 1]}\n${workspace.instructions}${importContext(config)}`);
+  const policy = channelToolPolicy(values['file-tools']);
+  fs.writeFileSync(context, `${policy.instructions ?? workspace.args[workspace.args.indexOf('--append-system-prompt') + 1]}\n${workspace.instructions}${importContext(config)}`);
   const allowed = workspace.args[workspace.args.indexOf('--allowedTools') + 1]! + ',mcp__agentcraft__reply';
   // Interactive startup retains the normal trust and local development confirmations.
   child = spawn(exe!, ['--resume', config.sessionId, '--name', team.get(c!.agentId)!.name,
     '--dangerously-load-development-channels', 'server:agentcraft', '--strict-mcp-config', '--mcp-config', JSON.stringify(mcp),
-    '--tools', '', '--allowedTools', allowed, '--permission-mode', 'default', '--setting-sources', '',
-    '--settings', '{"disableAllHooks":true}', '--append-system-prompt-file', context, '--system-prompt-snapshot', 'off'],
+    ...policy.args, '--allowedTools', allowed,
+    '--append-system-prompt-file', context, '--system-prompt-snapshot', 'off'],
   { cwd: workspace.directory, stdio: 'inherit', shell: false });
   const launched = child;
   launched.on('error', e => { owner.phase = 'error'; owner.error = e.message; save(); });
