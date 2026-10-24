@@ -53,6 +53,16 @@ it('persists separate Codex bindings and reserves archived conversations', () =>
   const restarted = new AgentConnections(f.root, new TeamRegistry(f.root));
   expect(restarted.read(f.b)).toMatchObject(second);
 });
+it('separates identical thread IDs on different hosts and refreshes only the same remote identity', () => {
+  const f = fixture(), local = binding(), hostId = `remote-ssh-codex-managed:${randomUUID()}`;
+  const remote = { ...local, hostId, callerThreadId: randomUUID() };
+  f.bind(f.a, local); f.bind(f.b, remote);
+  const payload = { id: f.b, revision: f.team.snapshot().revision, threadId: remote.threadId, hostId, pipePath: '\\\\.\\pipe\\codex-app-tools-next', callerThreadId: randomUUID() };
+  f.store.prepareDesktopRefresh(payload).activate();
+  expect(f.store.desktopBinding(f.store.read(f.b) as any)).toMatchObject({ hostId, callerThreadId: payload.callerThreadId, pipePath: payload.pipePath });
+  expect(() => f.store.prepareDesktopRefresh({ ...payload, hostId: 'local' })).toThrow('того же');
+  expect(() => f.bind(f.a, remote)).toThrow('уже назначен');
+});
 it('rejects two Claude agents using one session, one workspace, or a leased conversation', () => {
   const f = fixture('claude'), first = workspace(), second = workspace();
   f.bind(f.a, first); f.bind(f.b, second);

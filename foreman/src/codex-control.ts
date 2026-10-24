@@ -44,7 +44,7 @@ export class DesktopIpc {
     const body = Buffer.from(JSON.stringify(message)), header = Buffer.alloc(4);
     header.writeUInt32LE(body.length); this.socket.write(Buffer.concat([header, body]));
   }
-  async request(method: string, params: unknown, version: number, targetClientId?: string): Promise<any> {
+  async request(method: string, params: unknown, version: number, targetClientId?: string, hostId?: string): Promise<any> {
     await this.ready;
     if (this.socket.destroyed) throw new Error('Соединение Codex закрыто.');
     const requestId = randomUUID();
@@ -55,14 +55,14 @@ export class DesktopIpc {
       }, this.timeoutMs);
       this.pending.set(requestId, { resolve, reject, timer });
       this.write({ type: 'request', requestId, sourceClientId: this.clientId, method, params, version,
-        targetClientId, timeoutMs: this.timeoutMs });
+        targetClientId, hostId, timeoutMs: this.timeoutMs });
     });
   }
-  async owner(threadId: string): Promise<string> {
+  async owner(threadId: string, hostId = 'local'): Promise<string> {
     const init = await this.request('initialize', { clientType: 'agentcraft' }, 0);
     if (typeof init.result?.clientId !== 'string') throw new Error('Неизвестный ответ управления Codex.');
     this.clientId = init.result.clientId;
-    const owner = await this.request('thread-owner-discovery', { hostId: 'local', conversationId: threadId }, 1);
+    const owner = await this.request('thread-owner-discovery', { hostId, conversationId: threadId }, 1);
     if (typeof owner.handledByClientId !== 'string') throw new Error('Не найден владелец открытого чата Codex.');
     return owner.handledByClientId;
   }
@@ -73,13 +73,20 @@ export class DesktopIpc {
   close() { this.socket.destroy(); this.failPending(); }
 }
 
-export async function interruptDesktop(threadId: string, stop: boolean, options: { pipe?: string; timeoutMs?: number } = {}): Promise<void> {
+export async function interruptDesktop(threadId: string, stop: boolean, options: { pipe?: string; timeoutMs?: number; hostId?: string } = {}): Promise<void> {
   const ipc = new DesktopIpc(options.pipe, options.timeoutMs);
   try {
-    const owner = await ipc.owner(threadId);
-    if (stop) await ipc.request('thread-follower-clear-queued-messages', { conversationId: threadId }, 1, owner);
+    const remoteHost = options.hostId && options.hostId !== 'local' ? options.hostId : undefined;
+    let owner: string;
+    try { owner = await ipc.owner(threadId, options.hostId); }
+    catch (error) {
+      if (remoteHost && error instanceof Error && error.message.includes('no-client-found'))
+        throw new Error('Codex не предоставил владельца удалённого чата для Pause/Stop. Останови работу кнопкой Stop в самом Codex; остановка из игры не подтверждена.');
+      throw error;
+    }
+    if (stop) await ipc.request('thread-follower-clear-queued-messages', { conversationId: threadId }, remoteHost ? 2 : 1, owner, remoteHost);
     // Same user-stop path as the app: interrupts work and pauses an active persistent Goal.
-    const response = await ipc.request('thread-follower-interrupt-turn', { conversationId: threadId, mode: 'user-stop' }, 3, owner);
+    const response = await ipc.request('thread-follower-interrupt-turn', { conversationId: threadId, mode: 'user-stop' }, remoteHost ? 5 : 3, owner, remoteHost);
     const result = response.result;
     if (result?.ok !== true || result.goalPauseError) throw new Error(result?.goalPauseError || 'Остановка Codex не подтверждена.');
   } finally { ipc.close(); }

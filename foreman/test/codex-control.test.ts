@@ -5,7 +5,7 @@ import { DesktopIpc, interruptDesktop } from '../src/codex-control.js';
 import { tempDir, rmrf } from './helpers.js';
 import path from 'node:path';
 
-async function serverTest(run: (pipe: string, requests: any[]) => Promise<void>, interruptResult: any = { ok: true, interruptedTurnId: 'turn' }) {
+async function serverTest(run: (pipe: string, requests: any[]) => Promise<void>, interruptResult: any = { ok: true, interruptedTurnId: 'turn' }, discoveryError?: string) {
   const dir = process.platform === 'win32' ? undefined : tempDir('ac-control-');
   const pipe = dir ? path.join(dir, 's') : `\\\\.\\pipe\\ac-control-${randomUUID()}`;
   const requests: any[] = [];
@@ -19,8 +19,9 @@ async function serverTest(run: (pipe: string, requests: any[]) => Promise<void>,
         const result = message.method === 'initialize' ? { clientId: 'game-client' }
           : message.method === 'thread-owner-discovery' ? { supportsUntrustedAppInput: true }
           : message.method === 'thread-follower-clear-queued-messages' ? { messages: [] } : interruptResult;
+        const error = message.method === 'thread-owner-discovery' ? discoveryError : undefined;
         const body = Buffer.from(JSON.stringify({ type: 'response', requestId: message.requestId,
-          method: message.method, resultType: 'success', handledByClientId: 'desktop-owner', result }));
+          method: message.method, resultType: error ? 'error' : 'success', error, handledByClientId: 'desktop-owner', result }));
         const header = Buffer.alloc(4); header.writeUInt32LE(body.length);
         socket.write(header.subarray(0, 2)); socket.write(Buffer.concat([header.subarray(2), body]));
       }
@@ -32,6 +33,21 @@ async function serverTest(run: (pipe: string, requests: any[]) => Promise<void>,
 }
 
 describe('desktop task control IPC', () => {
+  it('fails closed when the desktop cannot expose the remote owner, without sending a local interrupt', async () => {
+    await serverTest(async (pipe, requests) => {
+      await expect(interruptDesktop('remote-chat', true, { pipe, hostId: `remote-ssh-codex-managed:${randomUUID()}` })).rejects.toThrow('остановка из игры не подтверждена');
+      expect(requests.map(r => r.method)).toEqual(['initialize', 'thread-owner-discovery']);
+    }, undefined, 'no-client-found');
+  });
+  it('routes remote controls to the remote host with its host-aware protocol versions', async () => {
+    await serverTest(async (pipe, requests) => {
+      const hostId = `remote-ssh-codex-managed:${randomUUID()}`;
+      await interruptDesktop('remote-chat', true, { pipe, hostId });
+      expect(requests[1].params).toEqual({ hostId, conversationId: 'remote-chat' });
+      expect(requests[2]).toMatchObject({ hostId, version: 2, targetClientId: 'desktop-owner', params: { conversationId: 'remote-chat' } });
+      expect(requests[3]).toMatchObject({ hostId, version: 5, targetClientId: 'desktop-owner', params: { conversationId: 'remote-chat', mode: 'user-stop' } });
+    });
+  });
   it('discovers the bound owner and interrupts via user-stop, preserving queued messages on pause', async () => {
     await serverTest(async (pipe, requests) => {
       await interruptDesktop('bound-chat', false, { pipe });

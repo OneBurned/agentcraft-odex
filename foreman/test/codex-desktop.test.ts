@@ -57,6 +57,19 @@ it('adds the current Codex persona to game messages but not task delivery, and p
 });
 
 describe('desktop chat relay', () => {
+  it('does not reuse a local cursor or pause state for the same UUID on a remote host', async () => {
+    const f = fixture(); await f.chat.poll(); await f.chat.control('pause');
+    const remote = { ...binding, hostId: 'remote-ssh-codex-managed:11111111-1111-4111-8111-111111111111', callerThreadId: binding.threadId };
+    fs.writeFileSync(f.configFile, JSON.stringify(remote));
+    await expect(f.chat.send('wrong host')).rejects.toThrow('переключается');
+    await expect(f.chat.control('stop')).rejects.toThrow('подтверждённой');
+    await f.chat.poll();
+    const state = JSON.parse(fs.readFileSync(f.stateFile, 'utf8'));
+    expect(state.hostId).toBe(remote.hostId); expect(state.control).toBeUndefined();
+    await f.chat.send('right host');
+    expect(f.call.mock.calls.at(-1)![0].hostId).toBe(remote.hostId);
+    f.chat.stop();
+  });
   it('validates a refreshed endpoint without sending or interrupting and discards the previous poll', async () => {
     const f = fixture(); await f.chat.poll();
     let release!: (value: any) => void;
@@ -106,7 +119,7 @@ describe('desktop chat relay', () => {
   it('confirms a real interruption, persists pause across restart, and resumes only on request', async () => {
     const f = fixture(); f.response.turns[0]!.status = 'inProgress'; await f.chat.poll();
     expect(await f.chat.control('pause')).toMatchObject({ chatControl: 'paused' });
-    expect(f.interrupt).toHaveBeenCalledWith(binding.threadId, false);
+    expect(f.interrupt).toHaveBeenCalledWith(binding.threadId, false, { hostId: 'local' });
     expect(f.onActivity).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'paused' }));
     const resumed = new DesktopChat(f.options); await resumed.poll();
     expect(f.onActivity).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'paused' }));
@@ -120,7 +133,7 @@ describe('desktop chat relay', () => {
   it('stops through the desktop and does not offer to resume a cancelled task', async () => {
     const f = fixture(); await f.chat.poll();
     expect(await f.chat.control('stop')).toMatchObject({ chatControl: 'stopped' });
-    expect(f.interrupt).toHaveBeenCalledWith(binding.threadId, true);
+    expect(f.interrupt).toHaveBeenCalledWith(binding.threadId, true, { hostId: 'local' });
     await f.chat.poll(); expect(f.onActivity).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'stopped' }));
     await expect(f.chat.control('resume')).rejects.toThrow('не поставлен на паузу');
   });

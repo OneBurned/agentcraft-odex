@@ -20,6 +20,8 @@ test('portable connector keeps legacy mode and requires an explicit recipient fo
     await fs.writeFile(path.join(root, 'data/portable/team.json'), '{}');
     assert.throws(() => run(), /Specify -Agent/);
     assert.deepEqual(run('-Agent', 'agent_example', '-Port', '17878').args, ['--agent', 'agent_example', '--port', '17878']);
+    assert.deepEqual(run('-ThreadId', 'chosen', '-HostId', 'remote', '-Check').args, ['--thread', 'chosen', '--host', 'remote', '--check']);
+    assert.throws(() => run('-ThreadId', 'chosen'), /both/);
   } finally {
     assert(path.resolve(root).startsWith(path.resolve(os.tmpdir()) + path.sep));
     await fs.rm(root, { recursive: true, force: true, maxRetries: 3 });

@@ -7,14 +7,14 @@ import { randomUUID } from 'node:crypto';
 import { readJson, writeJsonAtomic } from './util/fsx.js';
 import { interruptDesktop } from './codex-control.js';
 import { ARTIFACT_STYLE_RULE, personaPrompt } from './persona-prompt.js';
+import { ChatBindingSchema, appToolRequest, type ChatBinding } from './codex-binding.js';
+export type { ChatBinding } from './codex-binding.js';
 
-export interface ChatBinding { threadId: string; pipePath: string; title: string; hostId: 'local'; }
 export const chatConfigPath = () => process.env.AGENTCRAFT_CHAT_CONFIG || path.join(os.homedir(), '.agentcraft', 'codex-chat.json');
 export function readBinding(file: string): ChatBinding | undefined {
   const b = readJson<ChatBinding>(file);
   if (!b) return undefined;
-  if (!/^[a-f0-9-]{36}$/i.test(b.threadId) || b.hostId !== 'local' ||
-      !b.pipePath?.startsWith('\\\\.\\pipe\\codex-browser-use-') || typeof b.title !== 'string') {
+  if (!ChatBindingSchema.safeParse(b).success) {
     throw new Error('Некорректная привязка чата. Попроси Codex переподключить игру.');
   }
   return b;
@@ -56,8 +56,7 @@ export function pipeRequest(pipePath: string, method: string, params: unknown, t
 export type AppCall = (binding: ChatBinding, tool: 'read_thread' | 'send_message_to_thread', args: Record<string, unknown>) => Promise<any>;
 export const appCall: AppCall = async (binding, tool, args) => {
   const result = await pipeRequest(binding.pipePath, 'tools/call', {
-    namespace: 'codex_app', tool, arguments: { ...args, threadId: binding.threadId, hostId: binding.hostId },
-    callerSource: 'codex', threadId: binding.threadId, hostId: binding.hostId,
+    ...appToolRequest(binding, tool, args),
     callId: `agentcraft-${randomUUID()}`, turnId: `mcp-turn-${randomUUID()}`,
   });
   const text = result.contentItems?.filter((x: any) => x.type === 'inputText').map((x: any) => x.text).join('\n');
@@ -78,7 +77,7 @@ export function textChunks(text: string, size = 380): string[] {
   return result;
 }
 
-interface ChatState { threadId: string; seen: string[]; lastPurpose?: 'message' | 'task' | 'peer'; control?: { mode: 'paused' | 'stopped'; turnKey: string }; }
+interface ChatState { threadId: string; hostId?: string; seen: string[]; lastPurpose?: 'message' | 'task' | 'peer'; control?: { mode: 'paused' | 'stopped'; turnKey: string }; }
 export type ChatControl = 'pause' | 'resume' | 'stop';
 export interface ChatActivity {
   key: string;
@@ -180,8 +179,8 @@ export class DesktopChat {
       });
       if (this.stopped || this.controlling || this.sending || epoch !== this.commandEpoch) return;
       if (data.thread?.id !== binding.threadId || !Array.isArray(data.turns)) throw new Error('Codex вернул другой чат или неизвестный формат.');
-      const baseline = this.state.threadId !== binding.threadId;
-      if (baseline) this.state = { threadId: binding.threadId, seen: [] };
+      const baseline = this.state.threadId !== binding.threadId || (this.state.hostId ?? 'local') !== binding.hostId;
+      if (baseline) this.state = { threadId: binding.threadId, hostId: binding.hostId, seen: [] };
       const activity = chatActivity(data);
       if (this.state.control) {
         if (activity.key !== this.state.control.turnKey || activity.phase === 'working' || activity.phase === 'waiting') delete this.state.control;
@@ -217,7 +216,7 @@ export class DesktopChat {
     const binding = this.options.binding?.() ?? readBinding(this.options.configFile);
     if (!binding) throw new Error('Чат не подключён. Попроси Codex: «Подключи этот чат к игре».');
     if (!this.online) throw new Error('Связь с чатом ещё не готова. Открой Codex и дождись подключения.');
-    if (this.state.threadId !== binding.threadId) throw new Error('Чат переключается; дождись подключения.');
+    if (this.state.threadId !== binding.threadId || (this.state.hostId ?? 'local') !== binding.hostId) throw new Error('Чат переключается; дождись подключения.');
     if (this.sending) throw new Error('Предыдущее сообщение ещё отправляется.');
     if (this.controlling) throw new Error('Предыдущая команда ещё обрабатывается.');
     const maxLength = purpose === 'task' ? 96000 : 12000;
@@ -242,7 +241,7 @@ export class DesktopChat {
   async control(action: ChatControl): Promise<Record<string, unknown>> {
     if (this.stopped || this.controlling || this.sending) throw new Error('Мост остановлен или предыдущая команда ещё обрабатывается.');
     const binding = this.options.binding?.() ?? readBinding(this.options.configFile);
-    if (!binding || !this.online || binding.threadId !== this.state.threadId) throw new Error('Нет подтверждённой связи с выбранным чатом Codex.');
+    if (!binding || !this.online || binding.threadId !== this.state.threadId || (this.state.hostId ?? 'local') !== binding.hostId) throw new Error('Нет подтверждённой связи с выбранным чатом Codex.');
     if (action === 'resume') {
       if (this.state.control?.mode !== 'paused') throw new Error('Этот чат не поставлен на паузу из игры.');
       const peer = this.state.lastPurpose === 'peer';
@@ -256,7 +255,7 @@ export class DesktopChat {
     this.controlling = true;
     this.commandEpoch++;
     try {
-      await (this.options.interrupt ?? interruptDesktop)(binding.threadId, action === 'stop');
+      await (this.options.interrupt ?? interruptDesktop)(binding.threadId, action === 'stop', { hostId: binding.hostId });
       // An IPC acknowledgement is only acceptance. Confirm that the real chat stopped.
       let activity: ChatActivity | undefined;
       for (let attempt = 0; attempt < 10; attempt++) {

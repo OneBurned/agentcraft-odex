@@ -1,5 +1,7 @@
 # Codex chat observer for TradeRecord
 
+Удалённые SSH-чаты через Windows-коннектор: [подключение, проверка и ограничения Pause/Stop](REMOTE_CODEX.md).
+
 ## Personas for arbitrary team members (A9 / t41)
 
 **Пульт → Команда → выбранный агент → Характер и фразы…** edits any non-archived member,

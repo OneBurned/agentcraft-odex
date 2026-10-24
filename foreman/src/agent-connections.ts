@@ -8,11 +8,10 @@ import { readBinding, chatConfigPath } from './codex-desktop.js';
 import { claudeWorkspace } from './claude-workspace.js';
 import { conversation, conversationLease } from './claude-conversation.js';
 import { readJson, writeJsonAtomic } from './util/fsx.js';
+import { CodexHostId, desktopFields, requireDesktopCaller } from './codex-binding.js';
 
 const base = { version: z.literal(1), agentId: TeamId };
-const codex = z.object({ ...base, provider: z.literal('codex'), transport: z.literal('codex-desktop'),
-  threadId: z.string().uuid(), hostId: z.literal('local'), title: z.string().max(1000),
-  pipePath: z.string().startsWith('\\\\.\\pipe\\codex-browser-use-') }).strict();
+const codex = z.object({ ...base, ...desktopFields, provider: z.literal('codex'), transport: z.literal('codex-desktop') }).strict().superRefine(requireDesktopCaller);
 const claude = z.object({ ...base, provider: z.literal('claude'), transport: z.literal('claude-code'),
   workspace: z.string().refine(path.isAbsolute), sessionId: z.string().uuid(), executable: z.string().refine(path.isAbsolute).optional() }).strict();
 const codexCli = z.object({ ...base, provider: z.literal('codex'), transport: z.literal('codex-cli'),
@@ -24,7 +23,8 @@ export const Connection = z.discriminatedUnion('transport', [codex, codexCli, cl
 export type Connection = z.infer<typeof Connection>;
 export const connectionSession = (c: Connection) => c.transport === 'codex-desktop' ? c.threadId : c.sessionId;
 const request = z.object({ id: TeamId, revision: z.number().int().nonnegative(), connection: z.record(z.string(), z.unknown()) });
-const endpoint = z.object({ connectionRef: z.string(), threadId: z.string().uuid(), hostId: z.literal('local'), pipePath: codex.shape.pipePath }).strict();
+const endpointFields = { connectionRef: z.string(), threadId: z.string().uuid(), hostId: CodexHostId, pipePath: codex.shape.pipePath, callerThreadId: desktopFields.callerThreadId };
+const endpoint = z.object(endpointFields).strict().superRefine(requireDesktopCaller);
 
 /** Immutable records: team.json's reference is the only activation point. No secrets on the wire. */
 export class AgentConnections {
@@ -42,7 +42,7 @@ export class AgentConnections {
     return record;
   }
   private identity(c: Connection) {
-    return `${c.provider}:${connectionSession(c).toLowerCase()}`;
+    return c.transport === 'codex-desktop' ? `${c.provider}:${c.hostId.toLowerCase()}:${c.threadId.toLowerCase()}` : `${c.provider}:${connectionSession(c).toLowerCase()}`;
   }
   private workspace(c: Extract<Connection, { provider: 'claude' }>) {
     let real: string;
@@ -65,10 +65,10 @@ export class AgentConnections {
     // A new immutable connection never inherits a previous connection's endpoint.
     if (e.connectionRef !== this.team.get(c.agentId)!.connectionRef) return c;
     if (e.threadId !== c.threadId || e.hostId !== c.hostId) throw new Error('Endpoint identity mismatch');
-    return { ...c, pipePath: e.pipePath };
+    return { ...c, pipePath: e.pipePath, ...(e.callerThreadId ? { callerThreadId: e.callerThreadId } : {}) };
   }
   prepareDesktopRefresh(raw: Record<string, unknown>) {
-    const p = endpoint.omit({ connectionRef: true }).extend({ id: TeamId, revision: z.number().int().nonnegative() }).strict().parse(raw);
+    const p = z.object(endpointFields).omit({ connectionRef: true }).extend({ id: TeamId, revision: z.number().int().nonnegative() }).strict().superRefine(requireDesktopCaller).parse(raw);
     this.team.assertUnchanged();
     const c = this.read(p.id), ref = this.team.get(p.id)?.connectionRef;
     const validate = () => {
@@ -80,9 +80,9 @@ export class AgentConnections {
       if (this.team.get(p.id)?.connectionRef !== ref) throw new Error('Подключение изменилось во время проверки.');
     };
     validate();
-    return { id: p.id, binding: { ...(c as Extract<Connection, { transport: 'codex-desktop' }>), pipePath: p.pipePath },
+    return { id: p.id, binding: { ...(c as Extract<Connection, { transport: 'codex-desktop' }>), pipePath: p.pipePath, ...(p.callerThreadId ? { callerThreadId: p.callerThreadId } : {}) },
       activate: () => { validate(); writeJsonAtomic(this.file(`agents/${p.id}/codex-endpoint.json`),
-        { connectionRef: ref, threadId: p.threadId, hostId: p.hostId, pipePath: p.pipePath }); } };
+        { connectionRef: ref, threadId: p.threadId, hostId: p.hostId, pipePath: p.pipePath, callerThreadId: p.callerThreadId }); } };
   }
   bind(raw: Record<string, unknown>, idle: (id: string) => void) {
     const { id, revision, connection } = request.strict().parse(raw);
@@ -122,7 +122,7 @@ export class AgentConnections {
     const binding = readBinding(source);
     if (!binding) throw new Error('Legacy Codex binding not found');
     const existing = this.read(id);
-    if (existing && (existing.transport !== 'codex-desktop' || existing.threadId !== binding.threadId)) throw new Error('Agent already has another conversation');
+    if (existing && (existing.transport !== 'codex-desktop' || existing.threadId !== binding.threadId || existing.hostId !== binding.hostId)) throw new Error('Agent already has another conversation');
     const cursor = this.file(`agents/${id}/codex-chat-state.json`);
     const oldCursor = path.join(this.root, 'codex-chat-state.json');
     this.team.assertUnchanged();
@@ -131,7 +131,7 @@ export class AgentConnections {
     let previousState;
     if (!fs.existsSync(cursor) && fs.existsSync(oldCursor)) {
       if (fs.statSync(oldCursor).size > 1000000) throw new Error('Legacy cursor is too large');
-      previousState = z.object({ threadId: z.string(), seen: z.array(z.string()).max(1500),
+      previousState = z.object({ threadId: z.string(), hostId: CodexHostId.optional(), seen: z.array(z.string()).max(1500),
         control: z.object({ mode: z.enum(['paused', 'stopped']), turnKey: z.string() }).optional() }).parse(JSON.parse(fs.readFileSync(oldCursor, 'utf8')));
     }
     // Back up before activating. Import never removes or rewrites the original binding.
@@ -140,7 +140,7 @@ export class AgentConnections {
       writeJsonAtomic(backup, binding);
     }
     // Prepare cursor before the registry activation; a failed import cannot activate without it.
-    if (previousState?.threadId === binding.threadId) writeJsonAtomic(cursor, previousState);
+    if (previousState?.threadId === binding.threadId && (previousState.hostId ?? 'local') === binding.hostId) writeJsonAtomic(cursor, previousState);
     return this.bind({ id, revision, connection: { ...binding, provider: 'codex', transport: 'codex-desktop' } }, idle);
   }
 }
